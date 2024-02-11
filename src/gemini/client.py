@@ -8,8 +8,27 @@ from httpx import AsyncClient
 from loguru import logger
 
 from .consts import HEADERS
-from .utils import running
 from .types import Image, Candidate, ModelOutput
+
+
+def running(func) -> callable:
+    """
+    Decorator to check if client is running before making a request.
+    """
+
+    async def wrapper(self: "GeminiClient", *args, **kwargs):
+        if not self.running:
+            await self.init(auto_close=self.auto_close, close_delay=self.close_delay)
+            if self.running:
+                return await func(self, *args, **kwargs)
+
+            raise Exception(
+                f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
+            )
+        else:
+            return await func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class GeminiClient:
@@ -26,7 +45,16 @@ class GeminiClient:
         Dict of proxies
     """
 
-    __slots__ = ["running", "posttoken", "close_task", "client"]
+    __slots__ = [
+        "cookies",
+        "proxy",
+        "client",
+        "access_token",
+        "running",
+        "auto_close",
+        "close_delay",
+        "close_task",
+    ]
 
     def __init__(
         self,
@@ -34,48 +62,80 @@ class GeminiClient:
         secure_1psidts: Optional[str] = None,
         proxy: Optional[dict] = None,
     ):
+        self.cookies = {
+            "__Secure-1PSID": secure_1psid,
+            "__Secure-1PSIDTS": secure_1psidts,
+        }
+        self.proxy = proxy
+        self.client: AsyncClient | None = None
+        self.access_token: Optional[str] = None
         self.running: bool = False
-        self.posttoken: Optional[str] = None
-        self.close_task: Optional[Task] = None
-        self.client: AsyncClient = AsyncClient(
-            timeout=20,
-            proxies=proxy,
-            follow_redirects=True,
-            headers=HEADERS,
-            cookies={
-                "__Secure-1PSID": secure_1psid,
-                "__Secure-1PSIDTS": secure_1psidts,
-            },
-        )
+        self.auto_close: bool = False
+        self.close_delay: int = 0
+        self.close_task: Task | None = None
 
-    async def init(self) -> None:
+    async def init(
+        self, timeout: float = 30, auto_close: bool = False, close_delay: int = 300
+    ) -> None:
         """
-        Get SNlM0e value as posting token. Without this token posting will fail with 400 bad request.
-        """
-        async with self.client:
-            response = await self.client.get("https://gemini.google.com/chat")
+        Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
 
-        if response.status_code != 200:
-            raise Exception(
-                f"Failed to initiate client. Request failed with status code {response.status_code}"
+        Parameters
+        ----------
+        timeout: `int`, optional
+            Request timeout of the client in seconds. Used to limit the max waiting time when sending a request
+        auto_close: `bool`, optional
+            If `True`, the client will close connections and clear resource usage after a certain period
+            of inactivity. Useful for keep-alive services
+        close_delay: `int`, optional
+            Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`
+        """
+        try:
+            self.client = AsyncClient(
+                timeout=timeout,
+                proxies=self.proxy,
+                follow_redirects=True,
+                headers=HEADERS,
+                cookies=self.cookies,
             )
-        else:
-            match = re.search(r'"SNlM0e":"(.*?)"', response.text)
-            if match:
-                self.posttoken = match.group(1)
-                self.running = True
-                logger.success("Gemini client initiated successfully.")
-            else:
-                raise Exception(
-                    "Failed to initiate client. SNlM0e not found in response, make sure cookie values are valid."
-                )
 
-    async def close_client(self, timeout=300) -> None:
+            response = await self.client.get("https://gemini.google.com/app")
+
+            if response.status_code != 200:
+                raise Exception(
+                    f"Failed to initiate client. Request failed with status code {response.status_code}"
+                )
+            else:
+                match = re.search(r'"SNlM0e":"(.*?)"', response.text)
+                if match:
+                    self.access_token = match.group(1)
+                    self.running = True
+                    logger.success("Gemini client initiated successfully.")
+                else:
+                    raise Exception(
+                        "Failed to initiate client. SNlM0e not found in response, make sure cookie values are valid."
+                    )
+
+            self.auto_close = auto_close
+            self.close_delay = close_delay
+            if self.auto_close:
+                await self.reset_close_task()
+        except Exception:
+            await self.close(0)
+            raise
+
+    async def close(self, wait: int | None = None) -> None:
         """
-        Close the client after a certain period of inactivity.
+        Close the client after a certain period of inactivity, or call manually to close immediately.
+
+        Parameters
+        ----------
+        wait: `int`, optional
+            Time to wait before closing the client in seconds
         """
-        await asyncio.sleep(timeout)
+        await asyncio.sleep(wait is not None and wait or self.close_delay)
         await self.client.aclose()
+        self.running = False
 
     async def reset_close_task(self) -> None:
         """
@@ -84,7 +144,7 @@ class GeminiClient:
         if self.close_task:
             self.close_task.cancel()
             self.close_task = None
-        self.close_task = asyncio.create_task(self.close_client())
+        self.close_task = asyncio.create_task(self.close())
 
     @running
     async def generate_content(
@@ -108,11 +168,13 @@ class GeminiClient:
         """
         assert prompt, "Prompt cannot be empty."
 
-        await self.reset_close_task()
+        if self.auto_close:
+            await self.reset_close_task()
+
         response = await self.client.post(
-            "https://gemini.google.com/_/GeminiChatUi/data/assistant.lamda.GeminiFrontendService/StreamGenerate",
+            "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
             data={
-                "at": self.posttoken,
+                "at": self.access_token,
                 "f.req": json.dumps(
                     [None, json.dumps([[prompt], None, chat and chat.metadata])]
                 ),
