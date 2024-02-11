@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gemini-webapi"
+authors = [
+    {name = "UZQueen"},
+]
+description = "A reverse-engineered async wrapper for Google Gemini web client"
+readme = "README.md"
+license = {text = "MIT License"}
+keywords = ["API", "async", "Gemini", "Bard", "Google", "Generative AI", "LLM"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.7"
+dependencies = [
+    "httpx>=0.25.2",
+    "pydantic>=2.5.3",
+    "loguru>=0.7.2",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/HanaokaYuzu/Gemini-API"
+Issues = "https://github.com/HanaokaYuzu/Gemini-API/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["gemini"]
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "no-local-version"
