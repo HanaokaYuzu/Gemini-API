@@ -9,7 +9,8 @@ from loguru import logger
 
 from .consts import HEADERS
 from .types import (
-    Image,
+    WebImage,
+    GeneratedImage,
     Candidate,
     ModelOutput,
     AuthError,
@@ -121,7 +122,7 @@ class GeminiClient:
                     logger.success("Gemini client initiated successfully.")
                 else:
                     raise AuthError(
-                        "Failed to initiate client. SNlM0e not found in response, make sure cookie values are valid."
+                        "Failed to initiate client. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date."
                     )
 
             self.auto_close = auto_close
@@ -195,6 +196,7 @@ class GeminiClient:
             )
 
         if response.status_code != 200:
+            self.running = False
             raise APIError(
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
@@ -203,16 +205,33 @@ class GeminiClient:
 
             candidates = []
             for candidate in body[4]:
-                images = (
+                web_images = (
                     candidate[4]
                     and [
-                        Image(url=image[0][0][0], title=image[2], alt=image[0][4])
+                        WebImage(url=image[0][0][0], title=image[2], alt=image[0][4])
                         for image in candidate[4]
                     ]
                     or []
                 )
+                generated_images = (
+                    candidate[12]
+                    and candidate[12][7]
+                    and candidate[12][7][0]
+                    and [
+                        GeneratedImage(
+                            url=image[0][3][3], title=f"[Generated Image {image[3][6]}]", alt=image[3][5][i]
+                        )
+                        for i, image in enumerate(candidate[12][7][0])
+                    ]
+                    or []
+                )
                 candidates.append(
-                    Candidate(rcid=candidate[0], text=candidate[1][0], images=images)
+                    Candidate(
+                        rcid=candidate[0],
+                        text=candidate[1][0],
+                        web_images=web_images,
+                        generated_images=generated_images,
+                    )
                 )
             if not candidates:
                 raise GeminiError(
