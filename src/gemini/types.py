@@ -1,18 +1,29 @@
-from typing import Optional
-
 from pydantic import BaseModel
 
 
 class Image(BaseModel):
+    """
+    A single image object returned from Gemini.
+
+    Parameters
+    ----------
+    url: `str`
+        URL of the image
+    title: `str`, optional
+        Title of the image, by default is "[Image]"
+    alt: `str`, optional
+        Optional description of the image
+    """
+
     url: str
-    title: Optional[str] = "[Image]"
-    alt: Optional[str] = ""
+    title: str = "[Image]"
+    alt: str = ""
 
     def __str__(self):
         return f"{self.title}({self.url}) - {self.alt}"
 
     def __repr__(self):
-        return f"Image(title='{self.title}', url='{len(self.url)<=20 and self.url or self.url[:8] + '...' + self.url[-12:]}', alt='{self.alt}')"
+        return f"""Image(title='{self.title}', url='{len(self.url) <= 20 and self.url or self.url[:8] + '...' + self.url[-12:]}', alt='{self.alt}')"""
 
 
 class Candidate(BaseModel):
@@ -24,7 +35,7 @@ class Candidate(BaseModel):
         return self.text
 
     def __repr__(self):
-        return f"Candidate(rcid='{self.rcid}', text='{len(self.text)<=20 and self.text or self.text[:20] + '...'}', images={self.images})"
+        return f"Candidate(rcid='{self.rcid}', text='{len(self.text) <= 20 and self.text or self.text[:20] + '...'}', images={self.images})"
 
 
 class ModelOutput(BaseModel):
@@ -62,3 +73,35 @@ class ModelOutput(BaseModel):
     @property
     def rcid(self):
         return self.candidates[self.chosen].rcid
+
+
+class AuthError(Exception):
+    """
+    Exception for authentication errors caused by invalid credentials/cookies.
+    """
+
+    pass
+
+
+class APIError(Exception):
+    """
+    Exception for package-level errors which need to be fixed in the future development (e.g. validation errors).
+    """
+
+    pass
+
+
+class GeminiError(Exception):
+    """
+    Exception for errors returned from Gemini server which are not handled by the package.
+    """
+
+    pass
+
+
+class TimeoutError(GeminiError):
+    """
+    Exception for request timeouts.
+    """
+
+    pass

@@ -4,11 +4,19 @@ import asyncio
 from asyncio import Task
 from typing import Any, Optional
 
-from httpx import AsyncClient
+from httpx import AsyncClient, ReadTimeout
 from loguru import logger
 
 from .consts import HEADERS
-from .types import Image, Candidate, ModelOutput
+from .types import (
+    Image,
+    Candidate,
+    ModelOutput,
+    AuthError,
+    APIError,
+    GeminiError,
+    TimeoutError,
+)
 
 
 def running(func) -> callable:
@@ -102,7 +110,7 @@ class GeminiClient:
             response = await self.client.get("https://gemini.google.com/app")
 
             if response.status_code != 200:
-                raise Exception(
+                raise APIError(
                     f"Failed to initiate client. Request failed with status code {response.status_code}"
                 )
             else:
@@ -112,7 +120,7 @@ class GeminiClient:
                     self.running = True
                     logger.success("Gemini client initiated successfully.")
                 else:
-                    raise Exception(
+                    raise AuthError(
                         "Failed to initiate client. SNlM0e not found in response, make sure cookie values are valid."
                     )
 
@@ -171,18 +179,23 @@ class GeminiClient:
         if self.auto_close:
             await self.reset_close_task()
 
-        response = await self.client.post(
-            "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
-            data={
-                "at": self.access_token,
-                "f.req": json.dumps(
-                    [None, json.dumps([[prompt], None, chat and chat.metadata])]
-                ),
-            },
-        )
+        try:
+            response = await self.client.post(
+                "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+                data={
+                    "at": self.access_token,
+                    "f.req": json.dumps(
+                        [None, json.dumps([[prompt], None, chat and chat.metadata])]
+                    ),
+                },
+            )
+        except ReadTimeout:
+            raise TimeoutError(
+                "Request timed out, please try again. If the problem persists, consider setting a higher `timeout` value when initiating GeminiClient."
+            )
 
         if response.status_code != 200:
-            raise Exception(
+            raise APIError(
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
         else:
@@ -202,7 +215,7 @@ class GeminiClient:
                     Candidate(rcid=candidate[0], text=candidate[1][0], images=images)
                 )
             if not candidates:
-                raise Exception(
+                raise GeminiError(
                     "Failed to generate contents. No output data found in response."
                 )
 
