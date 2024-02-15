@@ -196,12 +196,18 @@ class GeminiClient:
             )
 
         if response.status_code != 200:
-            self.running = False
+            await self.close(0)
             raise APIError(
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
         else:
-            body = json.loads(json.loads(response.text.split("\n")[2])[0][2])
+            try:
+                body = json.loads(json.loads(response.text.split("\n")[2])[0][2])
+            except (TypeError, json.JSONDecodeError):
+                await self.close(0)
+                raise APIError(
+                    "Failed to generate contents. Invalid response data received. Client will try to re-initiate on next request."
+                )
 
             candidates = []
             for candidate in body[4]:
@@ -219,7 +225,9 @@ class GeminiClient:
                     and candidate[12][7][0]
                     and [
                         GeneratedImage(
-                            url=image[0][3][3], title=f"[Generated Image {image[3][6]}]", alt=image[3][5][i]
+                            url=image[0][3][3],
+                            title=f"[Generated Image {image[3][6]}]",
+                            alt=image[3][5][i],
                         )
                         for i, image in enumerate(candidate[12][7][0])
                     ]
@@ -339,7 +347,7 @@ class ChatSession:
             Index of the candidate to choose, starting from 0
         """
         if not self.last_output:
-            raise Exception("No previous output data found in this chat session.")
+            raise ValueError("No previous output data found in this chat session.")
 
         if index >= len(self.last_output.candidates):
             raise ValueError(
