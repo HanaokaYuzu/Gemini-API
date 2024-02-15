@@ -93,6 +93,14 @@ asyncio.run(main())
 
 In February 2022, Google introduced a new AI image generator called ImageFx and integrated it into Gemini. You can ask Gemini to generate images with ImageFx simply by natural language.
 
+**Important**: Google has some limitations on the image generation feature in Gemini, so its availability could be different per region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of February 15th, 2024):
+
+>Image generation in Gemini Apps is available in most countries, except in the European Economic Area (EEA), Switzerland, and the UK. It’s only available for **English prompts**.
+>
+>This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
+>
+>For now, this feature isn’t available to users under 18.
+
 ```python
 async def main():
     response = await client.generate_content("Generate some pictures of cats")
