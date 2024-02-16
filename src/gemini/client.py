@@ -228,6 +228,7 @@ class GeminiClient:
                             url=image[0][3][3],
                             title=f"[Generated Image {image[3][6]}]",
                             alt=image[3][5][i],
+                            cookies=self.cookies,
                         )
                         for i, image in enumerate(candidate[12][7][0])
                     ]

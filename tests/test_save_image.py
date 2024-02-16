@@ -17,7 +17,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_save_web_image(self):
         response = await self.geminiclient.generate_content(
-            "Send me some pictures of cats"
+            "Send me 10 pictures of random subjects"
         )
         self.assertTrue(response.images)
         for i, image in enumerate(response.images):
@@ -26,7 +26,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_save_generated_image(self):
         response = await self.geminiclient.generate_content(
-            "Generate some pictures of cats"
+            "Generate some pictures of random subjects"
         )
         self.assertTrue(response.images)
         for i, image in enumerate(response.images):

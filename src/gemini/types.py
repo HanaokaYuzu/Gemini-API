@@ -1,7 +1,9 @@
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, validator
+from loguru import logger
 from httpx import AsyncClient, HTTPError
+from pydantic import BaseModel, field_validator
 
 
 class Image(BaseModel):
@@ -30,21 +32,33 @@ class Image(BaseModel):
 
     async def save(
         self, path: str = "temp/", filename: str = None, cookies: dict = None
-    ):
+    ) -> None:
         """
         Save the image to disk.
 
         Parameters
         ----------
-        path: `str`
+        path: `str`, optional
             Path to save the image
         filename: `str`, optional
             Filename to save the image, by default will use the original filename from the URL
+        cookies: `dict`, optional
+            Cookies used for requesting the content of the image
         """
+        try:
+            filename = filename or re.search(r"^(.*\.\w+)", self.url.split("/")[-1]).group()
+        except AttributeError:
+            filename = self.url.split("/")[-1]
+
         async with AsyncClient(follow_redirects=True, cookies=cookies) as client:
             response = await client.get(self.url)
             if response.status_code == 200:
-                filename = filename or self.url.split("/")[-1]
+                content_type = response.headers.get("content-type")
+                if content_type and "image" not in content_type:
+                    logger.warning(
+                        f"Content type of {filename} is not image, but {content_type}."
+                    )
+
                 with open(f"{path}{filename}", "wb") as file:
                     file.write(response.content)
             else:
@@ -71,15 +85,20 @@ class GeneratedImage(Image):
         Cookies used for requesting the content of the generated image, inherit from GeminiClient object or manually set.
         Must contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values
     """
-    cookies: dict
 
-    @validator("cookies")
-    def validate_cookies(cls, value):
-        if "__Secure-1PSID" not in value or "__Secure-1PSIDTS" not in value:
-            raise ValueError("Cookies must contain '__Secure-1PSID' and '__Secure-1PSIDTS'")
-        return value
+    cookies: dict[str, str]
 
-    async def save(self, path: str = "temp/", filename: str = None):
+    @field_validator("cookies")
+    @classmethod
+    def validate_cookies(cls, v: dict) -> dict:
+        if "__Secure-1PSID" not in v or "__Secure-1PSIDTS" not in v:
+            raise ValueError(
+                "Cookies must contain '__Secure-1PSID' and '__Secure-1PSIDTS'"
+            )
+        return v
+
+    # @override
+    async def save(self, path: str = "temp/", filename: str = None) -> None:
         """
         Save the image to disk.
 
@@ -156,15 +175,15 @@ class ModelOutput(BaseModel):
         return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
 
     @property
-    def text(self):
+    def text(self) -> str:
         return self.candidates[self.chosen].text
 
     @property
-    def images(self):
+    def images(self) -> list[Image]:
         return self.candidates[self.chosen].images
 
     @property
-    def rcid(self):
+    def rcid(self) -> str:
         return self.candidates[self.chosen].rcid
 
 
