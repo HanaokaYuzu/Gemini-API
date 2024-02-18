@@ -202,52 +202,65 @@ class GeminiClient:
             )
         else:
             try:
-                body = json.loads(json.loads(response.text.split("\n")[2])[0][2])
-            except (TypeError, json.JSONDecodeError):
+                body = json.loads(json.loads(response.text.split("\n")[2])[0][2])  # Plain request
+
+                if not body[4]:
+                    body = json.loads(json.loads(response.text.split("\n")[2])[4][2])  # Request with extensions as middleware
+
+                if not body[4]:
+                    raise APIError(
+                        "Failed to parse response body. Data structure is invalid. To report this error, please submit an issue at https://github.com/HanaokaYuzu/Gemini-API/issues"
+                    )
+            except Exception:
                 await self.close(0)
                 raise APIError(
                     "Failed to generate contents. Invalid response data received. Client will try to re-initiate on next request."
                 )
 
-            candidates = []
-            for candidate in body[4]:
-                web_images = (
-                    candidate[4]
-                    and [
-                        WebImage(url=image[0][0][0], title=image[2], alt=image[0][4])
-                        for image in candidate[4]
-                    ]
-                    or []
-                )
-                generated_images = (
-                    candidate[12]
-                    and candidate[12][7]
-                    and candidate[12][7][0]
-                    and [
-                        GeneratedImage(
-                            url=image[0][3][3],
-                            title=f"[Generated Image {image[3][6]}]",
-                            alt=image[3][5][i],
-                            cookies=self.cookies,
-                        )
-                        for i, image in enumerate(candidate[12][7][0])
-                    ]
-                    or []
-                )
-                candidates.append(
-                    Candidate(
-                        rcid=candidate[0],
-                        text=candidate[1][0],
-                        web_images=web_images,
-                        generated_images=generated_images,
+            try:
+                candidates = []
+                for candidate in body[4]:
+                    web_images = (
+                        candidate[4]
+                        and [
+                            WebImage(url=image[0][0][0], title=image[2], alt=image[0][4])
+                            for image in candidate[4]
+                        ]
+                        or []
                     )
-                )
-            if not candidates:
-                raise GeminiError(
-                    "Failed to generate contents. No output data found in response."
-                )
+                    generated_images = (
+                        candidate[12]
+                        and candidate[12][7]
+                        and candidate[12][7][0]
+                        and [
+                            GeneratedImage(
+                                url=image[0][3][3],
+                                title=f"[Generated Image {image[3][6]}]",
+                                alt=image[3][5][i],
+                                cookies=self.cookies,
+                            )
+                            for i, image in enumerate(candidate[12][7][0])
+                        ]
+                        or []
+                    )
+                    candidates.append(
+                        Candidate(
+                            rcid=candidate[0],
+                            text=candidate[1][0],
+                            web_images=web_images,
+                            generated_images=generated_images,
+                        )
+                    )
+                if not candidates:
+                    raise GeminiError(
+                        "Failed to generate contents. No output data found in response."
+                    )
 
-            output = ModelOutput(metadata=body[1], candidates=candidates)
+                output = ModelOutput(metadata=body[1], candidates=candidates)
+            except IndexError:
+                raise APIError(
+                    "Failed to parse response body. Data structure is invalid. To report this error, please submit an issue at https://github.com/HanaokaYuzu/Gemini-API/issues"
+                )
 
             if isinstance(chat, ChatSession):
                 chat.last_output = output

@@ -48,6 +48,20 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(image.url)
             logger.debug(image)
 
+    async def test_extension_google_workspace(self):
+        response = await self.geminiclient.generate_content(
+            "@Gmail What's the latest message in my mailbox?"
+        )
+        self.assertTrue(response.text)
+        logger.debug(response)
+
+    async def test_extension_youtube(self):
+        response = await self.geminiclient.generate_content(
+            "@Youtube What's the lastest activity of Taylor Swift?"
+        )
+        self.assertTrue(response.text)
+        logger.debug(response)
+
     async def test_reply_candidates(self):
         chat = self.geminiclient.start_chat()
         response = await chat.send_message(
