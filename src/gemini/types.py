@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from datetime import datetime
 
 from loguru import logger
@@ -31,7 +32,11 @@ class Image(BaseModel):
         return f"""Image(title='{self.title}', url='{len(self.url) <= 20 and self.url or self.url[:8] + '...' + self.url[-12:]}', alt='{self.alt}')"""
 
     async def save(
-        self, path: str = "temp/", filename: str = None, cookies: dict = None
+        self,
+        path: str = "temp",
+        filename: str | None = None,
+        cookies: dict | None = None,
+        verbose: bool = False
     ) -> None:
         """
         Save the image to disk.
@@ -39,14 +44,22 @@ class Image(BaseModel):
         Parameters
         ----------
         path: `str`, optional
-            Path to save the image
+            Path to save the image, by default will save to ./temp
         filename: `str`, optional
             Filename to save the image, by default will use the original filename from the URL
         cookies: `dict`, optional
             Cookies used for requesting the content of the image
+        verbose : `bool`, optional
+            If True, print the path of the saved file, by default False
         """
         try:
-            filename = filename or re.search(r"^(.*\.\w+)", self.url.split("/")[-1]).group()
+            filename = (
+                filename
+                or (
+                    re.search(r"^(.*\.\w+)", self.url.split("/")[-1])
+                    or re.search(r"^(.*)\?", self.url.split("/")[-1])
+                ).group()
+            )
         except AttributeError:
             filename = self.url.split("/")[-1]
 
@@ -59,8 +72,14 @@ class Image(BaseModel):
                         f"Content type of {filename} is not image, but {content_type}."
                     )
 
-                with open(f"{path}{filename}", "wb") as file:
-                    file.write(response.content)
+                path = Path(path)
+                path.mkdir(parents=True, exist_ok=True)
+
+                dest = path / filename
+                dest.write_bytes(response.content)
+
+                if verbose:
+                    logger.info(f"Image saved as {dest.resolve()}")
             else:
                 raise HTTPError(
                     f"Error downloading image: {response.status_code} {response.reason_phrase}"

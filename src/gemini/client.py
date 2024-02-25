@@ -80,23 +80,23 @@ class GeminiClient:
         self.access_token: Optional[str] = None
         self.running: bool = False
         self.auto_close: bool = False
-        self.close_delay: int = 0
+        self.close_delay: float = 300
         self.close_task: Task | None = None
 
     async def init(
-        self, timeout: float = 30, auto_close: bool = False, close_delay: int = 300
+        self, timeout: float = 30, auto_close: bool = False, close_delay: float = 300
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
 
         Parameters
         ----------
-        timeout: `int`, optional
+        timeout: `float`, optional
             Request timeout of the client in seconds. Used to limit the max waiting time when sending a request
         auto_close: `bool`, optional
             If `True`, the client will close connections and clear resource usage after a certain period
             of inactivity. Useful for keep-alive services
-        close_delay: `int`, optional
+        close_delay: `float`, optional
             Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`
         """
         try:
@@ -130,19 +130,25 @@ class GeminiClient:
             if self.auto_close:
                 await self.reset_close_task()
         except Exception:
-            await self.close(0)
+            await self.close()
             raise
 
-    async def close(self, wait: int | None = None) -> None:
+    async def close(self, delay: float = 0) -> None:
         """
         Close the client after a certain period of inactivity, or call manually to close immediately.
 
         Parameters
         ----------
-        wait: `int`, optional
+        delay: `float`, optional
             Time to wait before closing the client in seconds
         """
-        await asyncio.sleep(wait is not None and wait or self.close_delay)
+        if delay:
+            await asyncio.sleep(delay)
+
+        if self.close_task:
+            self.close_task.cancel()
+            self.close_task = None
+
         await self.client.aclose()
         self.running = False
 
@@ -153,7 +159,7 @@ class GeminiClient:
         if self.close_task:
             self.close_task.cancel()
             self.close_task = None
-        self.close_task = asyncio.create_task(self.close())
+        self.close_task = asyncio.create_task(self.close(self.close_delay))
 
     @running
     async def generate_content(
@@ -196,23 +202,25 @@ class GeminiClient:
             )
 
         if response.status_code != 200:
-            await self.close(0)
+            await self.close()
             raise APIError(
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
         else:
             try:
-                body = json.loads(json.loads(response.text.split("\n")[2])[0][2])  # Plain request
+                # Plain request
+                body = json.loads(json.loads(response.text.split("\n")[2])[0][2])
 
                 if not body[4]:
-                    body = json.loads(json.loads(response.text.split("\n")[2])[4][2])  # Request with extensions as middleware
+                    # Request with extensions as middleware
+                    body = json.loads(json.loads(response.text.split("\n")[2])[4][2])
 
                 if not body[4]:
                     raise APIError(
                         "Failed to parse response body. Data structure is invalid. To report this error, please submit an issue at https://github.com/HanaokaYuzu/Gemini-API/issues"
                     )
             except Exception:
-                await self.close(0)
+                await self.close()
                 raise APIError(
                     "Failed to generate contents. Invalid response data received. Client will try to re-initiate on next request."
                 )
@@ -223,7 +231,11 @@ class GeminiClient:
                     web_images = (
                         candidate[4]
                         and [
-                            WebImage(url=image[0][0][0], title=image[2], alt=image[0][4])
+                            WebImage(
+                                url=image[0][0][0],
+                                title=image[2],
+                                alt=image[0][4],
+                            )
                             for image in candidate[4]
                         ]
                         or []
