@@ -44,10 +44,12 @@ Secure_1PSIDTS = "COOKIE VALUE HERE"
 
 async def main():
     client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxy=None)
-    await client.init(timeout=30)
+    await client.init(timeout=30, auto_close=False, close_delay=300)
 
 asyncio.run(main())
 ```
+
+Note: `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In a keep-alive service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
 
 ### Generate contents from text inputs
 
@@ -139,6 +141,19 @@ asyncio.run(main())
 >Important: For now, extensions are available in **English, Japanese, and Korean** only.
 
 Note: for the last item, instead of region requirement, it actually only requires your Google account's **preferred language** to be set to one of the supported languages. You can change your language settings [here](https://myaccount.google.com/language).
+
+After activating extensions for your account, you can access them in your prompts either by natural language or by starting your prompt with "@" followed by the extension keyword.
+
+```python
+async def main():
+    response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
+    print(response1, "\n\n----------------------------------\n")
+
+    response2 = await client.generate_content("@Youtube What's the lastest activity of Taylor Swift?")
+    print(response2, "\n\n----------------------------------\n")
+
+asyncio.run(main())
+```
 
 ### Check and switch to other answer candidates
 
