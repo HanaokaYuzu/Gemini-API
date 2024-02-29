@@ -36,8 +36,9 @@ class Image(BaseModel):
         path: str = "temp",
         filename: str | None = None,
         cookies: dict | None = None,
-        verbose: bool = False
-    ) -> None:
+        verbose: bool = False,
+        skip_invalid_filename: bool = False,
+    ) -> str | None:
         """
         Save the image to disk.
 
@@ -46,22 +47,27 @@ class Image(BaseModel):
         path: `str`, optional
             Path to save the image, by default will save to ./temp
         filename: `str`, optional
-            Filename to save the image, by default will use the original filename from the URL
+            File name to save the image, by default will use the original file name from the URL
         cookies: `dict`, optional
             Cookies used for requesting the content of the image
         verbose : `bool`, optional
-            If True, print the path of the saved file, by default False
+            If True, print the path of the saved file or warning for invalid file name, by default False
+        skip_invalid_filename: `bool`, optional
+            If True, will only save the image if the file name and extension are valid, by default False
+
+        Returns
+        -------
+        `str | None`
+            Absolute path of the saved image if successful, None if filename is invalid and `skip_invalid_filename` is True
         """
+        filename = filename or self.url.split("/")[-1].split("?")[0]
         try:
-            filename = (
-                filename
-                or (
-                    re.search(r"^(.*\.\w+)", self.url.split("/")[-1])
-                    or re.search(r"^(.*)\?", self.url.split("/")[-1])
-                ).group()
-            )
+            filename = re.search(r"^(.*\.\w+)", filename).group()
         except AttributeError:
-            filename = self.url.split("/")[-1]
+            if verbose:
+                logger.warning(f"Invalid filename: {filename}")
+            if skip_invalid_filename:
+                return None
 
         async with AsyncClient(follow_redirects=True, cookies=cookies) as client:
             response = await client.get(self.url)
@@ -80,6 +86,8 @@ class Image(BaseModel):
 
                 if verbose:
                     logger.info(f"Image saved as {dest.resolve()}")
+
+                return dest.resolve()
             else:
                 raise HTTPError(
                     f"Error downloading image: {response.status_code} {response.reason_phrase}"
@@ -110,129 +118,28 @@ class GeneratedImage(Image):
     @field_validator("cookies")
     @classmethod
     def validate_cookies(cls, v: dict) -> dict:
-        if "__Secure-1PSID" not in v or "__Secure-1PSIDTS" not in v:
+        if len(v) == 0:
             raise ValueError(
-                "Cookies must contain '__Secure-1PSID' and '__Secure-1PSIDTS'"
+                "GeneratedImage is designed to be initiated with same cookies as GeminiClient."
             )
         return v
 
     # @override
-    async def save(self, path: str = "temp/", filename: str = None) -> None:
+    async def save(self, **kwargs) -> None:
         """
         Save the image to disk.
 
         Parameters
         ----------
-        path: `str`
-            Path to save the image
         filename: `str`, optional
             Filename to save the image, generated images are always in .png format, but file extension will not be included in the URL.
             And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename
+        **kwargs: `dict`, optional
+            Other arguments to pass to `Image.save`
         """
         await super().save(
-            path,
-            filename
+            filename=kwargs.pop("filename", None)
             or f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{self.url[-10:]}.png",
-            self.cookies,
+            cookies=self.cookies,
+            **kwargs,
         )
-
-
-class Candidate(BaseModel):
-    """
-    A single reply candidate object in the model output. A full response from Gemini usually contains multiple reply candidates.
-
-    Parameters
-    ----------
-    rcid: `str`
-        Reply candidate ID to build the metadata
-    text: `str`
-        Text output
-    web_images: `list[WebImage]`, optional
-        List of web images in reply, can be empty.
-    generated_images: `list[GeneratedImage]`, optional
-        List of generated images in reply, can be empty
-    """
-
-    rcid: str
-    text: str
-    web_images: list[WebImage] = []
-    generated_images: list[GeneratedImage] = []
-
-    def __str__(self):
-        return self.text
-
-    def __repr__(self):
-        return f"Candidate(rcid='{self.rcid}', text='{len(self.text) <= 20 and self.text or self.text[:20] + '...'}', images={self.images})"
-
-    @property
-    def images(self) -> list[Image]:
-        return self.web_images + self.generated_images
-
-
-class ModelOutput(BaseModel):
-    """
-    Classified output from gemini.google.com
-
-    Parameters
-    ----------
-    metadata: `list[str]`
-        List of chat metadata `[cid, rid, rcid]`, can be shorter than 3 elements, like `[cid, rid]` or `[cid]` only
-    candidates: `list[Candidate]`
-        List of all candidates returned from gemini
-    chosen: `int`, optional
-        Index of the chosen candidate, by default will choose the first one
-    """
-
-    metadata: list[str]
-    candidates: list[Candidate]
-    chosen: int = 0
-
-    def __str__(self):
-        return self.text
-
-    def __repr__(self):
-        return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
-
-    @property
-    def text(self) -> str:
-        return self.candidates[self.chosen].text
-
-    @property
-    def images(self) -> list[Image]:
-        return self.candidates[self.chosen].images
-
-    @property
-    def rcid(self) -> str:
-        return self.candidates[self.chosen].rcid
-
-
-class AuthError(Exception):
-    """
-    Exception for authentication errors caused by invalid credentials/cookies.
-    """
-
-    pass
-
-
-class APIError(Exception):
-    """
-    Exception for package-level errors which need to be fixed in the future development (e.g. validation errors).
-    """
-
-    pass
-
-
-class GeminiError(Exception):
-    """
-    Exception for errors returned from Gemini server which are not handled by the package.
-    """
-
-    pass
-
-
-class TimeoutError(GeminiError):
-    """
-    Exception for request timeouts.
-    """
-
-    pass

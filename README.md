@@ -117,13 +117,13 @@ Note: by default, when asked to send images (like the previous example), Gemini 
 
 ### Save images to local files
 
-You can save images returned from Gemini to local files under `/temp` by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function. Works for both `WebImage` and `GeneratedImage`.
+You can save images returned from Gemini to local files under `/temp` by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function and skip images with invalid file names by passing `skip_invalid_filename=True`. Works for both `WebImage` and `GeneratedImage`.
 
 ```python
 async def main():
     response = await client.generate_content("Generate some pictures of cats")
     for i, image in enumerate(response.images):
-        await image.save(path="temp/", filename=f"cat_{i}.png")
+        await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
 
 asyncio.run(main())
 ```

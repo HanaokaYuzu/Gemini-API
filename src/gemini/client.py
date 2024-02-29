@@ -7,17 +7,9 @@ from typing import Any, Optional
 from httpx import AsyncClient, ReadTimeout
 from loguru import logger
 
-from .consts import HEADERS
-from .types import (
-    WebImage,
-    GeneratedImage,
-    Candidate,
-    ModelOutput,
-    AuthError,
-    APIError,
-    GeminiError,
-    TimeoutError,
-)
+from .types import WebImage, GeneratedImage, Candidate, ModelOutput
+from .exceptions import APIError, AuthError, TimeoutError, GeminiError
+from .constant import HEADERS
 
 
 def running(func) -> callable:
@@ -71,10 +63,7 @@ class GeminiClient:
         secure_1psidts: Optional[str] = None,
         proxy: Optional[dict] = None,
     ):
-        self.cookies = {
-            "__Secure-1PSID": secure_1psid,
-            "__Secure-1PSIDTS": secure_1psidts,
-        }
+        self.cookies = {"__Secure-1PSID": secure_1psid}
         self.proxy = proxy
         self.client: AsyncClient | None = None
         self.access_token: Optional[str] = None
@@ -82,6 +71,9 @@ class GeminiClient:
         self.auto_close: bool = False
         self.close_delay: float = 300
         self.close_task: Task | None = None
+
+        if secure_1psidts:
+            self.cookies["__Secure-1PSIDTS"] = secure_1psidts
 
     async def init(
         self, timeout: float = 30, auto_close: bool = False, close_delay: float = 300
@@ -248,7 +240,9 @@ class GeminiClient:
                             GeneratedImage(
                                 url=image[0][3][3],
                                 title=f"[Generated Image {image[3][6]}]",
-                                alt=image[3][5][i],
+                                alt=len(image[3][5]) > i
+                                and image[3][5][i]
+                                or image[3][5][0],
                                 cookies=self.cookies,
                             )
                             for i, image in enumerate(candidate[12][7][0])
