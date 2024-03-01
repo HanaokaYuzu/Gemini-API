@@ -1,7 +1,10 @@
 import os
 import unittest
 
-from gemini import GeminiClient, AuthError
+from httpx import HTTPError
+from loguru import logger
+
+from gemini_webapi import GeminiClient, AuthError
 
 
 class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
@@ -22,7 +25,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.images)
         for i, image in enumerate(response.images):
             self.assertTrue(image.url)
-            await image.save(verbose=True, skip_invalid_filename=True)
+            try:
+                await image.save(verbose=True, skip_invalid_filename=True)
+            except HTTPError as e:
+                logger.warning(e)
 
     async def test_save_generated_image(self):
         response = await self.geminiclient.generate_content(

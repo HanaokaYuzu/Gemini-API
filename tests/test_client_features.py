@@ -3,7 +3,7 @@ import unittest
 
 from loguru import logger
 
-from gemini import GeminiClient, AuthError
+from gemini_webapi import GeminiClient, AuthError
 
 
 class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
@@ -65,7 +65,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_reply_candidates(self):
         chat = self.geminiclient.start_chat()
         response = await chat.send_message(
-            "What's the best Japanese dish? Recommend one only."
+            "Recommend a science fiction book for me."
         )
 
         if len(response.candidates) == 1:

@@ -17,7 +17,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 ## Installation
 
 ```bash
-pip install gemini-webapi
+pip install gemini_webapi
 ```
 
 ## Authentication
@@ -36,7 +36,7 @@ Import required packages and initialize a client with your cookies obtained from
 
 ```python
 import asyncio
-from gemini import GeminiClient
+from gemini_webapi import GeminiClient
 
 # Replace "COOKIE VALUE HERE" with your actual cookie values
 Secure_1PSID = "COOKIE VALUE HERE"
@@ -163,14 +163,17 @@ A response from Gemini usually contains multiple reply candidates with different
 async def main():
     # Start a conversation and list all reply candidates
     chat = client.start_chat()
-    response = await chat.send_message("What's the best Japanese dish? Recommend one only.")
+    response = await chat.send_message("Recommend a science fiction book for me.")
     for candidate in response.candidates:
         print(candidate, "\n\n----------------------------------\n")
 
-    # Control the ongoing conversation flow by choosing candidate manually
-    new_candidate = chat.choose_candidate(index=1)  # Choose the second candidate here
-    followup_response = await chat.send_message("Tell me more about it.")  # Will generate contents based on the chosen candidate
-    print(new_candidate, followup_response, sep="\n\n----------------------------------\n\n")
+    if len(response.candidates) > 1:
+        # Control the ongoing conversation flow by choosing candidate manually
+        new_candidate = chat.choose_candidate(index=1)  # Choose the second candidate here
+        followup_response = await chat.send_message("Tell me more about it.")  # Will generate contents based on the chosen candidate
+        print(new_candidate, followup_response, sep="\n\n----------------------------------\n\n")
+    else:
+        print("Only one candidate available.")
 
 asyncio.run(main())
 ```

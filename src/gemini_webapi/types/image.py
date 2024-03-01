@@ -59,6 +59,11 @@ class Image(BaseModel):
         -------
         `str | None`
             Absolute path of the saved image if successful, None if filename is invalid and `skip_invalid_filename` is True
+
+        Raises
+        ------
+        `httpx.HTTPError`
+            If the network request failed
         """
         filename = filename or self.url.split("/")[-1].split("?")[0]
         try:
