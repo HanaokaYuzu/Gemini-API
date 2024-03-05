@@ -4,7 +4,7 @@
 
 # <img src="https://www.gstatic.com/lamda/images/favicon_v1_150160cddff7f294ce30.svg" width="35px" alt="Gemini Icon" /> Gemini-API
 
-A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gemini.google.com) (formerly Bard).
+A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gemini.google.com) web chat (formerly Bard).
 
 ## Features
 
@@ -13,6 +13,21 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - **Classified Outputs** - Auto categorizes texts, web images and AI generated images from the response.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generating tasks and return outputs efficiently.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Authentication](#authentication)
+- [Usage](#usage)
+  - [Initialization](#initialization)
+  - [Generate contents from text inputs](#generate-contents-from-text-inputs)
+  - [Conversations across multiple turns](#conversations-across-multiple-turns)
+  - [Retrieve images in response](#retrieve-images-in-response)
+  - [Generate images with ImageFx](#generate-images-with-imagefx)
+  - [Save images to local files](#save-images-to-local-files)
+  - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
+  - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
+- [References](#references)
 
 ## Installation
 
@@ -26,7 +41,10 @@ pip install gemini_webapi
 - Press F12 for web inspector, go to `Network` tab and refresh the page
 - Click any request and copy cookie values of `__Secure-1PSID` and `__Secure-1PSIDTS`
 
-Note: `__Secure-1PSIDTS` could get expired frequently if the Google account is actively used elsewhere, especially when visiting <https://gemini.google.com> directly. It's recommended to use a separate Google account if you are builing a keep-alive service with this package.
+> [!TIP]
+> `__Secure-1PSIDTS` could get expired frequently if <https://gemini.google.com> is kept opened in the browser after copying cookies. It's recommended to get cookies from a separate session (e.g. a new login in browser's private mode) if you are building a keep-alive service with this package.
+>
+> For more details, please refer to discussions in [issue #6](https://github.com/HanaokaYuzu/Gemini-API/issues/6)
 
 ## Usage
 
@@ -49,7 +67,8 @@ async def main():
 asyncio.run(main())
 ```
 
-Note: `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In a keep-alive service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
+> [!TIP]
+> `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In a keep-alive service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
 
 ### Generate contents from text inputs
 
@@ -63,7 +82,8 @@ async def main():
 asyncio.run(main())
 ```
 
-Note: simply use `print(response)` to get the same output if you just want to see the response text
+> [!TIP]
+> Simply use `print(response)` to get the same output if you just want to see the response text
 
 ### Conversations across multiple turns
 
@@ -92,17 +112,18 @@ async def main():
 asyncio.run(main())
 ```
 
-### Generate image with ImageFx
+### Generate images with ImageFx
 
 In February 2022, Google introduced a new AI image generator called ImageFx and integrated it into Gemini. You can ask Gemini to generate images with ImageFx simply by natural language.
 
-**Important**: Google has some limitations on the image generation feature in Gemini, so its availability could be different per region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of February 15th, 2024):
-
->Image generation in Gemini Apps is available in most countries, except in the European Economic Area (EEA), Switzerland, and the UK. It’s only available for **English prompts**.
+> [!IMPORTANT]
+> Google has some limitations on the image generation feature in Gemini, so its availability could be different per region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of February 15th, 2024):
 >
->This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
->
->For now, this feature isn’t available to users under 18.
+> > Image generation in Gemini Apps is available in most countries, except in the European Economic Area (EEA), Switzerland, and the UK. It’s only available for **English prompts**.
+> >
+> > This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
+> >
+> > For now, this feature isn’t available to users under 18.
 
 ```python
 async def main():
@@ -113,7 +134,8 @@ async def main():
 asyncio.run(main())
 ```
 
-Note: by default, when asked to send images (like the previous example), Gemini will send images fetched from web instead of generating images with AI model, unless you specifically require to "generate" images in your prompt. In this package, web images and generated images are treated differently as `WebImage` and `GeneratedImage`, and will be automatically categorized in the output.
+> [!NOTE]
+> by default, when asked to send images (like the previous example), Gemini will send images fetched from web instead of generating images with AI model, unless you specifically require to "generate" images in your prompt. In this package, web images and generated images are treated differently as `WebImage` and `GeneratedImage`, and will be automatically categorized in the output.
 
 ### Save images to local files
 
@@ -130,19 +152,21 @@ asyncio.run(main())
 
 ### Generate contents with Gemini extensions
 
-**Important**: To access Gemini extensions in API, you must activate them on the [Gemini website](https://gemini.google.com/extensions) first. Same as image generation, Google also has limitations on the availability of Gemini extensions. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/13695044) (as of February 18th, 2024):
-
->To use extensions in Gemini Apps:
+> [!IMPORTANT]
+> To access Gemini extensions in API, you must activate them on the [Gemini website](https://gemini.google.com/extensions) first. Same as image generation, Google also has limitations on the availability of Gemini extensions. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/13695044) (as of February 18th, 2024):
 >
->Sign in with your personal Google Account that you manage on your own. Extensions, including the Google Workspace extension, are currently not available to Google Workspace accounts for school, business, or other organizations.
->
->Have Gemini Apps Activity on. Extensions are only available when Gemini Apps Activity is turned on.
->
->Important: For now, extensions are available in **English, Japanese, and Korean** only.
-
-Note: for the last item, instead of region requirement, it actually only requires your Google account's **preferred language** to be set to one of the supported languages. You can change your language settings [here](https://myaccount.google.com/language).
+> > To use extensions in Gemini Apps:
+> >
+> > Sign in with your personal Google Account that you manage on your own. Extensions, including the Google Workspace extension, are currently not available to Google Workspace accounts for school, business, or other organizations.
+> >
+> > Have Gemini Apps Activity on. Extensions are only available when Gemini Apps Activity is turned on.
+> >
+> > Important: For now, extensions are available in **English, Japanese, and Korean** only.
 
 After activating extensions for your account, you can access them in your prompts either by natural language or by starting your prompt with "@" followed by the extension keyword.
+
+> [!NOTE]
+> For the available regions limitation, it actually only requires your Google account's **preferred language** to be set to one of the three supported languages listed above. You can change your language settings [here](https://myaccount.google.com/language).
 
 ```python
 async def main():
@@ -155,7 +179,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Check and switch to other answer candidates
+### Check and switch to other reply candidates
 
 A response from Gemini usually contains multiple reply candidates with different generated contents. You can check all candidates and choose one to continue the conversation. By default, the first candidate will be chosen automatically.
 
