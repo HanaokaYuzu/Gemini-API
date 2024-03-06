@@ -1,12 +1,12 @@
-<p align="center" style="margin-bottom: 40px;">
-    <img src="https://www.gstatic.com/lamda/images/gemini_wordmark_landing_page_238102af073d0ae2763aa5.svg" alt="Gemini Workmark" align="center">
+<p align="center">
+    <img src="assets/banner.png" width="55%" alt="Gemini Banner" align="center">
 </p>
 <p align="center">
     <a href="https://pypi.org/project/gemini-webapi">
         <img src="https://img.shields.io/pypi/v/gemini-webapi" alt="PyPI">
     </a>
     <a href="https://pepy.tech/project/gemini-webapi">
-        <img src="https://static.pepy.tech/badge/gemini-webapi/month" alt="Downloads">
+        <img src="https://static.pepy.tech/badge/gemini-webapi" alt="Downloads">
     </a>
     <a href="https://github.com/HanaokaYuzu/Gemini-API/network/dependencies">
         <img src="https://img.shields.io/librariesio/github/HanaokaYuzu/Gemini-API" alt="Dependencies">
@@ -27,7 +27,7 @@
     </a>
 </p>
 
-# <img src="https://www.gstatic.com/lamda/images/favicon_v1_150160cddff7f294ce30.svg" width="35px" alt="Gemini Icon" /> Gemini-API
+# <img src="assets/logo.svg" width="35px" alt="Gemini Icon" /> Gemini-API
 
 A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gemini.google.com) web chat (formerly Bard).
 
@@ -238,4 +238,8 @@ asyncio.run(main())
 
 ## Stargazers
 
-[![Star History Chart](https://api.star-history.com/svg?repos=HanaokaYuzu/Gemini-API&type=Date)](https://star-history.com/#HanaokaYuzu/Gemini-API)
+<p align="center">
+    <a href="https://star-history.com/#HanaokaYuzu/Gemini-API">
+        <img src="https://api.star-history.com/svg?repos=HanaokaYuzu/Gemini-API&type=Date" width="75%" alt="Star History Chart">
+    </a>
+</p>
