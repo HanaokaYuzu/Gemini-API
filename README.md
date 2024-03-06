@@ -1,5 +1,30 @@
-<p align="center">
+<p align="center" style="margin-bottom: 40px;">
     <img src="https://www.gstatic.com/lamda/images/gemini_wordmark_landing_page_238102af073d0ae2763aa5.svg" alt="Gemini Workmark" align="center">
+</p>
+<p align="center">
+    <a href="https://pypi.org/project/gemini-webapi">
+        <img src="https://img.shields.io/pypi/v/gemini-webapi" alt="PyPI">
+    </a>
+    <a href="https://pepy.tech/project/gemini-webapi">
+        <img src="https://static.pepy.tech/badge/gemini-webapi/month" alt="Downloads">
+    </a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/network/dependencies">
+        <img src="https://img.shields.io/librariesio/github/HanaokaYuzu/Gemini-API" alt="Dependencies">
+    </a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/blob/master/LICENSE">
+        <img src="https://img.shields.io/github/license/HanaokaYuzu/Gemini-API" alt="License">
+    </a>
+</p>
+<p align="center">
+    <a href="https://star-history.com/#HanaokaYuzu/Gemini-API">
+        <img src="https://img.shields.io/github/stars/HanaokaYuzu/Gemini-API?style=social" alt="GitHub stars">
+    </a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/issues">
+        <img src="https://img.shields.io/github/issues/HanaokaYuzu/Gemini-API?style=social&logo=github" alt="GitHub issues">
+    </a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/actions/workflows/pypi-publish.yml">
+        <img src="https://github.com/HanaokaYuzu/Gemini-API/actions/workflows/pypi-publish.yml/badge.svg" alt="CI">
+    </a>
 </p>
 
 # <img src="https://www.gstatic.com/lamda/images/favicon_v1_150160cddff7f294ce30.svg" width="35px" alt="Gemini Icon" /> Gemini-API
@@ -16,6 +41,8 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 
 ## Table of Contents
 
+- [Features](#features)
+- [Table of Contents](#table-of-contents)
 - [Installation](#installation)
 - [Authentication](#authentication)
 - [Usage](#usage)
@@ -28,6 +55,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
 - [References](#references)
+- [Stargazers](#stargazers)
 
 ## Installation
 
@@ -165,9 +193,6 @@ asyncio.run(main())
 
 After activating extensions for your account, you can access them in your prompts either by natural language or by starting your prompt with "@" followed by the extension keyword.
 
-> [!NOTE]
-> For the available regions limitation, it actually only requires your Google account's **preferred language** to be set to one of the three supported languages listed above. You can change your language settings [here](https://myaccount.google.com/language).
-
 ```python
 async def main():
     response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
@@ -178,6 +203,9 @@ async def main():
 
 asyncio.run(main())
 ```
+
+> [!NOTE]
+> For the available regions limitation, it actually only requires your Google account's **preferred language** to be set to one of the three supported languages listed above. You can change your language settings [here](https://myaccount.google.com/language).
 
 ### Check and switch to other reply candidates
 
@@ -207,3 +235,7 @@ asyncio.run(main())
 [Google AI Studio](https://ai.google.dev/tutorials/ai-studio_quickstart)
 
 [acheong08/Bard](https://github.com/acheong08/Bard)
+
+## Stargazers
+
+[![Star History Chart](https://api.star-history.com/svg?repos=HanaokaYuzu/Gemini-API&type=Date)](https://star-history.com/#HanaokaYuzu/Gemini-API)
