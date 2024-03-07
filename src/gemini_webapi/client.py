@@ -9,6 +9,7 @@ from loguru import logger
 
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .exceptions import APIError, AuthError, TimeoutError, GeminiError
+from .utils import upload_file
 from .constant import HEADERS
 
 
@@ -34,16 +35,16 @@ def running(func) -> callable:
 
 class GeminiClient:
     """
-    Async httpx client interface for gemini.google.com
+    Async httpx client interface for gemini.google.com.
 
     Parameters
     ----------
     secure_1psid: `str`
-        __Secure-1PSID cookie value
+        __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
-        __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list
+        __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
     proxy: `dict`, optional
-        Dict of proxies
+        Dict of proxies.
     """
 
     __slots__ = [
@@ -65,12 +66,12 @@ class GeminiClient:
     ):
         self.cookies = {"__Secure-1PSID": secure_1psid}
         self.proxy = proxy
-        self.client: AsyncClient | None = None
-        self.access_token: Optional[str] = None
+        self.client: AsyncClient = None
+        self.access_token: str = None
         self.running: bool = False
         self.auto_close: bool = False
         self.close_delay: float = 300
-        self.close_task: Task | None = None
+        self.close_task: Task = None
 
         if secure_1psidts:
             self.cookies["__Secure-1PSIDTS"] = secure_1psidts
@@ -84,12 +85,12 @@ class GeminiClient:
         Parameters
         ----------
         timeout: `float`, optional
-            Request timeout of the client in seconds. Used to limit the max waiting time when sending a request
+            Request timeout of the client in seconds. Used to limit the max waiting time when sending a request.
         auto_close: `bool`, optional
             If `True`, the client will close connections and clear resource usage after a certain period
-            of inactivity. Useful for keep-alive services
+            of inactivity. Useful for keep-alive services.
         close_delay: `float`, optional
-            Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`
+            Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`.
         """
         try:
             self.client = AsyncClient(
@@ -132,7 +133,7 @@ class GeminiClient:
         Parameters
         ----------
         delay: `float`, optional
-            Time to wait before closing the client in seconds
+            Time to wait before closing the client in seconds.
         """
         if delay:
             await asyncio.sleep(delay)
@@ -155,7 +156,10 @@ class GeminiClient:
 
     @running
     async def generate_content(
-        self, prompt: str, chat: Optional["ChatSession"] = None
+        self,
+        prompt: str,
+        image: Optional[bytes | str] = None,
+        chat: Optional["ChatSession"] = None,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
@@ -163,15 +167,17 @@ class GeminiClient:
         Parameters
         ----------
         prompt: `str`
-            Prompt provided by user
+            Prompt provided by user.
+        image: `bytes` | `str`, optional
+            File data in bytes, or path to the image file to be sent together with the prompt.
         chat: `ChatSession`, optional
-            Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request
+            Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
 
         Returns
         -------
         :class:`ModelOutput`
             Output data from gemini.google.com, use `ModelOutput.text` to get the default text reply, `ModelOutput.images` to get a list
-            of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output
+            of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output.
         """
         assert prompt, "Prompt cannot be empty."
 
@@ -184,7 +190,23 @@ class GeminiClient:
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
-                        [None, json.dumps([[prompt], None, chat and chat.metadata])]
+                        [
+                            None,
+                            json.dumps(
+                                [
+                                    image
+                                    and [
+                                        prompt,
+                                        0,
+                                        None,
+                                        [[[await upload_file(image), 1]]],
+                                    ]
+                                    or [prompt],
+                                    None,
+                                    chat and chat.metadata,
+                                ]
+                            ),
+                        ]
                     ),
                 },
             )
@@ -280,7 +302,7 @@ class GeminiClient:
         Returns
         -------
         :class:`ChatSession`
-            Empty chat object for retrieving conversation history
+            Empty chat object for retrieving conversation history.
         """
         return ChatSession(geminiclient=self, **kwargs)
 
@@ -292,15 +314,15 @@ class ChatSession:
     Parameters
     ----------
     geminiclient: `GeminiClient`
-        Async httpx client interface for gemini.google.com
+        Async httpx client interface for gemini.google.com.
     metadata: `list[str]`, optional
-        List of chat metadata `[cid, rid, rcid]`, can be shorter than 3 elements, like `[cid, rid]` or `[cid]` only
+        List of chat metadata `[cid, rid, rcid]`, can be shorter than 3 elements, like `[cid, rid]` or `[cid]` only.
     cid: `str`, optional
-        Chat id, if provided together with metadata, will override the first value in it
+        Chat id, if provided together with metadata, will override the first value in it.
     rid: `str`, optional
-        Reply id, if provided together with metadata, will override the second value in it
+        Reply id, if provided together with metadata, will override the second value in it.
     rcid: `str`, optional
-        Reply candidate id, if provided together with metadata, will override the third value in it
+        Reply candidate id, if provided together with metadata, will override the third value in it.
     """
 
     # @properties needn't have their slots pre-defined
@@ -339,23 +361,29 @@ class ChatSession:
             self.metadata = value.metadata
             self.rcid = value.rcid
 
-    async def send_message(self, prompt: str) -> ModelOutput:
+    async def send_message(
+        self, prompt: str, image: Optional[bytes | str] = None
+    ) -> ModelOutput:
         """
         Generates contents with prompt.
-        Use as a shortcut for `GeminiClient.generate_content(prompt, self)`.
+        Use as a shortcut for `GeminiClient.generate_content(prompt, image, self)`.
 
         Parameters
         ----------
         prompt: `str`
-            Prompt provided by user
+            Prompt provided by user.
+        image: `bytes` | `str`, optional
+            File data in bytes, or path to the image file to be sent together with the prompt.
 
         Returns
         -------
         :class:`ModelOutput`
             Output data from gemini.google.com, use `ModelOutput.text` to get the default text reply, `ModelOutput.images` to get a list
-            of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output
+            of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output.
         """
-        return await self.geminiclient.generate_content(prompt, self)
+        return await self.geminiclient.generate_content(
+            prompt=prompt, image=image, chat=self
+        )
 
     def choose_candidate(self, index: int) -> ModelOutput:
         """
@@ -364,7 +392,12 @@ class ChatSession:
         Parameters
         ----------
         index: `int`
-            Index of the candidate to choose, starting from 0
+            Index of the candidate to choose, starting from 0.
+
+        Returns
+        -------
+        :class:`ModelOutput`
+            Output data of the chosen candidate.
         """
         if not self.last_output:
             raise ValueError("No previous output data found in this chat session.")
