@@ -1,7 +1,7 @@
 from httpx import AsyncClient
 from pydantic import validate_call
 
-from .constant import UPLOAD_PUSHID
+from .constants import Endpoint, Headers
 
 
 @validate_call
@@ -32,8 +32,8 @@ async def upload_file(file: bytes | str) -> str:
 
     async with AsyncClient() as client:
         response = await client.post(
-            url="https://content-push.googleapis.com/upload/",
-            headers={"Push-ID": UPLOAD_PUSHID},
+            url=Endpoint.UPLOAD.value,
+            headers=Headers.UPLOAD.value,
             files={"file": file},
             follow_redirects=True,
         )

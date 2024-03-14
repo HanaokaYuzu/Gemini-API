@@ -1,16 +1,25 @@
 <p align="center">
-    <img src="assets/banner.png" width="55%" alt="Gemini Banner">
+    <img src="assets/banner.png" width="55%" alt="Gemini Banner" align="center">
 </p>
 <p align="center">
-    <img src="https://img.shields.io/pypi/v/gemini-webapi" alt="PyPI">
-    <img src="https://static.pepy.tech/badge/gemini-webapi" alt="Downloads">
-    <img src="https://img.shields.io/librariesio/github/HanaokaYuzu/Gemini-API" alt="Dependencies">
-    <img src="https://img.shields.io/github/license/HanaokaYuzu/Gemini-API" alt="License">
+    <a href="https://pypi.org/project/gemini-webapi">
+        <img src="https://img.shields.io/pypi/v/gemini-webapi" alt="PyPI"></a>
+    <a href="https://pepy.tech/project/gemini-webapi">
+        <img src="https://static.pepy.tech/badge/gemini-webapi" alt="Downloads"></a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/network/dependencies">
+        <img src="https://img.shields.io/librariesio/github/HanaokaYuzu/Gemini-API" alt="Dependencies"></a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/blob/master/LICENSE">
+        <img src="https://img.shields.io/github/license/HanaokaYuzu/Gemini-API" alt="License"></a>
+    <a href="https://github.com/psf/black">
+        <img src="https://img.shields.io/badge/code%20style-black-000000.svg" alt="Code style"></a>
 </p>
 <p align="center">
-    <img src="https://img.shields.io/github/stars/HanaokaYuzu/Gemini-API?style=social" alt="GitHub stars">
-    <img src="https://img.shields.io/github/issues/HanaokaYuzu/Gemini-API?style=social&logo=github" alt="GitHub issues">
-    <img src="https://github.com/HanaokaYuzu/Gemini-API/actions/workflows/pypi-publish.yml/badge.svg" alt="CI">
+    <a href="https://star-history.com/#HanaokaYuzu/Gemini-API">
+        <img src="https://img.shields.io/github/stars/HanaokaYuzu/Gemini-API?style=social" alt="GitHub stars"></a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/issues">
+        <img src="https://img.shields.io/github/issues/HanaokaYuzu/Gemini-API?style=social&logo=github" alt="GitHub issues"></a>
+    <a href="https://github.com/HanaokaYuzu/Gemini-API/actions/workflows/pypi-publish.yml">
+        <img src="https://github.com/HanaokaYuzu/Gemini-API/actions/workflows/pypi-publish.yml/badge.svg" alt="CI"></a>
 </p>
 
 # <img src="assets/logo.svg" width="35px" alt="Gemini Icon" /> Gemini-API
@@ -250,5 +259,6 @@ asyncio.run(main())
 ## Stargazers
 
 <p align="center">
-    <img src="https://api.star-history.com/svg?repos=HanaokaYuzu/Gemini-API&type=Date" width="75%" alt="Star History Chart">
+    <a href="https://star-history.com/#HanaokaYuzu/Gemini-API">
+        <img src="https://api.star-history.com/svg?repos=HanaokaYuzu/Gemini-API&type=Date" width="75%" alt="Star History Chart"></a>
 </p>

@@ -9,8 +9,8 @@ from loguru import logger
 
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .exceptions import APIError, AuthError, TimeoutError, GeminiError
+from .constants import Endpoint, Headers
 from .utils import upload_file
-from .constant import HEADERS
 
 
 def running(func) -> callable:
@@ -97,11 +97,11 @@ class GeminiClient:
                 timeout=timeout,
                 proxies=self.proxy,
                 follow_redirects=True,
-                headers=HEADERS,
+                headers=Headers.GEMINI.value,
                 cookies=self.cookies,
             )
 
-            response = await self.client.get("https://gemini.google.com/app")
+            response = await self.client.get(Endpoint.INIT.value)
 
             if response.status_code != 200:
                 raise APIError(
@@ -186,7 +186,7 @@ class GeminiClient:
 
         try:
             response = await self.client.post(
-                "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+                Endpoint.GENERATE.value,
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
