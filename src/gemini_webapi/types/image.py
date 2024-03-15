@@ -2,9 +2,9 @@ import re
 from pathlib import Path
 from datetime import datetime
 
-from loguru import logger
 from httpx import AsyncClient, HTTPError
 from pydantic import BaseModel, field_validator
+from loguru import logger
 
 
 class Image(BaseModel):
@@ -14,16 +14,19 @@ class Image(BaseModel):
     Parameters
     ----------
     url: `str`
-        URL of the image
+        URL of the image.
     title: `str`, optional
-        Title of the image, by default is "[Image]"
+        Title of the image, by default is "[Image]".
     alt: `str`, optional
-        Optional description of the image
+        Optional description of the image.
+    proxies: `dict`, optional
+        Dict of proxies used when saving image.
     """
 
     url: str
     title: str = "[Image]"
     alt: str = ""
+    proxies: dict | None = None
 
     def __str__(self):
         return f"{self.title}({self.url}) - {self.alt}"
@@ -45,25 +48,25 @@ class Image(BaseModel):
         Parameters
         ----------
         path: `str`, optional
-            Path to save the image, by default will save to ./temp
+            Path to save the image, by default will save to "./temp".
         filename: `str`, optional
-            File name to save the image, by default will use the original file name from the URL
+            File name to save the image, by default will use the original file name from the URL.
         cookies: `dict`, optional
-            Cookies used for requesting the content of the image
+            Cookies used for requesting the content of the image.
         verbose : `bool`, optional
-            If True, print the path of the saved file or warning for invalid file name, by default False
+            If True, print the path of the saved file or warning for invalid file name, by default False.
         skip_invalid_filename: `bool`, optional
-            If True, will only save the image if the file name and extension are valid, by default False
+            If True, will only save the image if the file name and extension are valid, by default False.
 
         Returns
         -------
         `str | None`
-            Absolute path of the saved image if successful, None if filename is invalid and `skip_invalid_filename` is True
+            Absolute path of the saved image if successful, None if filename is invalid and `skip_invalid_filename` is True.
 
         Raises
         ------
         `httpx.HTTPError`
-            If the network request failed
+            If the network request failed.
         """
         filename = filename or self.url.split("/")[-1].split("?")[0]
         try:
@@ -74,7 +77,9 @@ class Image(BaseModel):
             if skip_invalid_filename:
                 return None
 
-        async with AsyncClient(follow_redirects=True, cookies=cookies) as client:
+        async with AsyncClient(
+            follow_redirects=True, cookies=cookies, proxies=self.proxies
+        ) as client:
             response = await client.get(self.url)
             if response.status_code == 200:
                 content_type = response.headers.get("content-type")
@@ -115,7 +120,7 @@ class GeneratedImage(Image):
     ----------
     cookies: `dict`
         Cookies used for requesting the content of the generated image, inherit from GeminiClient object or manually set.
-        Must contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values
+        Should contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values.
     """
 
     cookies: dict[str, str]
@@ -138,9 +143,9 @@ class GeneratedImage(Image):
         ----------
         filename: `str`, optional
             Filename to save the image, generated images are always in .png format, but file extension will not be included in the URL.
-            And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename
+            And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename.
         **kwargs: `dict`, optional
-            Other arguments to pass to `Image.save`
+            Other arguments to pass to `Image.save`.
         """
         await super().save(
             filename=kwargs.pop("filename", None)

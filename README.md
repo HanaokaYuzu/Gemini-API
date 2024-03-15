@@ -87,7 +87,7 @@ Secure_1PSID = "COOKIE VALUE HERE"
 Secure_1PSIDTS = "COOKIE VALUE HERE"
 
 async def main():
-    client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxy=None)
+    client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxies=None)
     await client.init(timeout=30, auto_close=False, close_delay=300)
 
 asyncio.run(main())

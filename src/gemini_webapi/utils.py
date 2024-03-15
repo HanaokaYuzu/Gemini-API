@@ -5,7 +5,7 @@ from .constants import Endpoint, Headers
 
 
 @validate_call
-async def upload_file(file: bytes | str) -> str:
+async def upload_file(file: bytes | str, proxies: dict | None = None) -> str:
     """
     Upload a file to Google's server and return its identifier.
 
@@ -13,6 +13,8 @@ async def upload_file(file: bytes | str) -> str:
     ----------
     file : `bytes` | `str`
         File data in bytes, or path to the file to be uploaded.
+    proxies: `dict`, optional
+        Dict of proxies.
 
     Returns
     -------
@@ -30,7 +32,7 @@ async def upload_file(file: bytes | str) -> str:
         with open(file, "rb") as f:
             file = f.read()
 
-    async with AsyncClient() as client:
+    async with AsyncClient(proxies=proxies) as client:
         response = await client.post(
             url=Endpoint.UPLOAD.value,
             headers=Headers.UPLOAD.value,

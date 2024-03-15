@@ -43,13 +43,13 @@ class GeminiClient:
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
         __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
-    proxy: `dict`, optional
+    proxies: `dict`, optional
         Dict of proxies.
     """
 
     __slots__ = [
         "cookies",
-        "proxy",
+        "proxies",
         "client",
         "access_token",
         "running",
@@ -62,10 +62,10 @@ class GeminiClient:
         self,
         secure_1psid: str,
         secure_1psidts: Optional[str] = None,
-        proxy: Optional[dict] = None,
+        proxies: Optional[dict] = None,
     ):
         self.cookies = {"__Secure-1PSID": secure_1psid}
-        self.proxy = proxy
+        self.proxies = proxies
         self.client: AsyncClient = None
         self.access_token: str = None
         self.running: bool = False
@@ -95,7 +95,7 @@ class GeminiClient:
         try:
             self.client = AsyncClient(
                 timeout=timeout,
-                proxies=self.proxy,
+                proxies=self.proxies,
                 follow_redirects=True,
                 headers=Headers.GEMINI.value,
                 cookies=self.cookies,
@@ -199,7 +199,7 @@ class GeminiClient:
                                         prompt,
                                         0,
                                         None,
-                                        [[[await upload_file(image), 1]]],
+                                        [[[await upload_file(image, self.proxies), 1]]],
                                     ]
                                     or [prompt],
                                     None,
@@ -249,6 +249,7 @@ class GeminiClient:
                                 url=image[0][0][0],
                                 title=image[2],
                                 alt=image[0][4],
+                                proxies=self.proxies,
                             )
                             for image in candidate[4]
                         ]
@@ -265,6 +266,7 @@ class GeminiClient:
                                 alt=len(image[3][5]) > i
                                 and image[3][5][i]
                                 or image[3][5][0],
+                                proxies=self.proxies,
                                 cookies=self.cookies,
                             )
                             for i, image in enumerate(candidate[12][7][0])
