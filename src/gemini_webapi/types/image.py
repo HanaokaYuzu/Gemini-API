@@ -4,7 +4,8 @@ from datetime import datetime
 
 from httpx import AsyncClient, HTTPError
 from pydantic import BaseModel, field_validator
-from loguru import logger
+
+from ..utils import logger
 
 
 class Image(BaseModel):
@@ -54,7 +55,7 @@ class Image(BaseModel):
         cookies: `dict`, optional
             Cookies used for requesting the content of the image.
         verbose : `bool`, optional
-            If True, print the path of the saved file or warning for invalid file name, by default False.
+            If True, will print the path of the saved file or warning for invalid file name, by default False.
         skip_invalid_filename: `bool`, optional
             If True, will only save the image if the file name and extension are valid, by default False.
 
@@ -130,7 +131,7 @@ class GeneratedImage(Image):
     def validate_cookies(cls, v: dict) -> dict:
         if len(v) == 0:
             raise ValueError(
-                "GeneratedImage is designed to be initiated with same cookies as GeminiClient."
+                "GeneratedImage is designed to be initialized with same cookies as GeminiClient."
             )
         return v
 
@@ -144,7 +145,7 @@ class GeneratedImage(Image):
         filename: `str`, optional
             Filename to save the image, generated images are always in .png format, but file extension will not be included in the URL.
             And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename.
-        **kwargs: `dict`, optional
+        kwargs: `dict`, optional
             Other arguments to pass to `Image.save`.
         """
         await super().save(

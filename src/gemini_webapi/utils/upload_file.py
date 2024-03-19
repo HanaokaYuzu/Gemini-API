@@ -1,7 +1,7 @@
 from httpx import AsyncClient
 from pydantic import validate_call
 
-from .constants import Endpoint, Headers
+from ..constants import Endpoint, Headers
 
 
 @validate_call

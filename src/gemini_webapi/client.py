@@ -1,83 +1,149 @@
-import re
 import json
+import functools
 import asyncio
 from asyncio import Task
 from typing import Any, Optional
 
 from httpx import AsyncClient, ReadTimeout
-from loguru import logger
 
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
-from .exceptions import APIError, AuthError, TimeoutError, GeminiError
+from .exceptions import AuthError, APIError, TimeoutError, GeminiError
 from .constants import Endpoint, Headers
-from .utils import upload_file
+from .utils import (
+    get_cookie_by_name,
+    upload_file,
+    get_access_token,
+    rotate_1psidts,
+    rotate_tasks,
+    logger,
+)
 
 
-def running(func) -> callable:
+def running(retry: int = 0) -> callable:
     """
     Decorator to check if client is running before making a request.
+
+    Parameters
+    ----------
+    retry: `int`, optional
+        Max number of retries when `gemini_webapi.APIError` is raised.
     """
 
-    async def wrapper(self: "GeminiClient", *args, **kwargs):
-        if not self.running:
-            await self.init(auto_close=self.auto_close, close_delay=self.close_delay)
-            if self.running:
-                return await func(self, *args, **kwargs)
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(client: "GeminiClient", *args, retry=retry, **kwargs):
+            try:
+                if not client.running:
+                    await client.init(
+                        timeout=client.timeout,
+                        auto_close=client.auto_close,
+                        close_delay=client.close_delay,
+                        auto_refresh=client.auto_refresh,
+                        refresh_interval=client.refresh_interval,
+                        verbose=False,
+                    )
+                    if client.running:
+                        return await func(client, *args, **kwargs)
 
-            raise Exception(
-                f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
-            )
-        else:
-            return await func(self, *args, **kwargs)
+                    # Should not reach here
+                    raise APIError(
+                        f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
+                    )
+                else:
+                    return await func(client, *args, **kwargs)
+            except APIError:
+                if retry > 0:
+                    await asyncio.sleep(1)
+                    return await wrapper(client, *args, retry=retry - 1, **kwargs)
+                raise
 
-    return wrapper
+        return wrapper
+
+    return decorator
 
 
 class GeminiClient:
     """
     Async httpx client interface for gemini.google.com.
 
+    `secure_1psid` must be provided unless the optional dependency `browser-cookie3` is installed and
+    you have logged in to google.com in your local browser.
+
     Parameters
     ----------
-    secure_1psid: `str`
+    secure_1psid: `str`, optional
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
         __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
     proxies: `dict`, optional
         Dict of proxies.
+
+    Raises
+    ------
+    `ValueError`
+        If `secure_1psid` is not provided and optional dependency `browser-cookie3` is not installed, or
+        `browser-cookie3` is installed but cookies for google.com are not found in your local browser storage.
     """
 
     __slots__ = [
         "cookies",
         "proxies",
+        "running",
         "client",
         "access_token",
-        "running",
+        "timeout",
         "auto_close",
         "close_delay",
         "close_task",
+        "auto_refresh",
+        "refresh_interval",
     ]
 
     def __init__(
         self,
-        secure_1psid: str,
-        secure_1psidts: Optional[str] = None,
-        proxies: Optional[dict] = None,
+        secure_1psid: str | None = None,
+        secure_1psidts: str | None = None,
+        proxies: dict | None = None,
     ):
-        self.cookies = {"__Secure-1PSID": secure_1psid}
+        self.cookies = {}
         self.proxies = proxies
+        self.running: bool = False
         self.client: AsyncClient = None
         self.access_token: str = None
-        self.running: bool = False
+        self.timeout: float = 30
         self.auto_close: bool = False
         self.close_delay: float = 300
         self.close_task: Task = None
+        self.auto_refresh: bool = True
+        self.refresh_interval: float = 540
 
-        if secure_1psidts:
-            self.cookies["__Secure-1PSIDTS"] = secure_1psidts
+        # Validate cookies
+        if secure_1psid:
+            self.cookies["__Secure-1PSID"] = secure_1psid
+            if secure_1psidts:
+                self.cookies["__Secure-1PSIDTS"] = secure_1psidts
+        else:
+            try:
+                import browser_cookie3
+
+                cookies = browser_cookie3.load(domain_name="google.com")
+                if not (cookies and get_cookie_by_name(cookies, "__Secure-1PSID")):
+                    raise ValueError(
+                        "Failed to load cookies from local browser. Please pass cookie values manually."
+                    )
+            except ImportError:
+                raise ValueError(
+                    "'secure_1psid' must be provided if optional dependency 'browser-cookie3' is not installed."
+                )
 
     async def init(
-        self, timeout: float = 30, auto_close: bool = False, close_delay: float = 300
+        self,
+        timeout: float = 30,
+        auto_close: bool = False,
+        close_delay: float = 300,
+        auto_refresh: bool = True,
+        refresh_interval: float = 540,
+        verbose: bool = True,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -91,37 +157,46 @@ class GeminiClient:
             of inactivity. Useful for keep-alive services.
         close_delay: `float`, optional
             Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`.
+        auto_refresh: `bool`, optional
+            If `True`, will schedule a task to automatically refresh cookies in the background.
+        refresh_interval: `float`, optional
+            Time interval for background cookie refresh in seconds. Effective only if `auto_refresh` is `True`.
+        verbose: `bool`, optional
+            If `True`, will print more infomation in logs.
         """
         try:
+            access_token, valid_cookies = await get_access_token(
+                base_cookies=self.cookies, proxies=self.proxies, verbose=verbose
+            )
+
             self.client = AsyncClient(
                 timeout=timeout,
                 proxies=self.proxies,
                 follow_redirects=True,
                 headers=Headers.GEMINI.value,
-                cookies=self.cookies,
+                cookies=valid_cookies,
             )
+            self.access_token = access_token
+            self.cookies = valid_cookies
+            self.running = True
 
-            response = await self.client.get(Endpoint.INIT.value)
-
-            if response.status_code != 200:
-                raise APIError(
-                    f"Failed to initiate client. Request failed with status code {response.status_code}"
-                )
-            else:
-                match = re.search(r'"SNlM0e":"(.*?)"', response.text)
-                if match:
-                    self.access_token = match.group(1)
-                    self.running = True
-                    logger.success("Gemini client initiated successfully.")
-                else:
-                    raise AuthError(
-                        "Failed to initiate client. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date."
-                    )
-
+            self.timeout = timeout
             self.auto_close = auto_close
             self.close_delay = close_delay
             if self.auto_close:
                 await self.reset_close_task()
+
+            self.auto_refresh = auto_refresh
+            self.refresh_interval = refresh_interval
+            if self.auto_refresh:
+                if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
+                    task.cancel()
+                rotate_tasks[self.cookies["__Secure-1PSID"]] = asyncio.create_task(
+                    self.start_auto_refresh()
+                )
+
+            if verbose:
+                logger.success("Gemini client initialized successfully.")
         except Exception:
             await self.close()
             raise
@@ -142,7 +217,9 @@ class GeminiClient:
             self.close_task.cancel()
             self.close_task = None
 
-        await self.client.aclose()
+        if self.client:
+            await self.client.aclose()
+
         self.running = False
 
     async def reset_close_task(self) -> None:
@@ -154,11 +231,30 @@ class GeminiClient:
             self.close_task = None
         self.close_task = asyncio.create_task(self.close(self.close_delay))
 
-    @running
+    async def start_auto_refresh(self) -> None:
+        """
+        Start the background task to automatically refresh cookies.
+        """
+        while True:
+            try:
+                new_1psidts = await rotate_1psidts(self.cookies, self.proxies)
+            except AuthError:
+                if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
+                    task.cancel()
+                logger.warning(
+                    "Failed to refresh cookies. Background auto refresh task canceled."
+                )
+
+            logger.debug(f"Cookies refreshed. New __Secure-1PSIDTS: {new_1psidts}")
+            if new_1psidts:
+                self.cookies["__Secure-1PSIDTS"] = new_1psidts
+            await asyncio.sleep(self.refresh_interval)
+
+    @running(retry=1)
     async def generate_content(
         self,
         prompt: str,
-        image: Optional[bytes | str] = None,
+        image: bytes | str | None = None,
         chat: Optional["ChatSession"] = None,
     ) -> ModelOutput:
         """
@@ -178,6 +274,18 @@ class GeminiClient:
         :class:`ModelOutput`
             Output data from gemini.google.com, use `ModelOutput.text` to get the default text reply, `ModelOutput.images` to get a list
             of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output.
+
+        Raises
+        ------
+        `AssertionError`
+            If prompt is empty.
+        `gemini_webapi.TimeoutError`
+            If request timed out.
+        `gemini_webapi.GenimiError`
+            If no reply candidate found in response.
+        `gemini_webapi.APIError`
+            - If request failed with status code other than 200.
+            - If response structure is invalid and failed to parse.
         """
         assert prompt, "Prompt cannot be empty."
 
@@ -212,7 +320,7 @@ class GeminiClient:
             )
         except ReadTimeout:
             raise TimeoutError(
-                "Request timed out, please try again. If the problem persists, consider setting a higher `timeout` value when initiating GeminiClient."
+                "Request timed out, please try again. If the problem persists, consider setting a higher `timeout` value when initializing GeminiClient."
             )
 
         if response.status_code != 200:
@@ -236,7 +344,7 @@ class GeminiClient:
             except Exception:
                 await self.close()
                 raise APIError(
-                    "Failed to generate contents. Invalid response data received. Client will try to re-initiate on next request."
+                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
                 )
 
             try:
@@ -299,7 +407,12 @@ class GeminiClient:
 
     def start_chat(self, **kwargs) -> "ChatSession":
         """
-        Returns a `ChatSession` object attached to this model.
+        Returns a `ChatSession` object attached to this client.
+
+        Parameters
+        ----------
+        kwargs: `dict`, optional
+            Other arguments to pass to `ChatSession.__init__`.
 
         Returns
         -------
@@ -327,20 +440,19 @@ class ChatSession:
         Reply candidate id, if provided together with metadata, will override the third value in it.
     """
 
-    # @properties needn't have their slots pre-defined
     __slots__ = ["__metadata", "geminiclient", "last_output"]
 
     def __init__(
         self,
         geminiclient: GeminiClient,
-        metadata: Optional[list[str]] = None,
-        cid: Optional[str] = None,  # chat id
-        rid: Optional[str] = None,  # reply id
-        rcid: Optional[str] = None,  # reply candidate id
+        metadata: list[str | None] | None = None,
+        cid: str | None = None,  # chat id
+        rid: str | None = None,  # reply id
+        rcid: str | None = None,  # reply candidate id
     ):
-        self.__metadata: list[Optional[str]] = [None, None, None]
+        self.__metadata: list[str | None] = [None, None, None]
         self.geminiclient: GeminiClient = geminiclient
-        self.last_output: Optional[ModelOutput] = None
+        self.last_output: ModelOutput | None = None
 
         if metadata:
             self.metadata = metadata
@@ -364,7 +476,7 @@ class ChatSession:
             self.rcid = value.rcid
 
     async def send_message(
-        self, prompt: str, image: Optional[bytes | str] = None
+        self, prompt: str, image: bytes | str | None = None
     ) -> ModelOutput:
         """
         Generates contents with prompt.
@@ -382,6 +494,18 @@ class ChatSession:
         :class:`ModelOutput`
             Output data from gemini.google.com, use `ModelOutput.text` to get the default text reply, `ModelOutput.images` to get a list
             of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output.
+
+        Raises
+        ------
+        `AssertionError`
+            If prompt is empty.
+        `gemini_webapi.TimeoutError`
+            If request timed out.
+        `gemini_webapi.GenimiError`
+            If no reply candidate found in response.
+        `gemini_webapi.APIError`
+            - If request failed with status code other than 200.
+            - If response structure is invalid and failed to parse.
         """
         return await self.geminiclient.generate_content(
             prompt=prompt, image=image, chat=self
@@ -400,6 +524,11 @@ class ChatSession:
         -------
         :class:`ModelOutput`
             Output data of the chosen candidate.
+
+        Raises
+        ------
+        `ValueError`
+            If no previous output data found in this chat session, or if index exceeds the number of candidates in last model output.
         """
         if not self.last_output:
             raise ValueError("No previous output data found in this chat session.")

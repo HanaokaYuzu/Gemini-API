@@ -1,10 +1,14 @@
 import os
 import unittest
+import logging
 
 from httpx import HTTPError
 from loguru import logger
 
-from gemini_webapi import GeminiClient, AuthError
+from gemini_webapi import GeminiClient, AuthError, set_log_level
+
+logging.getLogger("asyncio").setLevel(logging.ERROR)
+set_log_level("DEBUG")
 
 
 class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
