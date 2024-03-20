@@ -57,6 +57,12 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 
 ## Installation
 
+> [!NOTE]
+>
+> This package requires Python 3.10 or later.
+
+Install the package with pip.
+
 ```bash
 pip install gemini_webapi
 ```
