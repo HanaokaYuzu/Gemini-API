@@ -188,9 +188,9 @@ class GeminiClient:
 
             self.auto_refresh = auto_refresh
             self.refresh_interval = refresh_interval
+            if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
+                task.cancel()
             if self.auto_refresh:
-                if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
-                    task.cancel()
                 rotate_tasks[self.cookies["__Secure-1PSID"]] = asyncio.create_task(
                     self.start_auto_refresh()
                 )

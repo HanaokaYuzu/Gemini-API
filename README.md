@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="assets/banner.png" width="55%" alt="Gemini Banner" align="center">
+    <img src="https://raw.githubusercontent.com/HanaokaYuzu/Gemini-API/master/assets/banner.png" width="55%" alt="Gemini Banner" align="center">
 </p>
 <p align="center">
     <a href="https://pypi.org/project/gemini-webapi">
@@ -22,7 +22,7 @@
         <img src="https://github.com/HanaokaYuzu/Gemini-API/actions/workflows/pypi-publish.yml/badge.svg" alt="CI"></a>
 </p>
 
-# <img src="assets/logo.svg" width="35px" alt="Gemini Icon" /> Gemini-API
+# <img src="https://raw.githubusercontent.com/HanaokaYuzu/Gemini-API/master/assets/logo.svg" width="35px" alt="Gemini Icon" /> Gemini-API
 
 A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gemini.google.com) web app (formerly Bard).
 
