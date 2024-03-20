@@ -13,3 +13,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ncipollo/release-action@v1
+      with:
+        body: ${{ github.event.head_commit.message }}
+        generateReleaseNotes: true
