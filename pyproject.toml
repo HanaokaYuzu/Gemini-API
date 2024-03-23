@@ -9,7 +9,7 @@ authors = [
 ]
 description = "A reverse-engineered async wrapper for Google Gemini web client"
 readme = "README.md"
-license = {text = "MIT License"}
+license = {file = "LICENSE"}
 keywords = ["API", "async", "Gemini", "Bard", "Google", "Generative AI", "LLM"]
 classifiers = [
   "Development Status :: 4 - Beta",
