@@ -10,10 +10,10 @@ from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .exceptions import AuthError, APIError, TimeoutError, GeminiError
 from .constants import Endpoint, Headers
 from .utils import (
-    get_cookie_by_name,
     upload_file,
-    get_access_token,
     rotate_1psidts,
+    get_access_token,
+    load_browser_cookies,
     rotate_tasks,
     logger,
 )
@@ -124,10 +124,8 @@ class GeminiClient:
                 self.cookies["__Secure-1PSIDTS"] = secure_1psidts
         else:
             try:
-                import browser_cookie3
-
-                cookies = browser_cookie3.load(domain_name="google.com")
-                if not (cookies and get_cookie_by_name(cookies, "__Secure-1PSID")):
+                cookies = load_browser_cookies(domain_name="google.com")
+                if not (cookies and cookies.get("__Secure-1PSID")):
                     raise ValueError(
                         "Failed to load cookies from local browser. Please pass cookie values manually."
                     )
@@ -154,7 +152,7 @@ class GeminiClient:
             Request timeout of the client in seconds. Used to limit the max waiting time when sending a request.
         auto_close: `bool`, optional
             If `True`, the client will close connections and clear resource usage after a certain period
-            of inactivity. Useful for keep-alive services.
+            of inactivity. Useful for always-on services.
         close_delay: `float`, optional
             Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`.
         auto_refresh: `bool`, optional

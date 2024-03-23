@@ -2,35 +2,13 @@ import re
 import asyncio
 from asyncio import Task
 from pathlib import Path
-from http.cookiejar import CookieJar
 
 from httpx import AsyncClient, Response
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
+from .load_browser_cookies import load_browser_cookies
 from .logger import logger
-
-
-def get_cookie_by_name(jar: CookieJar, name: str) -> str:
-    """
-    Get the value of a cookie from a http CookieJar.
-
-    Parameters
-    ----------
-    jar : `http.cookiejar.CookieJar`
-        Cookie jar to be used.
-    name : `str`
-        Name of the cookie to be retrieved.
-
-    Returns
-    -------
-    `str`
-        Value of the cookie.
-    """
-
-    for cookie in jar:
-        if cookie.name == name:
-            return cookie.value
 
 
 async def get_access_token(
@@ -100,16 +78,12 @@ async def get_access_token(
         )
 
     try:
-        import browser_cookie3
-
-        browser_cookies = browser_cookie3.load(domain_name="google.com")
-        if browser_cookies and (
-            secure_1psid := get_cookie_by_name(browser_cookies, "__Secure-1PSID")
-        ):
+        browser_cookies = load_browser_cookies(
+            domain_name="google.com", verbose=verbose
+        )
+        if browser_cookies and (secure_1psid := browser_cookies.get("__Secure-1PSID")):
             local_cookies = {"__Secure-1PSID": secure_1psid}
-            if secure_1psidts := get_cookie_by_name(
-                browser_cookies, "__Secure-1PSIDTS"
-            ):
+            if secure_1psidts := browser_cookies.get("__Secure-1PSIDTS"):
                 local_cookies["__Secure-1PSIDTS"] = secure_1psidts
             tasks.append(Task(send_request(local_cookies)))
         elif verbose:
