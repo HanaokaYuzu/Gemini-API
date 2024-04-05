@@ -46,7 +46,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents from text](#generate-contents-from-text)
   - [Generate contents from image](#generate-contents-from-image)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
-  - [Continue past conversations](#continue-past-conversations)
+  - [Continue previous conversations](#continue-previous-conversations)
   - [Retrieve images in response](#retrieve-images-in-response)
   - [Generate images with ImageFx](#generate-images-with-imagefx)
   - [Save images to local files](#save-images-to-local-files)
@@ -60,7 +60,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 
 > [!NOTE]
 >
-> This package requires Python 3.10 or later.
+> This package requires Python 3.10 or higher.
 
 Install/update the package with pip.
 
@@ -165,24 +165,26 @@ asyncio.run(main())
 >
 > Same as `GeminiClient.generate_content`, `ChatSession.send_message` also accepts `image` as an optional argument.
 
-### Continue past conversations
+### Continue previous conversations
 
-To retrive past conversations you can pass through the `cid`, `rid` and `rcid` through the `metadata` argument in the `start_chat()` function. To Alternitavly if you want to save the variables you can get it from `chat_session.metadata`. 
+To manually retrieve previous conversations, you can pass previous `ChatSession`'s metadata to `GeminiClient.start_chat` when creating a new `ChatSession`. Alternatively, you can persist previous metadata to a file or db if you need to access them after the current Python process has exited.
 
 ```python
 async def main():
-    # Load the past conversation
-    chat = client.start_chat("Your chat id")
-    responce = await chat.send_message("What was my previous message?")
-    # Save the conversation id
-    gemini_chatID = chat.metadata   
+    # Start a new chat session
+    chat = client.start_chat()
+    response = await chat.send_message("Fine weather today")
+
+    # Save chat's metadata
+    previous_session = chat.metadata
+
+    # Load the previous conversation
+    previous_chat = client.start_chat(metadata=previous_session)
+    response = await previous_chat.send_message("What was my previous message?")
+    print(response)
+
+asyncio.run(main())
 ```
-
-> [!IMPORTANT]
->
-> Storing the chat variables in a local variable like in this example will get eraced at runtime.
-> If you would like to save these it is recomended to store it in json or in a database of some short.
-
 
 ### Retrieve images in response
 

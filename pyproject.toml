@@ -7,14 +7,13 @@ name = "gemini-webapi"
 authors = [
     {name = "UZQueen"},
 ]
-description = "A reverse-engineered async wrapper for Google Gemini web client"
+description = "✨ An elegant async Python wrapper for Google Gemini web app"
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = ["API", "async", "Gemini", "Bard", "Google", "Generative AI", "LLM"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
