@@ -46,6 +46,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents from text](#generate-contents-from-text)
   - [Generate contents from image](#generate-contents-from-image)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
+  - [Continue past conversations](#continue-past-conversations)
   - [Retrieve images in response](#retrieve-images-in-response)
   - [Generate images with ImageFx](#generate-images-with-imagefx)
   - [Save images to local files](#save-images-to-local-files)
@@ -163,6 +164,25 @@ asyncio.run(main())
 > [!TIP]
 >
 > Same as `GeminiClient.generate_content`, `ChatSession.send_message` also accepts `image` as an optional argument.
+
+### Continue past conversations
+
+To retrive past conversations you can pass through the `cid`, `rid` and `rcid` through the `metadata` argument in the `start_chat()` function. To Alternitavly if you want to save the variables you can get it from `chat_session.metadata`. 
+
+```python
+async def main():
+    # Load the past conversation
+    chat = client.start_chat("Your chat id")
+    responce = await chat.send_message("What was my previous message?")
+    # Save the conversation id
+    gemini_chatID = chat.metadata   
+```
+
+> [!IMPORTANT]
+>
+> Storing the chat variables in a local variable like in this example will get eraced at runtime.
+> If you would like to save these it is recomended to store it in json or in a database of some short.
+
 
 ### Retrieve images in response
 
