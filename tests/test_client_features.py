@@ -45,6 +45,17 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response2.text)
 
     @logger.catch(reraise=True)
+    async def test_retrieve_previous_conversation(self):
+        chat = self.geminiclient.start_chat()
+        await chat.send_message("Fine weather today")
+        self.assertTrue(len(chat.metadata) == 3)
+        previous_session = chat.metadata
+        logger.debug(previous_session)
+        previous_chat = self.geminiclient.start_chat(metadata=previous_session)
+        response = await previous_chat.send_message("What was my previous message?")
+        logger.debug(response)
+
+    @logger.catch(reraise=True)
     async def test_chatsession_with_image(self):
         chat = self.geminiclient.start_chat()
         response1 = await chat.send_message(
