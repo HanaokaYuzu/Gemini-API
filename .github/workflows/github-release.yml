@@ -3,7 +3,7 @@ name: Create GitHub Release
 on:
   push:
     tags:
-    - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   release:
@@ -11,8 +11,8 @@ jobs:
     permissions:
       contents: write
     steps:
-    - uses: actions/checkout@v4
-    - uses: ncipollo/release-action@v1
-      with:
-        body: ${{ github.event.head_commit.message }}
-        generateReleaseNotes: true
+      - uses: actions/checkout@v4
+      - uses: ncipollo/release-action@v1
+        with:
+          body: ${{ github.event.head_commit.message }}
+          generateReleaseNotes: true
