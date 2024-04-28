@@ -1,5 +1,3 @@
-import browser_cookie3 as bc3
-
 from .logger import logger
 
 
@@ -20,6 +18,8 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
     `dict`
         Dictionary with cookie name as key and cookie value as value.
     """
+    import browser_cookie3 as bc3
+
     cookies = {}
     for cookie_fn in [
         bc3.chrome,
