@@ -349,15 +349,16 @@ class GeminiClient:
                 candidates = []
                 for candidate in body[4]:
                     web_images = (
-                        candidate[4]
+                        candidate[12]
+                        and candidate[12][1]
                         and [
                             WebImage(
                                 url=image[0][0][0],
-                                title=image[2],
+                                title=image[7][0],
                                 alt=image[0][4],
                                 proxies=self.proxies,
                             )
-                            for image in candidate[4]
+                            for image in candidate[12][1]
                         ]
                         or []
                     )
