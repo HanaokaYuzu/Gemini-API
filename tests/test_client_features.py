@@ -29,7 +29,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_upload_image(self):
         response = await self.geminiclient.generate_content(
-            "Describe the image", image="assets/banner.png"
+            "Describe the image", images=["assets/banner.png"]
         )
         self.assertTrue(response.text)
         logger.debug(response.text)
@@ -59,11 +59,12 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_chatsession_with_image(self):
         chat = self.geminiclient.start_chat()
         response1 = await chat.send_message(
-            "Describe the image", image="assets/banner.png"
+            "What's the difference between these two images?",
+            images=["assets/pic1.png", "assets/pic2.png"],
         )
         self.assertTrue(response1.text)
         logger.debug(response1.text)
-        response2 = await chat.send_message("Tell me more about it.")
+        response2 = await chat.send_message("Tell me more.")
         self.assertTrue(response2.text)
         logger.debug(response2.text)
 

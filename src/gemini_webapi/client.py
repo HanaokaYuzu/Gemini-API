@@ -108,12 +108,12 @@ class GeminiClient:
         self.cookies = {}
         self.proxies = proxies
         self.running: bool = False
-        self.client: AsyncClient = None
-        self.access_token: str = None
+        self.client: AsyncClient | None = None
+        self.access_token: str | None = None
         self.timeout: float = 30
         self.auto_close: bool = False
         self.close_delay: float = 300
-        self.close_task: Task = None
+        self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
 
@@ -252,7 +252,7 @@ class GeminiClient:
     async def generate_content(
         self,
         prompt: str,
-        image: bytes | str | None = None,
+        images: list[bytes | str] | None = None,
         chat: Optional["ChatSession"] = None,
     ) -> ModelOutput:
         """
@@ -262,8 +262,8 @@ class GeminiClient:
         ----------
         prompt: `str`
             Prompt provided by user.
-        image: `bytes` | `str`, optional
-            File data in bytes, or path to the image file to be sent together with the prompt.
+        images: `list[bytes | str]`, optional
+            List of image file data in bytes or file paths in string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
 
@@ -300,12 +300,22 @@ class GeminiClient:
                             None,
                             json.dumps(
                                 [
-                                    image
+                                    images
                                     and [
                                         prompt,
                                         0,
                                         None,
-                                        [[[await upload_file(image, self.proxies), 1]]],
+                                        [
+                                            [
+                                                [
+                                                    await upload_file(
+                                                        image, self.proxies
+                                                    ),
+                                                    1,
+                                                ]
+                                            ]
+                                            for image in images
+                                        ],
                                     ]
                                     or [prompt],
                                     None,
@@ -475,7 +485,7 @@ class ChatSession:
             self.rcid = value.rcid
 
     async def send_message(
-        self, prompt: str, image: bytes | str | None = None
+        self, prompt: str, images: list[bytes | str] | None = None,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
@@ -485,8 +495,8 @@ class ChatSession:
         ----------
         prompt: `str`
             Prompt provided by user.
-        image: `bytes` | `str`, optional
-            File data in bytes, or path to the image file to be sent together with the prompt.
+        images: `list[bytes | str]`, optional
+            List of image file data in bytes or file paths in string.
 
         Returns
         -------
@@ -507,7 +517,7 @@ class ChatSession:
             - If response structure is invalid and failed to parse.
         """
         return await self.geminiclient.generate_content(
-            prompt=prompt, image=image, chat=self
+            prompt=prompt, images=images, chat=self
         )
 
     def choose_candidate(self, index: int) -> ModelOutput:

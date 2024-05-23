@@ -137,11 +137,14 @@ asyncio.run(main())
 
 ### Generate contents from image
 
-Gemini supports image recognition and generate contents from image (currently only supports one image at a time). Optionally, you can pass image data in `bytes` or its path in `str` to `GeminiClient.generate_content` together with text prompt.
+Gemini supports image recognition and generating contents from images. Optionally, you can pass images in a list of file data in `bytes` or their paths in `str` to `GeminiClient.generate_content` together with text prompt.
 
 ```python
 async def main():
-    response = await client.generate_content("Describe the image", image="assets/banner.png")
+    response = await client.generate_content(
+            "Describe each of these images",
+            images=["assets/banner.png", "assets/favicon.png"],
+        )
     print(response.text)
 
 asyncio.run(main())
