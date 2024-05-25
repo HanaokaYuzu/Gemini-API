@@ -1,6 +1,7 @@
 import os
 import unittest
 import logging
+from pathlib import Path
 
 from loguru import logger
 
@@ -29,7 +30,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_upload_image(self):
         response = await self.geminiclient.generate_content(
-            "Describe the image", images=["assets/banner.png"]
+            "Describe these images", images=[Path("assets/banner.png"), "assets/favicon.png"]
         )
         self.assertTrue(response.text)
         logger.debug(response.text)

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from httpx import AsyncClient
 from pydantic import validate_call
 
@@ -5,13 +7,13 @@ from ..constants import Endpoint, Headers
 
 
 @validate_call
-async def upload_file(file: bytes | str, proxies: dict | None = None) -> str:
+async def upload_file(file: bytes | str | Path, proxies: dict | None = None) -> str:
     """
     Upload a file to Google's server and return its identifier.
 
     Parameters
     ----------
-    file : `bytes` | `str`
+    file : `bytes` | `str` | `Path`
         File data in bytes, or path to the file to be uploaded.
     proxies: `dict`, optional
         Dict of proxies.
@@ -28,7 +30,7 @@ async def upload_file(file: bytes | str, proxies: dict | None = None) -> str:
         If the upload request failed.
     """
 
-    if isinstance(file, str):
+    if not isinstance(file, bytes):
         with open(file, "rb") as f:
             file = f.read()
 

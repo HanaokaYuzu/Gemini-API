@@ -2,6 +2,7 @@ import json
 import functools
 import asyncio
 from asyncio import Task
+from pathlib import Path
 from typing import Any, Optional
 
 from httpx import AsyncClient, ReadTimeout
@@ -252,7 +253,7 @@ class GeminiClient:
     async def generate_content(
         self,
         prompt: str,
-        images: list[bytes | str] | None = None,
+        images: list[bytes | str | Path] | None = None,
         chat: Optional["ChatSession"] = None,
     ) -> ModelOutput:
         """
@@ -262,8 +263,8 @@ class GeminiClient:
         ----------
         prompt: `str`
             Prompt provided by user.
-        images: `list[bytes | str]`, optional
-            List of image file data in bytes or file paths in string.
+        images: `list[bytes | str | Path]`, optional
+            List of image file paths or file data in bytes.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
 
@@ -485,7 +486,7 @@ class ChatSession:
             self.rcid = value.rcid
 
     async def send_message(
-        self, prompt: str, images: list[bytes | str] | None = None,
+        self, prompt: str, images: list[bytes | str | Path] | None = None,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
@@ -495,8 +496,8 @@ class ChatSession:
         ----------
         prompt: `str`
             Prompt provided by user.
-        images: `list[bytes | str]`, optional
-            List of image file data in bytes or file paths in string.
+        images: `list[bytes | str | Path]`, optional
+            List of image file paths or file data in bytes.
 
         Returns
         -------
