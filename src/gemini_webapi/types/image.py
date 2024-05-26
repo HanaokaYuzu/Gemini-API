@@ -98,7 +98,7 @@ class Image(BaseModel):
                 if verbose:
                     logger.info(f"Image saved as {dest.resolve()}")
 
-                return dest.resolve()
+                return str(dest.resolve())
             else:
                 raise HTTPError(
                     f"Error downloading image: {response.status_code} {response.reason_phrase}"
