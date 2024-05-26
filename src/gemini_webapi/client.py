@@ -212,14 +212,14 @@ class GeminiClient:
         if delay:
             await asyncio.sleep(delay)
 
+        self.running = False
+
         if self.close_task:
             self.close_task.cancel()
             self.close_task = None
 
         if self.client:
             await self.client.aclose()
-
-        self.running = False
 
     async def reset_close_task(self) -> None:
         """
@@ -486,7 +486,9 @@ class ChatSession:
             self.rcid = value.rcid
 
     async def send_message(
-        self, prompt: str, images: list[bytes | str | Path] | None = None,
+        self,
+        prompt: str,
+        images: list[bytes | str | Path] | None = None,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
