@@ -1,15 +1,16 @@
-import json
-import functools
 import asyncio
+import functools
+import json
+import re
 from asyncio import Task
 from pathlib import Path
 from typing import Any, Optional
 
 from httpx import AsyncClient, ReadTimeout
 
-from .types import WebImage, GeneratedImage, Candidate, ModelOutput
-from .exceptions import AuthError, APIError, TimeoutError, GeminiError
 from .constants import Endpoint, Headers
+from .exceptions import AuthError, APIError, TimeoutError, GeminiError
+from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .utils import (
     upload_file,
     rotate_1psidts,
@@ -359,6 +360,10 @@ class GeminiClient:
             try:
                 candidates = []
                 for candidate in body[4]:
+                    text = candidate[1][0]
+                    if re.match(r"^http://googleusercontent.com/card_content/\d+$", text):
+                        text = candidate[22] and candidate[22][0] or text
+
                     web_images = (
                         candidate[12]
                         and candidate[12][1]
@@ -373,6 +378,7 @@ class GeminiClient:
                         ]
                         or []
                     )
+
                     generated_images = (
                         candidate[12]
                         and candidate[12][7]
@@ -391,10 +397,11 @@ class GeminiClient:
                         ]
                         or []
                     )
+
                     candidates.append(
                         Candidate(
                             rcid=candidate[0],
-                            text=candidate[1][0],
+                            text=text,
                             web_images=web_images,
                             generated_images=generated_images,
                         )
