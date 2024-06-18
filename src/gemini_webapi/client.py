@@ -250,7 +250,7 @@ class GeminiClient:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
             await asyncio.sleep(self.refresh_interval)
 
-    @running(retry=1)
+    @running(retry=2)
     async def generate_content(
         self,
         prompt: str,
@@ -344,13 +344,11 @@ class GeminiClient:
                 body = json.loads(json.loads(response.text.split("\n")[2])[0][2])
 
                 if not body[4]:
-                    # Request with extensions as middleware
+                    # Request with Gemini extensions enabled
                     body = json.loads(json.loads(response.text.split("\n")[2])[4][2])
 
                 if not body[4]:
-                    raise APIError(
-                        "Failed to parse response body. Data structure is invalid. To report this error, please submit an issue at https://github.com/HanaokaYuzu/Gemini-API/issues"
-                    )
+                    raise Exception
             except Exception:
                 await self.close()
                 raise APIError(
@@ -412,9 +410,9 @@ class GeminiClient:
                     )
 
                 output = ModelOutput(metadata=body[1], candidates=candidates)
-            except IndexError:
+            except (TypeError, IndexError):
                 raise APIError(
-                    "Failed to parse response body. Data structure is invalid. To report this error, please submit an issue at https://github.com/HanaokaYuzu/Gemini-API/issues"
+                    "Failed to parse response body. Data structure is invalid."
                 )
 
             if isinstance(chat, ChatSession):
