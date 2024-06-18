@@ -52,7 +52,7 @@ jobs:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
     steps:
       - name: Retrieve built artifacts
-        uses: actions/download-artifact@v4.1.0
+        uses: actions/download-artifact@v4.1.7
         with:
           name: dist
           path: dist
