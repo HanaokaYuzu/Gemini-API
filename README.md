@@ -86,7 +86,20 @@ pip install -U browser-cookie3
 
 > [!NOTE]
 >
-> API's auto cookie refreshing feature doesn't require `browser-cookie3`, and by default is enabled.
+> If your application is deployed in a containerized environment (e.g. Docker), you may want to persist the cookies with a volume to avoid re-authentication every time the container rebuilds.
+>
+> Here's part of a sample `docker-compose.yml` file:
+
+```yaml
+services:
+  main:
+    volumes:
+      - ./gemini_cookies:/usr/local/lib/python3.12/site-packages/gemini_webapi/utils/temp
+```
+
+> [!NOTE]
+>
+> API's auto cookie refreshing feature doesn't require `browser-cookie3`, and by default is enabled. It allows you to keep the API service running without worrying about cookie expiration.
 >
 > This feature may cause that you need to re-login to your Google account in the browser. This is an expected behavior and won't affect the API's functionality.
 >
