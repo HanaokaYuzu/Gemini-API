@@ -352,7 +352,7 @@ class GeminiClient:
             except Exception:
                 await self.close()
                 raise APIError(
-                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                    "Failed to generate contents. Invalid response data received: {response.text}. Client will try to re-initialize on next request."
                 )
 
             try:
