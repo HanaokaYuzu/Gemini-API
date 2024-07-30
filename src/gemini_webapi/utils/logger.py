@@ -32,6 +32,7 @@ def set_log_level(level: str):
     level : str
         The log level to set. Must be one of "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
     """
+
     assert level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     logger.remove()

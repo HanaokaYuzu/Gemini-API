@@ -164,6 +164,7 @@ class GeminiClient:
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
         """
+
         try:
             access_token, valid_cookies = await get_access_token(
                 base_cookies=self.cookies, proxies=self.proxies, verbose=verbose
@@ -210,6 +211,7 @@ class GeminiClient:
         delay: `float`, optional
             Time to wait before closing the client in seconds.
         """
+
         if delay:
             await asyncio.sleep(delay)
 
@@ -226,6 +228,7 @@ class GeminiClient:
         """
         Reset the timer for closing the client when a new request is made.
         """
+
         if self.close_task:
             self.close_task.cancel()
             self.close_task = None
@@ -235,6 +238,7 @@ class GeminiClient:
         """
         Start the background task to automatically refresh cookies.
         """
+
         while True:
             try:
                 new_1psidts = await rotate_1psidts(self.cookies, self.proxies)
@@ -287,6 +291,7 @@ class GeminiClient:
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
+
         assert prompt, "Prompt cannot be empty."
 
         if self.auto_close:
@@ -434,6 +439,7 @@ class GeminiClient:
         :class:`ChatSession`
             Empty chat object for retrieving conversation history.
         """
+
         return ChatSession(geminiclient=self, **kwargs)
 
 
@@ -524,6 +530,7 @@ class ChatSession:
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
+
         return await self.geminiclient.generate_content(
             prompt=prompt, images=images, chat=self
         )
@@ -547,6 +554,7 @@ class ChatSession:
         `ValueError`
             If no previous output data found in this chat session, or if index exceeds the number of candidates in last model output.
         """
+
         if not self.last_output:
             raise ValueError("No previous output data found in this chat session.")
 

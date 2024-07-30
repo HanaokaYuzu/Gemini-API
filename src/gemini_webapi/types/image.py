@@ -69,6 +69,7 @@ class Image(BaseModel):
         `httpx.HTTPError`
             If the network request failed.
         """
+
         filename = filename or self.url.split("/")[-1].split("?")[0]
         try:
             filename = re.search(r"^(.*\.\w+)", filename).group()
@@ -153,6 +154,7 @@ class GeneratedImage(Image):
         `str | None`
             Absolute path of the saved image if successfully saved.
         """
+
         return await super().save(
             filename=kwargs.pop("filename", None)
             or f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{self.url[-10:]}.png",
