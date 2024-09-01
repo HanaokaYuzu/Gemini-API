@@ -101,7 +101,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_extension_youtube(self):
         response = await self.geminiclient.generate_content(
-            "@Youtube What's the lastest activity of Taylor Swift?"
+            "@Youtube What's the latest activity of Taylor Swift?"
         )
         logger.debug(response)
 
