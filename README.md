@@ -276,7 +276,7 @@ async def main():
     response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
     print(response1, "\n\n----------------------------------\n")
 
-    response2 = await client.generate_content("@Youtube What's the lastest activity of Taylor Swift?")
+    response2 = await client.generate_content("@Youtube What's the latest activity of Taylor Swift?")
     print(response2, "\n\n----------------------------------\n")
 
 asyncio.run(main())
