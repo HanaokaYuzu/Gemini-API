@@ -345,12 +345,14 @@ class GeminiClient:
             )
         else:
             try:
+                response_json = json.loads(response.text.split("\n")[2])
+
                 # Plain request
-                body = json.loads(json.loads(response.text.split("\n")[2])[0][2])
+                body = json.loads(response_json[0][2])
 
                 if not body[4]:
                     # Request with Gemini extensions enabled
-                    body = json.loads(json.loads(response.text.split("\n")[2])[4][2])
+                    body = json.loads(response_json[4][2])
 
                 if not body[4]:
                     raise Exception
@@ -363,9 +365,11 @@ class GeminiClient:
 
             try:
                 candidates = []
-                for candidate in body[4]:
+                for i, candidate in enumerate(body[4]):
                     text = candidate[1][0]
-                    if re.match(r"^http://googleusercontent.com/card_content/\d+$", text):
+                    if re.match(
+                        r"^http://googleusercontent.com/card_content/\d+$", text
+                    ):
                         text = candidate[22] and candidate[22][0] or text
 
                     web_images = (
@@ -383,11 +387,11 @@ class GeminiClient:
                         or []
                     )
 
-                    generated_images = (
-                        candidate[12]
-                        and candidate[12][7]
-                        and candidate[12][7][0]
-                        and [
+                    generated_images = []
+                    if candidate[12] and candidate[12][7] and candidate[12][7][0]:
+                        image_generation_body = json.loads(response_json[1][2])
+                        image_generation_candidate = image_generation_body[4][i]
+                        generated_images = [
                             GeneratedImage(
                                 url=image[0][3][3],
                                 title=f"[Generated Image {image[3][6]}]",
@@ -397,10 +401,10 @@ class GeminiClient:
                                 proxies=self.proxies,
                                 cookies=self.cookies,
                             )
-                            for i, image in enumerate(candidate[12][7][0])
-                        ]
-                        or []
-                    )
+                            for i, image in enumerate(
+                                image_generation_candidate[12][7][0]
+                            )
+                        ] or []
 
                     candidates.append(
                         Candidate(
@@ -417,6 +421,7 @@ class GeminiClient:
 
                 output = ModelOutput(metadata=body[1], candidates=candidates)
             except (TypeError, IndexError):
+                logger.debug(f"Invalid response: {response.text}")
                 raise APIError(
                     "Failed to parse response body. Data structure is invalid."
                 )
