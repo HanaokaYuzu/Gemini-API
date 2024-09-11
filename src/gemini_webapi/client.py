@@ -83,8 +83,7 @@ class GeminiClient:
     Raises
     ------
     `ValueError`
-        If `secure_1psid` is not provided and optional dependency `browser-cookie3` is not installed, or
-        `browser-cookie3` is installed but cookies for google.com are not found in your local browser storage.
+        If `browser-cookie3` is installed but cookies for google.com are not found in your local browser storage.
     """
 
     __slots__ = [
@@ -132,9 +131,7 @@ class GeminiClient:
                         "Failed to load cookies from local browser. Please pass cookie values manually."
                     )
             except ImportError:
-                raise ValueError(
-                    "'secure_1psid' must be provided if optional dependency 'browser-cookie3' is not installed."
-                )
+                pass
 
     async def init(
         self,

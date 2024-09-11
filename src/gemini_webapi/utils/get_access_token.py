@@ -58,13 +58,21 @@ async def get_access_token(
 
     tasks = []
 
-    if "__Secure-1PSID" in base_cookies:
+    # Base cookies passed directly on initializing client
+    if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
         tasks.append(Task(send_request(base_cookies)))
+    elif verbose:
+        logger.debug(
+            "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
+        )
 
+    # Cached cookies in local file
+    cache_dir = Path(__file__).parent / "temp"
+    if "__Secure-1PSID" in base_cookies:
         filename = f".cached_1psidts_{base_cookies['__Secure-1PSID']}.txt"
-        path = Path(__file__).parent / "temp" / filename
-        if path.is_file():
-            cached_1psidts = path.read_text()
+        cache_file = cache_dir / filename
+        if cache_file.is_file():
+            cached_1psidts = cache_file.read_text()
             if cached_1psidts:
                 cached_cookies = {**base_cookies, "__Secure-1PSIDTS": cached_1psidts}
                 tasks.append(Task(send_request(cached_cookies)))
@@ -72,11 +80,25 @@ async def get_access_token(
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
         elif verbose:
             logger.debug("Skipping loading cached cookies. Cache file not found.")
-    elif verbose:
-        logger.debug(
-            "Skipping loading base cookies and cached cookies. __Secure-1PSID is not provided."
-        )
+    else:
+        valid_caches = 0
+        cache_files = cache_dir.glob(".cached_1psidts_*.txt")
+        for cache_file in cache_files:
+            cached_1psidts = cache_file.read_text()
+            if cached_1psidts:
+                cached_cookies = {
+                    "__Secure-1PSID": cache_file.stem[16:],
+                    "__Secure-1PSIDTS": cached_1psidts,
+                }
+                tasks.append(Task(send_request(cached_cookies)))
+                valid_caches += 1
 
+        if valid_caches == 0 and verbose:
+            logger.debug(
+                "Skipping loading cached cookies. Cookies will be cached after successful initialization."
+            )
+
+    # Browser cookies (if browser-cookie3 is installed)
     try:
         browser_cookies = load_browser_cookies(
             domain_name="google.com", verbose=verbose
@@ -120,5 +142,6 @@ async def get_access_token(
                 )
 
     raise AuthError(
-        "Failed to initialize client. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date."
+        "Failed to initialize client. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date. "
+        f"(Failed initialization attempts: {len(tasks)})"
     )
