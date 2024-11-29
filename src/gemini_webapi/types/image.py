@@ -20,14 +20,14 @@ class Image(BaseModel):
         Title of the image, by default is "[Image]".
     alt: `str`, optional
         Optional description of the image.
-    proxies: `dict`, optional
-        Dict of proxies used when saving image.
+    proxy: `str`, optional
+        Proxy used when saving image.
     """
 
     url: str
     title: str = "[Image]"
     alt: str = ""
-    proxies: dict | None = None
+    proxy: str | None = None
 
     def __str__(self):
         return f"{self.title}({self.url}) - {self.alt}"
@@ -80,7 +80,7 @@ class Image(BaseModel):
                 return None
 
         async with AsyncClient(
-            follow_redirects=True, cookies=cookies, proxies=self.proxies
+            follow_redirects=True, cookies=cookies, proxy=self.proxy
         ) as client:
             response = await client.get(self.url)
             if response.status_code == 200:

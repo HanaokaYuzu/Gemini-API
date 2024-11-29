@@ -77,8 +77,8 @@ class GeminiClient:
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
         __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
-    proxies: `dict`, optional
-        Dict of proxies.
+    proxy: `str`, optional
+        Proxy URL.
 
     Raises
     ------
@@ -88,7 +88,7 @@ class GeminiClient:
 
     __slots__ = [
         "cookies",
-        "proxies",
+        "proxy",
         "running",
         "client",
         "access_token",
@@ -104,10 +104,10 @@ class GeminiClient:
         self,
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
-        proxies: dict | None = None,
+        proxy: str | None = None,
     ):
         self.cookies = {}
-        self.proxies = proxies
+        self.proxy = proxy
         self.running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
@@ -164,12 +164,12 @@ class GeminiClient:
 
         try:
             access_token, valid_cookies = await get_access_token(
-                base_cookies=self.cookies, proxies=self.proxies, verbose=verbose
+                base_cookies=self.cookies, proxy=self.proxy, verbose=verbose
             )
 
             self.client = AsyncClient(
                 timeout=timeout,
-                proxies=self.proxies,
+                proxy=self.proxy,
                 follow_redirects=True,
                 headers=Headers.GEMINI.value,
                 cookies=valid_cookies,
@@ -238,7 +238,7 @@ class GeminiClient:
 
         while True:
             try:
-                new_1psidts = await rotate_1psidts(self.cookies, self.proxies)
+                new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
             except AuthError:
                 if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
                     task.cancel()
@@ -313,7 +313,7 @@ class GeminiClient:
                                             [
                                                 [
                                                     await upload_file(
-                                                        image, self.proxies
+                                                        image, self.proxy
                                                     ),
                                                     1,
                                                 ]
@@ -377,7 +377,7 @@ class GeminiClient:
                                 url=image[0][0][0],
                                 title=image[7][0],
                                 alt=image[0][4],
-                                proxies=self.proxies,
+                                proxy=self.proxy,
                             )
                             for image in candidate[12][1]
                         ]
@@ -395,7 +395,7 @@ class GeminiClient:
                                 alt=len(image[3][5]) > i
                                 and image[3][5][i]
                                 or image[3][5][0],
-                                proxies=self.proxies,
+                                proxy=self.proxy,
                                 cookies=self.cookies,
                             )
                             for i, image in enumerate(

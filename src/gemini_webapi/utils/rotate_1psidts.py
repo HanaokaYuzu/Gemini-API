@@ -8,7 +8,7 @@ from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 
 
-async def rotate_1psidts(cookies: dict, proxies: dict | None = None) -> str:
+async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
@@ -16,8 +16,8 @@ async def rotate_1psidts(cookies: dict, proxies: dict | None = None) -> str:
     ----------
     cookies : `dict`
         Cookies to be used in the request.
-    proxies: `dict`, optional
-        Dict of proxies.
+    proxy: `str`, optional
+        Proxy URL.
 
     Returns
     -------
@@ -39,7 +39,7 @@ async def rotate_1psidts(cookies: dict, proxies: dict | None = None) -> str:
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
     if not (path.is_file() and time.time() - os.path.getmtime(path) <= 60):
-        async with AsyncClient(proxies=proxies) as client:
+        async with AsyncClient(proxy=proxy) as client:
             response = await client.post(
                 url=Endpoint.ROTATE_COOKIES.value,
                 headers=Headers.ROTATE_COOKIES.value,

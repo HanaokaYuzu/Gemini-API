@@ -12,7 +12,7 @@ from .logger import logger
 
 
 async def get_access_token(
-    base_cookies: dict, proxies: dict | None = None, verbose: bool = False
+    base_cookies: dict, proxy: str | None = None, verbose: bool = False
 ) -> tuple[str, dict]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
@@ -27,8 +27,8 @@ async def get_access_token(
     ----------
     base_cookies : `dict`
         Base cookies to be used in the request.
-    proxies: `dict`, optional
-        Dict of proxies.
+    proxy: `str`, optional
+        Proxy URL.
     verbose: `bool`, optional
         If `True`, will print more infomation in logs.
 
@@ -47,7 +47,7 @@ async def get_access_token(
 
     async def send_request(cookies: dict) -> tuple[Response | None, dict]:
         async with AsyncClient(
-            proxies=proxies,
+            proxy=proxy,
             headers=Headers.GEMINI.value,
             cookies=cookies,
             follow_redirects=True,
