@@ -311,12 +311,8 @@ class GeminiClient:
                                         None,
                                         [
                                             [
-                                                [
-                                                    await upload_file(
-                                                        image, self.proxy
-                                                    ),
-                                                    1,
-                                                ]
+                                                [await upload_file(image, self.proxy)],
+                                                "filename.jpg",
                                             ]
                                             for image in images
                                         ],
