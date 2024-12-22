@@ -21,3 +21,28 @@ class Headers(Enum):
         "Content-Type": "application/json",
     }
     UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz"}
+
+
+class Model(Enum):
+    UNSPECIFIED = ("unspecified", {})
+    G_1_5_FLASH = (
+        "gemini-1.5-flash",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7daceb7ef88130f5"]'},
+    )
+    G_2_0_FLASH_EXP = (
+        "gemini-2.0-flash-exp",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"948b866104ccf484"]'},
+    )
+
+    def __init__(self, name, header):
+        self.model_name = name
+        self.model_header = header
+
+    @classmethod
+    def from_name(cls, name: str):
+        for model in cls:
+            if model.model_name == name:
+                return model
+        raise ValueError(
+            f"Unknown model name: {name}. Available models: {', '.join([model.model_name for model in cls])}"
+        )

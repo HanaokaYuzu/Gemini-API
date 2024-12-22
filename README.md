@@ -50,6 +50,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Retrieve images in response](#retrieve-images-in-response)
   - [Generate images with ImageFx](#generate-images-with-imagefx)
   - [Save images to local files](#save-images-to-local-files)
+  - [Specify language model version](#specify-language-model-version)
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
   - [Control log level](#control-log-level)
@@ -92,9 +93,9 @@ pip install -U browser-cookie3
 
 ```yaml
 services:
-  main:
-    volumes:
-      - ./gemini_cookies:/usr/local/lib/python3.12/site-packages/gemini_webapi/utils/temp
+    main:
+        volumes:
+            - ./gemini_cookies:/usr/local/lib/python3.12/site-packages/gemini_webapi/utils/temp
 ```
 
 > [!NOTE]
@@ -251,6 +252,33 @@ async def main():
     response = await client.generate_content("Generate some pictures of cats")
     for i, image in enumerate(response.images):
         await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
+
+asyncio.run(main())
+```
+
+### Specify language model version
+
+You can choose a specified language model version by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
+
+Currently available models (as of Dec 21, 2024):
+
+- `unspecified` - Default model (Gemini 1.5 Flash)
+- `gemini-1.5-flash` - Gemini 1.5 Flash
+- `gemini-2.0-flash-exp` - Gemini 2.0 Flash Experimental
+
+```python
+from gemini_webapi.constants import Model
+
+async def main():
+    response1 = await client.generate_content(
+        "What's you language model version? Reply version number only.",
+        model="gemini-1.5-flash",
+    )
+    print(f"Model version (gemini-1.5-flash): {response1.text}")
+
+    chat = client.start_chat(model=Model.G_2_0_FLASH_EXP)
+    response2 = await chat.send_message("What's you language model version? Reply version number only.")
+    print(f"Model version ({Model.G_2_0_FLASH_EXP.model_name}): {response2.text}")
 
 asyncio.run(main())
 ```

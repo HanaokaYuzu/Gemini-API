@@ -6,6 +6,7 @@ from pathlib import Path
 from loguru import logger
 
 from gemini_webapi import GeminiClient, AuthError, set_log_level
+from gemini_webapi.constants import Model
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -28,9 +29,19 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.text)
 
     @logger.catch(reraise=True)
+    async def test_switch_model(self):
+        for model in Model:
+            response = await self.geminiclient.generate_content(
+                "What's you language model version? Reply version number only.",
+                model=model,
+            )
+            logger.debug(f"Model version ({model.model_name}): {response.text}")
+
+    @logger.catch(reraise=True)
     async def test_upload_image(self):
         response = await self.geminiclient.generate_content(
-            "Describe these images", images=[Path("assets/banner.png"), "assets/favicon.png"]
+            "Describe these images",
+            images=[Path("assets/banner.png"), "assets/favicon.png"],
         )
         logger.debug(response.text)
 
@@ -86,9 +97,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_card_content(self):
-        response = await self.geminiclient.generate_content(
-            "How is today's weather?"
-        )
+        response = await self.geminiclient.generate_content("How is today's weather?")
         logger.debug(response.text)
 
     @logger.catch(reraise=True)

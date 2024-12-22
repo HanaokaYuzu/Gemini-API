@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from httpx import AsyncClient, ReadTimeout
 
-from .constants import Endpoint, Headers
+from .constants import Endpoint, Headers, Model
 from .exceptions import AuthError, APIError, TimeoutError, GeminiError
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .utils import (
@@ -79,6 +79,9 @@ class GeminiClient:
         __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
     proxy: `str`, optional
         Proxy URL.
+    kwargs: `dict`, optional
+        Additional arguments which will be passed to the http client.
+        Refer to `httpx.AsyncClient` for more information.
 
     Raises
     ------
@@ -98,6 +101,7 @@ class GeminiClient:
         "close_task",
         "auto_refresh",
         "refresh_interval",
+        "kwargs",
     ]
 
     def __init__(
@@ -105,6 +109,7 @@ class GeminiClient:
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        **kwargs,
     ):
         self.cookies = {}
         self.proxy = proxy
@@ -117,6 +122,7 @@ class GeminiClient:
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
+        self.kwargs = kwargs
 
         # Validate cookies
         if secure_1psid:
@@ -173,6 +179,7 @@ class GeminiClient:
                 follow_redirects=True,
                 headers=Headers.GEMINI.value,
                 cookies=valid_cookies,
+                **self.kwargs,
             )
             self.access_token = access_token
             self.cookies = valid_cookies
@@ -256,7 +263,9 @@ class GeminiClient:
         self,
         prompt: str,
         images: list[bytes | str | Path] | None = None,
+        model: Model | str = Model.UNSPECIFIED,
         chat: Optional["ChatSession"] = None,
+        **kwargs,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
@@ -267,8 +276,14 @@ class GeminiClient:
             Prompt provided by user.
         images: `list[bytes | str | Path]`, optional
             List of image file paths or file data in bytes.
+        model: `Model` | `str`, optional
+            Specify the model to use for generation.
+            Pass either a `gemini_webapi.constants.Model` enum or a model name string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+        kwargs: `dict`, optional
+            Additional arguments which will be passed to the post request.
+            Refer to `httpx.AsyncClient.request` for more information.
 
         Returns
         -------
@@ -291,12 +306,16 @@ class GeminiClient:
 
         assert prompt, "Prompt cannot be empty."
 
+        if not isinstance(model, Model):
+            model = Model.from_name(model)
+
         if self.auto_close:
             await self.reset_close_task()
 
         try:
             response = await self.client.post(
                 Endpoint.GENERATE.value,
+                headers=model.model_header,
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
@@ -325,6 +344,7 @@ class GeminiClient:
                         ]
                     ),
                 },
+                **kwargs,
             )
         except ReadTimeout:
             raise TimeoutError(
@@ -431,12 +451,13 @@ class GeminiClient:
         Parameters
         ----------
         kwargs: `dict`, optional
-            Other arguments to pass to `ChatSession.__init__`.
+            Additional arguments which will be passed to the chat session.
+            Refer to `gemini_webapi.ChatSession` for more information.
 
         Returns
         -------
         :class:`ChatSession`
-            Empty chat object for retrieving conversation history.
+            Empty chat session object for retrieving conversation history.
         """
 
         return ChatSession(geminiclient=self, **kwargs)
@@ -458,9 +479,17 @@ class ChatSession:
         Reply id, if provided together with metadata, will override the second value in it.
     rcid: `str`, optional
         Reply candidate id, if provided together with metadata, will override the third value in it.
+    model: `Model` | `str`, optional
+        Specify the model to use for generation.
+        Pass either a `gemini_webapi.constants.Model` enum or a model name string.
     """
 
-    __slots__ = ["__metadata", "geminiclient", "last_output"]
+    __slots__ = [
+        "__metadata",
+        "geminiclient",
+        "last_output",
+        "model",
+    ]
 
     def __init__(
         self,
@@ -469,10 +498,12 @@ class ChatSession:
         cid: str | None = None,  # chat id
         rid: str | None = None,  # reply id
         rcid: str | None = None,  # reply candidate id
+        model: Model | str = Model.UNSPECIFIED,
     ):
         self.__metadata: list[str | None] = [None, None, None]
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
+        self.model = model
 
         if metadata:
             self.metadata = metadata
@@ -499,6 +530,7 @@ class ChatSession:
         self,
         prompt: str,
         images: list[bytes | str | Path] | None = None,
+        **kwargs,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
@@ -510,6 +542,9 @@ class ChatSession:
             Prompt provided by user.
         images: `list[bytes | str | Path]`, optional
             List of image file paths or file data in bytes.
+        kwargs: `dict`, optional
+            Additional arguments which will be passed to the post request.
+            Refer to `httpx.AsyncClient.request` for more information.
 
         Returns
         -------
@@ -531,7 +566,7 @@ class ChatSession:
         """
 
         return await self.geminiclient.generate_content(
-            prompt=prompt, images=images, chat=self
+            prompt=prompt, images=images, model=self.model, chat=self, **kwargs
         )
 
     def choose_candidate(self, index: int) -> ModelOutput:
