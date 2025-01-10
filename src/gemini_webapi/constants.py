@@ -24,19 +24,27 @@ class Headers(Enum):
 
 
 class Model(Enum):
-    UNSPECIFIED = ("unspecified", {})
+    UNSPECIFIED = ("unspecified", {}, False)
     G_1_5_FLASH = (
         "gemini-1.5-flash",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7daceb7ef88130f5"]'},
+        False,
     )
     G_2_0_FLASH_EXP = (
         "gemini-2.0-flash-exp",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"948b866104ccf484"]'},
+        False,
+    )
+    G_2_0_EXP_ADVANCED = (
+        "gemini-2.0-exp-advanced",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
+        True,
     )
 
-    def __init__(self, name, header):
+    def __init__(self, name, header, advanced_only):
         self.model_name = name
         self.model_header = header
+        self.advanced_only = advanced_only
 
     @classmethod
     def from_name(cls, name: str):

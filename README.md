@@ -265,6 +265,7 @@ Currently available models (as of Dec 21, 2024):
 - `unspecified` - Default model (Gemini 1.5 Flash)
 - `gemini-1.5-flash` - Gemini 1.5 Flash
 - `gemini-2.0-flash-exp` - Gemini 2.0 Flash Experimental
+- `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced (requires Gemini Advanced account)
 
 ```python
 from gemini_webapi.constants import Model

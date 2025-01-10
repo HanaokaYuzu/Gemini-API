@@ -31,6 +31,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_switch_model(self):
         for model in Model:
+            if model.advanced_only:
+                logger.debug(f"Model {model.model_name} requires an advanced account")
+                continue
+
             response = await self.geminiclient.generate_content(
                 "What's you language model version? Reply version number only.",
                 model=model,
