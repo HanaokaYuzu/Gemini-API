@@ -85,19 +85,29 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             "Send me some pictures of cats"
         )
         self.assertTrue(response.images)
+        logger.debug(response.text)
         for image in response.images:
             self.assertTrue(image.url)
             logger.debug(image)
 
     @logger.catch(reraise=True)
-    async def test_ai_image_generation(self):
+    async def test_image_generation(self):
         response = await self.geminiclient.generate_content(
             "Generate some pictures of cats"
         )
         self.assertTrue(response.images)
+        logger.debug(response.text)
         for image in response.images:
             self.assertTrue(image.url)
             logger.debug(image)
+
+    @logger.catch(reraise=True)
+    async def test_image_generation_failure(self):
+        response = await self.geminiclient.generate_content(
+            "Generate some pictures of people"
+        )
+        self.assertFalse(response.images)
+        logger.debug(response.text)
 
     @logger.catch(reraise=True)
     async def test_card_content(self):

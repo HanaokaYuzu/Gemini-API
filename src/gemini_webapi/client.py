@@ -381,7 +381,7 @@ class GeminiClient:
                 for i, candidate in enumerate(body[4]):
                     text = candidate[1][0]
                     if re.match(
-                        r"^http://googleusercontent.com/card_content/\d+$", text
+                        r"^http://googleusercontent\.com/card_content/\d+$", text
                     ):
                         text = candidate[22] and candidate[22][0] or text
 
@@ -404,20 +404,31 @@ class GeminiClient:
                     if candidate[12] and candidate[12][7] and candidate[12][7][0]:
                         image_generation_body = json.loads(response_json[1][2])
                         image_generation_candidate = image_generation_body[4][i]
-                        generated_images = [
-                            GeneratedImage(
-                                url=image[0][3][3],
-                                title=f"[Generated Image {image[3][6]}]",
-                                alt=len(image[3][5]) > i
-                                and image[3][5][i]
-                                or image[3][5][0],
-                                proxy=self.proxy,
-                                cookies=self.cookies,
-                            )
-                            for i, image in enumerate(
-                                image_generation_candidate[12][7][0]
-                            )
-                        ] or []
+                        text = re.sub(
+                            r"http://googleusercontent\.com/image_generation_content/\d+$",
+                            "",
+                            image_generation_candidate[1][0],
+                        ).rstrip()
+
+                        if (
+                            image_generation_candidate[12]
+                            and image_generation_candidate[12][7]
+                            and image_generation_candidate[12][7][0]
+                        ):
+                            generated_images = [
+                                GeneratedImage(
+                                    url=image[0][3][3],
+                                    title=f"[Generated Image {image[3][6]}]",
+                                    alt=len(image[3][5]) > i
+                                    and image[3][5][i]
+                                    or image[3][5][0],
+                                    proxy=self.proxy,
+                                    cookies=self.cookies,
+                                )
+                                for i, image in enumerate(
+                                    image_generation_candidate[12][7][0]
+                                )
+                            ]
 
                     candidates.append(
                         Candidate(
