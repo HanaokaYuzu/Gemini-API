@@ -262,10 +262,12 @@ You can choose a specified language model version by passing `model` argument to
 
 Currently available models (as of Dec 21, 2024):
 
-- `unspecified` - Default model (Gemini 1.5 Flash)
+- `unspecified` - Default model (Gemini 1.5 Pro if account has Gemini Advanced subscription, otherwise Gemini 1.5 Flash)
 - `gemini-1.5-flash` - Gemini 1.5 Flash
+- `gemini-1.5-pro` - Gemini 1.5 Pro **(requires Gemini Advanced account)**
+- `gemini-1.5-pro-research` - Gemini 1.5 Pro with Deep Research **(requires Gemini Advanced account)**
 - `gemini-2.0-flash-exp` - Gemini 2.0 Flash Experimental
-- `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced (requires Gemini Advanced account)
+- `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced **(requires Gemini Advanced account)**
 
 ```python
 from gemini_webapi.constants import Model

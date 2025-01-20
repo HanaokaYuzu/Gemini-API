@@ -30,6 +30,16 @@ class Model(Enum):
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7daceb7ef88130f5"]'},
         False,
     )
+    G_1_5_PRO = (
+        "gemini-1.5-pro",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"9d60dfae93c9ff1f"]'},
+        True,
+    )
+    G_1_5_PRO_RESEARCH = (
+        "gemini-1.5-pro-research",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"e5a44cb1dae2b489"]'},
+        True,
+    )
     G_2_0_FLASH_EXP = (
         "gemini-2.0-flash-exp",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"948b866104ccf484"]'},
