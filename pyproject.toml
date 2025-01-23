@@ -20,9 +20,9 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "httpx~=0.28.0",
-    "pydantic~=2.10.2",
-    "loguru~=0.7.2",
+    "httpx[http2]~=0.28.1",
+    "pydantic~=2.10.5",
+    "loguru~=0.7.3",
 ]
 dynamic = ["version"]
 

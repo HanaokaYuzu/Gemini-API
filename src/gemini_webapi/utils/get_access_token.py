@@ -47,6 +47,7 @@ async def get_access_token(
 
     async def send_request(cookies: dict) -> tuple[Response | None, dict]:
         async with AsyncClient(
+            http2=True,
             proxy=proxy,
             headers=Headers.GEMINI.value,
             cookies=cookies,
