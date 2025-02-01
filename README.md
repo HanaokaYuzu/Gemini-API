@@ -260,9 +260,9 @@ asyncio.run(main())
 
 You can choose a specified language model version by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
-Currently available models (as of Dec 21, 2024):
+Currently available models (as of Feb 1, 2025):
 
-- `unspecified` - Default model (Gemini 1.5 Pro if account has Gemini Advanced subscription, otherwise Gemini 1.5 Flash)
+- `unspecified` - Default model (Gemini 2.0 Flash if account does NOT have Gemini Advanced subscription)
 - `gemini-1.5-flash` - Gemini 1.5 Flash
 - `gemini-1.5-pro` - Gemini 1.5 Pro **(requires Gemini Advanced account)**
 - `gemini-1.5-pro-research` - Gemini 1.5 Pro with Deep Research **(requires Gemini Advanced account)**
