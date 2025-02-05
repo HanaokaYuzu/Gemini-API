@@ -25,6 +25,31 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
+    G_2_0_FLASH = (
+        "gemini-2.0-flash",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"f299729663a2343f"]'},
+        False,
+    )
+    G_2_0_FLASH_EXP = (
+        "gemini-2.0-flash-exp",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"f299729663a2343f"]'},
+        False,
+    )  # Deprecated, should be removed in the future
+    G_2_0_FLASH_THINKING = (
+        "gemini-2.0-flash-thinking",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"9c17b1863f581b8a"]'},
+        False,
+    )
+    G_2_0_FLASH_THINKING_WITH_APPS = (
+        "gemini-2.0-flash-thinking-with-apps",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"f8f8f5ea629f5d37"]'},
+        False,
+    )
+    G_2_0_EXP_ADVANCED = (
+        "gemini-2.0-exp-advanced",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
+        True,
+    )
     G_1_5_FLASH = (
         "gemini-1.5-flash",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"418ab5ea040b5c43"]'},
@@ -38,16 +63,6 @@ class Model(Enum):
     G_1_5_PRO_RESEARCH = (
         "gemini-1.5-pro-research",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"e5a44cb1dae2b489"]'},
-        True,
-    )
-    G_2_0_FLASH_EXP = (
-        "gemini-2.0-flash-exp",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"f299729663a2343f"]'},
-        False,
-    )
-    G_2_0_EXP_ADVANCED = (
-        "gemini-2.0-exp-advanced",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
         True,
     )
 

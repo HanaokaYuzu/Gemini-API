@@ -43,14 +43,15 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - [Authentication](#authentication)
 - [Usage](#usage)
   - [Initialization](#initialization)
+  - [Select language model](#select-language-model)
   - [Generate contents from text](#generate-contents-from-text)
   - [Generate contents from image](#generate-contents-from-image)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
+  - [Retrieve model's thought process](#retrieve-models-thought-process)
   - [Retrieve images in response](#retrieve-images-in-response)
   - [Generate images with ImageFx](#generate-images-with-imagefx)
   - [Save images to local files](#save-images-to-local-files)
-  - [Specify language model version](#specify-language-model-version)
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
   - [Control log level](#control-log-level)
@@ -133,6 +134,41 @@ asyncio.run(main())
 >
 > `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In an always-on service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
 
+### Select language model
+
+You can specify which language model to use by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
+
+Currently available models (as of Feb 5, 2025):
+
+- `unspecified` - Default model (same as `gemini-2.0-flash` if account does NOT have Gemini Advanced subscription)
+- `gemini-2.0-flash` - Gemini 2.0 Flash
+- `gemini-2.0-flash-thinking` - Gemini 2.0 Flash Thinking Experimental
+- `gemini-2.0-flash-thinking-with-apps` - Gemini 2.0 Flash Thinking Experimental with apps
+- `gemini-1.5-flash` - Gemini 1.5 Flash
+
+Models pending update (may not work as expected):
+
+- `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced **(requires Gemini Advanced account)**
+- `gemini-1.5-pro` - Gemini 1.5 Pro **(requires Gemini Advanced account)**
+- `gemini-1.5-pro-research` - Gemini 1.5 Pro with Deep Research **(requires Gemini Advanced account)**
+
+```python
+from gemini_webapi.constants import Model
+
+async def main():
+    response1 = await client.generate_content(
+        "What's you language model version? Reply version number only.",
+        model=Model.G_2_0_FLASH,
+    )
+    print(f"Model version ({Model.G_2_0_FLASH.model_name}): {response1.text}")
+
+    chat = client.start_chat(model="gemini-2.0-flash-thinking")
+    response2 = await chat.send_message("What's you language model version? Reply version number only.")
+    print(f"Model version (gemini-2.0-flash-thinking): {response2.text}")
+
+asyncio.run(main())
+```
+
 ### Generate contents from text
 
 Ask a one-turn quick question by calling `GeminiClient.generate_content`.
@@ -203,6 +239,21 @@ async def main():
 asyncio.run(main())
 ```
 
+### Retrieve model's thought process
+
+When using models with thinking capabilities, the model's thought process will be populated in `ModelOutput.thoughts`.
+
+```python
+async def main():
+    response = await client.generate_content(
+            "What's 1+1?", model="gemini-2.0-flash-thinking"
+        )
+    print(response.thoughts)
+    print(response.text)
+
+asyncio.run(main())
+```
+
 ### Retrieve images in response
 
 Images in the API's output are stored as a list of `Image` objects. You can access the image title, URL, and description by calling `image.title`, `image.url` and `image.alt` respectively.
@@ -252,36 +303,6 @@ async def main():
     response = await client.generate_content("Generate some pictures of cats")
     for i, image in enumerate(response.images):
         await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
-
-asyncio.run(main())
-```
-
-### Specify language model version
-
-You can choose a specified language model version by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
-
-Currently available models (as of Feb 1, 2025):
-
-- `unspecified` - Default model (Gemini 2.0 Flash if account does NOT have Gemini Advanced subscription)
-- `gemini-1.5-flash` - Gemini 1.5 Flash
-- `gemini-1.5-pro` - Gemini 1.5 Pro **(requires Gemini Advanced account)**
-- `gemini-1.5-pro-research` - Gemini 1.5 Pro with Deep Research **(requires Gemini Advanced account)**
-- `gemini-2.0-flash-exp` - Gemini 2.0 Flash Experimental
-- `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced **(requires Gemini Advanced account)**
-
-```python
-from gemini_webapi.constants import Model
-
-async def main():
-    response1 = await client.generate_content(
-        "What's you language model version? Reply version number only.",
-        model="gemini-1.5-flash",
-    )
-    print(f"Model version (gemini-1.5-flash): {response1.text}")
-
-    chat = client.start_chat(model=Model.G_2_0_FLASH_EXP)
-    response2 = await chat.send_message("What's you language model version? Reply version number only.")
-    print(f"Model version ({Model.G_2_0_FLASH_EXP.model_name}): {response2.text}")
 
 asyncio.run(main())
 ```

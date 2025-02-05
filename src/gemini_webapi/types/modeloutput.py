@@ -33,6 +33,10 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].text
 
     @property
+    def thoughts(self) -> str | None:
+        return self.candidates[self.chosen].thoughts
+
+    @property
     def images(self) -> list[Image]:
         return self.candidates[self.chosen].images
 

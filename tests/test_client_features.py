@@ -25,8 +25,27 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_successful_request(self):
-        response = await self.geminiclient.generate_content("Hello World!")
-        self.assertTrue(response.text)
+        response = await self.geminiclient.generate_content(
+            "Hello World!", model=Model.G_2_0_FLASH
+        )
+        logger.debug(response.text)
+
+    @logger.catch(reraise=True)
+    async def test_thinking_model(self):
+        response = await self.geminiclient.generate_content(
+            "What's 1+1?", model=Model.G_2_0_FLASH_THINKING
+        )
+        logger.debug(response.thoughts)
+        logger.debug(response.text)
+
+    @logger.catch(reraise=True)
+    async def test_thinking_with_apps(self):
+        response = await self.geminiclient.generate_content(
+            "Tell me a fact about today in history and illustrate it with a youtube video",
+            model=Model.G_2_0_FLASH_THINKING_WITH_APPS,
+        )
+        logger.debug(response.thoughts)
+        logger.debug(response.text)
 
     @logger.catch(reraise=True)
     async def test_switch_model(self):

@@ -365,6 +365,10 @@ class GeminiClient:
                 body = json.loads(response_json[0][2])
 
                 if not body[4]:
+                    # Request with thinking models
+                    body = json.loads(response_json[1][2])
+
+                if not body[4]:
                     # Request with Gemini extensions enabled
                     body = json.loads(response_json[4][2])
 
@@ -385,6 +389,11 @@ class GeminiClient:
                         r"^http://googleusercontent\.com/card_content/\d+$", text
                     ):
                         text = candidate[22] and candidate[22][0] or text
+
+                    try:
+                        thoughts = candidate[37][0][0]
+                    except (TypeError, IndexError):
+                        thoughts = None
 
                     web_images = (
                         candidate[12]
@@ -435,6 +444,7 @@ class GeminiClient:
                         Candidate(
                             rcid=candidate[0],
                             text=text,
+                            thoughts=thoughts,
                             web_images=web_images,
                             generated_images=generated_images,
                         )
