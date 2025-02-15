@@ -125,7 +125,7 @@ Secure_1PSIDTS = "COOKIE VALUE HERE"
 async def main():
     # If browser-cookie3 is installed, simply use `client = GeminiClient()`
     client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxy=None)
-    await client.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True)
+    await client.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=False)
 
 asyncio.run(main())
 ```
