@@ -13,6 +13,7 @@ from .exceptions import AuthError, APIError, TimeoutError, GeminiError
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .utils import (
     upload_file,
+    parse_file_name,
     rotate_1psidts,
     get_access_token,
     load_browser_cookies,
@@ -263,7 +264,7 @@ class GeminiClient:
     async def generate_content(
         self,
         prompt: str,
-        images: list[bytes | str | Path] | None = None,
+        files: list[str | Path] | None = None,
         model: Model | str = Model.UNSPECIFIED,
         chat: Optional["ChatSession"] = None,
         **kwargs,
@@ -275,8 +276,8 @@ class GeminiClient:
         ----------
         prompt: `str`
             Prompt provided by user.
-        images: `list[bytes | str | Path]`, optional
-            List of image file paths or file data in bytes.
+        files: `list[str | Path]`, optional
+            List of file paths to be attached.
         model: `Model` | `str`, optional
             Specify the model to use for generation.
             Pass either a `gemini_webapi.constants.Model` enum or a model name string.
@@ -324,17 +325,17 @@ class GeminiClient:
                             None,
                             json.dumps(
                                 [
-                                    images
+                                    files
                                     and [
                                         prompt,
                                         0,
                                         None,
                                         [
                                             [
-                                                [await upload_file(image, self.proxy)],
-                                                "filename.jpg",
+                                                [await upload_file(file, self.proxy)],
+                                                parse_file_name(file),
                                             ]
-                                            for image in images
+                                            for file in files
                                         ],
                                     ]
                                     or [prompt],
@@ -550,7 +551,7 @@ class ChatSession:
     async def send_message(
         self,
         prompt: str,
-        images: list[bytes | str | Path] | None = None,
+        files: list[str | Path] | None = None,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -561,8 +562,8 @@ class ChatSession:
         ----------
         prompt: `str`
             Prompt provided by user.
-        images: `list[bytes | str | Path]`, optional
-            List of image file paths or file data in bytes.
+        files: `list[str | Path]`, optional
+            List of file paths to be attached.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
@@ -587,7 +588,7 @@ class ChatSession:
         """
 
         return await self.geminiclient.generate_content(
-            prompt=prompt, images=images, model=self.model, chat=self, **kwargs
+            prompt=prompt, files=files, model=self.model, chat=self, **kwargs
         )
 
     def choose_candidate(self, index: int) -> ModelOutput:

@@ -7,14 +7,14 @@ from ..constants import Endpoint, Headers
 
 
 @validate_call
-async def upload_file(file: bytes | str | Path, proxy: str | None = None) -> str:
+async def upload_file(file: str | Path, proxy: str | None = None) -> str:
     """
     Upload a file to Google's server and return its identifier.
 
     Parameters
     ----------
-    file : `bytes` | `str` | `Path`
-        File data in bytes, or path to the file to be uploaded.
+    file : `str` | `Path`
+        Path to the file to be uploaded.
     proxy: `str`, optional
         Proxy URL.
 
@@ -30,9 +30,8 @@ async def upload_file(file: bytes | str | Path, proxy: str | None = None) -> str
         If the upload request failed.
     """
 
-    if not isinstance(file, bytes):
-        with open(file, "rb") as f:
-            file = f.read()
+    with open(file, "rb") as f:
+        file = f.read()
 
     async with AsyncClient(http2=True, proxy=proxy) as client:
         response = await client.post(
@@ -43,3 +42,25 @@ async def upload_file(file: bytes | str | Path, proxy: str | None = None) -> str
         )
         response.raise_for_status()
         return response.text
+
+
+def parse_file_name(file: str | Path) -> str:
+    """
+    Parse the file name from the given path.
+
+    Parameters
+    ----------
+    file : `str` | `Path`
+        Path to the file.
+
+    Returns
+    -------
+    `str`
+        File name with extension.
+    """
+
+    file = Path(file)
+    if not file.is_file():
+        raise ValueError(f"{file} is not a valid file.")
+
+    return file.name

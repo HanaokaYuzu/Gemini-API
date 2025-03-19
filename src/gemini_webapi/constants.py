@@ -44,7 +44,7 @@ class Model(Enum):
         "gemini-2.0-flash-thinking-with-apps",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"f8f8f5ea629f5d37"]'},
         False,
-    )
+    )  # Deprecated, should be removed in the future
     G_2_0_EXP_ADVANCED = (
         "gemini-2.0-exp-advanced",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
@@ -54,17 +54,17 @@ class Model(Enum):
         "gemini-1.5-flash",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"418ab5ea040b5c43"]'},
         False,
-    )
+    )  # Deprecated, should be removed in the future
     G_1_5_PRO = (
         "gemini-1.5-pro",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"9d60dfae93c9ff1f"]'},
         True,
-    )
+    )  # Deprecated, should be removed in the future
     G_1_5_PRO_RESEARCH = (
         "gemini-1.5-pro-research",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"e5a44cb1dae2b489"]'},
         True,
-    )
+    )  # Deprecated, should be removed in the future
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name

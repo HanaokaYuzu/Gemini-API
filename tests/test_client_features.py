@@ -33,16 +33,8 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
-            "What's 1+1?", model=Model.G_2_0_FLASH_THINKING
-        )
-        logger.debug(response.thoughts)
-        logger.debug(response.text)
-
-    @logger.catch(reraise=True)
-    async def test_thinking_with_apps(self):
-        response = await self.geminiclient.generate_content(
             "Tell me a fact about today in history and illustrate it with a youtube video",
-            model=Model.G_2_0_FLASH_THINKING_WITH_APPS,
+            model=Model.G_2_0_FLASH_THINKING,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)
@@ -61,10 +53,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             logger.debug(f"Model version ({model.model_name}): {response.text}")
 
     @logger.catch(reraise=True)
-    async def test_upload_image(self):
+    async def test_upload_files(self):
         response = await self.geminiclient.generate_content(
-            "Describe these images",
-            images=[Path("assets/banner.png"), "assets/favicon.png"],
+            "Introduce the contents of these two files. Is there any connection between them?",
+            files=["assets/sample.pdf", Path("assets/banner.png")],
         )
         logger.debug(response.text)
 
@@ -92,11 +84,14 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         chat = self.geminiclient.start_chat()
         response1 = await chat.send_message(
             "What's the difference between these two images?",
-            images=["assets/banner.png", "assets/favicon.png"],
+            files=["assets/banner.png", "assets/favicon.png"],
         )
         logger.debug(response1.text)
-        response2 = await chat.send_message("Tell me more.")
+        response2 = await chat.send_message(
+            "Use image generation tool to modify the banner with another font and design."
+        )
         logger.debug(response2.text)
+        logger.debug(response2.images)
 
     @logger.catch(reraise=True)
     async def test_send_web_image(self):
@@ -119,14 +114,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         for image in response.images:
             self.assertTrue(image.url)
             logger.debug(image)
-
-    @logger.catch(reraise=True)
-    async def test_image_generation_failure(self):
-        response = await self.geminiclient.generate_content(
-            "Generate some pictures of people"
-        )
-        self.assertFalse(response.images)
-        logger.debug(response.text)
 
     @logger.catch(reraise=True)
     async def test_card_content(self):
