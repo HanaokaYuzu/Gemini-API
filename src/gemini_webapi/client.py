@@ -361,18 +361,17 @@ class GeminiClient:
             try:
                 response_json = json.loads(response.text.split("\n")[2])
 
-                # Plain request
-                body = json.loads(response_json[0][2])
+                body = None
+                for part in response_json:
+                    try:
+                        main_part = json.loads(part[2])
+                        if main_part[4]:
+                            body = main_part
+                            break
+                    except (IndexError, TypeError, ValueError):
+                        continue
 
-                if not body[4]:
-                    # Request with thinking models
-                    body = json.loads(response_json[1][2])
-
-                if not body[4]:
-                    # Request with Gemini extensions enabled
-                    body = json.loads(response_json[4][2])
-
-                if not body[4]:
+                if not body:
                     raise Exception
             except Exception:
                 await self.close()
