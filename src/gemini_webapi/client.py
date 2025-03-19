@@ -362,13 +362,17 @@ class GeminiClient:
                 response_json = json.loads(response.text.split("\n")[2])
 
                 body = None
-                for i in range(5):
-                    if not body or not body[4]:
-                        logger.debug(f"Trying to parse response {i}.")
-                        body = json.loads(response_json[i][2])
+                for part in response_json:
+                    try:
+                        main_part = json.loads(part[2])
+                        if main_part[4]:
+                            body = main_part
+                            break
+                    except (IndexError, TypeError, ValueError):
+                        continue
 
-                if not body or not body[4]:
-                    raise Exception("Failed trying to parse response")
+                if not body:
+                    raise Exception
             except Exception:
                 await self.close()
                 logger.debug(f"Invalid response: {response.text}")
