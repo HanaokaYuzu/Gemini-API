@@ -361,19 +361,14 @@ class GeminiClient:
             try:
                 response_json = json.loads(response.text.split("\n")[2])
 
-                # Plain request
-                body = json.loads(response_json[0][2])
+                body = None
+                for i in range(5):
+                    if not body or not body[4]:
+                        logger.debug(f"Trying to parse response {i}.")
+                        body = json.loads(response_json[i][2])
 
-                if not body[4]:
-                    # Request with thinking models
-                    body = json.loads(response_json[1][2])
-
-                if not body[4]:
-                    # Request with Gemini extensions enabled
-                    body = json.loads(response_json[4][2])
-
-                if not body[4]:
-                    raise Exception
+                if not body or not body[4]:
+                    raise Exception("Failed trying to parse response")
             except Exception:
                 await self.close()
                 logger.debug(f"Invalid response: {response.text}")
