@@ -50,6 +50,11 @@ class Model(Enum):
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
         True,
     )
+    G_2_5_EXP_ADVANCED = (
+        "gemini-2.5-exp-advanced",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"203e6bb81620bcfe"]'},
+        True,
+    )
     G_1_5_FLASH = (
         "gemini-1.5-flash",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"418ab5ea040b5c43"]'},
