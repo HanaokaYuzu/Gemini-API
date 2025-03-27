@@ -147,6 +147,7 @@ Currently available models (as of Feb 5, 2025):
 
 Models pending update (may not work as expected):
 
+- `gemini-2.5-exp-advanced` - Gemini 2.5 Experimental Advanced **(requires Gemini Advanced account)**
 - `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced **(requires Gemini Advanced account)**
 - `gemini-1.5-pro` - Gemini 1.5 Pro **(requires Gemini Advanced account)**
 - `gemini-1.5-pro-research` - Gemini 1.5 Pro with Deep Research **(requires Gemini Advanced account)**
