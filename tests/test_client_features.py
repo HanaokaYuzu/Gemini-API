@@ -26,7 +26,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_successful_request(self):
         response = await self.geminiclient.generate_content(
-            "Hello World!", model=Model.G_2_0_FLASH
+            "Hello World!", model=Model.G_2_5_PRO
         )
         logger.debug(response.text)
 
