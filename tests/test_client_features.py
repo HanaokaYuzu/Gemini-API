@@ -19,22 +19,23 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init()
+            await self.geminiclient.init(timeout=60)
         except AuthError as e:
             self.skipTest(e)
 
     @logger.catch(reraise=True)
     async def test_successful_request(self):
         response = await self.geminiclient.generate_content(
-            "Hello World!", model=Model.G_2_5_PRO
+            "Tell me a fact about today in history and illustrate it with a youtube video",
+            model=Model.G_2_5_FLASH,
         )
         logger.debug(response.text)
 
     @logger.catch(reraise=True)
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
-            "Tell me a fact about today in history and illustrate it with a youtube video",
-            model=Model.G_2_0_FLASH_THINKING,
+            "1+1=?",
+            model=Model.G_2_5_FLASH,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)

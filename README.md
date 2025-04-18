@@ -139,9 +139,10 @@ You can specify which language model to use by passing `model` argument to `Gemi
 
 Currently available models (as of Feb 5, 2025):
 
-- `unspecified` - Default model (same as `gemini-2.0-flash` if account does NOT have Gemini Advanced subscription)
+- `unspecified` - Default model
 - `gemini-2.0-flash` - Gemini 2.0 Flash
 - `gemini-2.0-flash-thinking` - Gemini 2.0 Flash Thinking Experimental
+- `gemini-2.5-flash` - Gemini 2.5 Flash
 - `gemini-2.5-pro` - Gemini 2.5 Pro (daily usage limit imposed)
 
 Models pending update (may not work as expected):
