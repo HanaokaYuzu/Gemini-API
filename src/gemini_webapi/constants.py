@@ -69,3 +69,12 @@ class Model(Enum):
         raise ValueError(
             f"Unknown model name: {name}. Available models: {', '.join([model.model_name for model in cls])}"
         )
+
+
+class ErrorCode(Enum):
+    """
+    Known error codes returned from server.
+    """
+
+    USAGE_LIMIT_EXCEEDED = 1037
+    MODEL_HEADER_INVALID = 1052

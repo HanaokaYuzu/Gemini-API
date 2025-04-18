@@ -8,8 +8,15 @@ from typing import Any, Optional
 
 from httpx import AsyncClient, ReadTimeout
 
-from .constants import Endpoint, Headers, Model
-from .exceptions import AuthError, APIError, TimeoutError, GeminiError
+from .constants import Endpoint, ErrorCode, Headers, Model
+from .exceptions import (
+    AuthError,
+    APIError,
+    TimeoutError,
+    GeminiError,
+    UsageLimitExceeded,
+    ModelInvalid,
+)
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .utils import (
     upload_file,
@@ -376,10 +383,27 @@ class GeminiClient:
                     raise Exception
             except Exception:
                 await self.close()
-                logger.debug(f"Invalid response: {response.text}")
-                raise APIError(
-                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                )
+
+                try:
+                    match ErrorCode(response_json[0][5][2][0][1][0]):
+                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                            raise UsageLimitExceeded(
+                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                            )
+                        case ErrorCode.MODEL_HEADER_INVALID:
+                            raise ModelInvalid(
+                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                "If the error persists and is caused by the package, please report it on GitHub."
+                            )
+                        case _:
+                            raise Exception
+                except GeminiError:
+                    raise
+                except Exception:
+                    logger.debug(f"Invalid response: {response.text}")
+                    raise APIError(
+                        "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                    )
 
             try:
                 candidates = []

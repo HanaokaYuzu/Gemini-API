@@ -7,6 +7,7 @@ from loguru import logger
 
 from gemini_webapi import GeminiClient, AuthError, set_log_level
 from gemini_webapi.constants import Model
+from gemini_webapi.exceptions import UsageLimitExceeded, ModelInvalid
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -47,11 +48,16 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
                 logger.debug(f"Model {model.model_name} requires an advanced account")
                 continue
 
-            response = await self.geminiclient.generate_content(
-                "What's you language model version? Reply version number only.",
-                model=model,
-            )
-            logger.debug(f"Model version ({model.model_name}): {response.text}")
+            try:
+                response = await self.geminiclient.generate_content(
+                    "What's you language model version? Reply version number only.",
+                    model=model,
+                )
+                logger.debug(f"Model version ({model.model_name}): {response.text}")
+            except UsageLimitExceeded:
+                logger.debug(f"Model {model.model_name} usage limit exceeded")
+            except ModelInvalid:
+                logger.debug(f"Model {model.model_name} is not available anymore")
 
     @logger.catch(reraise=True)
     async def test_upload_files(self):

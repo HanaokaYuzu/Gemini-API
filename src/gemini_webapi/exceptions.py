@@ -28,3 +28,19 @@ class TimeoutError(GeminiError):
     """
 
     pass
+
+
+class UsageLimitExceeded(GeminiError):
+    """
+    Exception for model usage limit exceeded errors.
+    """
+
+    pass
+
+
+class ModelInvalid(GeminiError):
+    """
+    Exception for invalid model header string errors.
+    """
+
+    pass
