@@ -44,3 +44,11 @@ class ModelInvalid(GeminiError):
     """
 
     pass
+
+
+class TemporarilyBlocked(GeminiError):
+    """
+    Exception for 429 Too Many Requests when IP is temporarily blocked.
+    """
+
+    pass

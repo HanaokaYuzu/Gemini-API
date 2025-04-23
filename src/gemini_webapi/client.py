@@ -16,6 +16,7 @@ from .exceptions import (
     GeminiError,
     UsageLimitExceeded,
     ModelInvalid,
+    TemporarilyBlocked,
 )
 from .types import WebImage, GeneratedImage, Candidate, ModelOutput
 from .utils import (
@@ -394,6 +395,10 @@ class GeminiClient:
                             raise ModelInvalid(
                                 "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
                                 "If the error persists and is caused by the package, please report it on GitHub."
+                            )
+                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                            raise TemporarilyBlocked(
+                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
                             )
                         case _:
                             raise Exception
