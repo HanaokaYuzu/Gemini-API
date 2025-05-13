@@ -14,6 +14,14 @@ class APIError(Exception):
     pass
 
 
+class ImageGenerationError(APIError):
+    """
+    Exception for generated image parsing errors.
+    """
+
+    pass
+
+
 class GeminiError(Exception):
     """
     Exception for errors returned from Gemini server which are not handled by the package.

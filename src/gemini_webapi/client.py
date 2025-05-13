@@ -12,6 +12,7 @@ from .constants import Endpoint, ErrorCode, Headers, Model
 from .exceptions import (
     AuthError,
     APIError,
+    ImageGenerationError,
     TimeoutError,
     GeminiError,
     UsageLimitExceeded,
@@ -62,10 +63,15 @@ def running(retry: int = 0) -> callable:
                     )
                 else:
                     return await func(client, *args, **kwargs)
-            except APIError:
+            except APIError as e:
+                # Image generation takes too long, only retry once
+                if isinstance(e, ImageGenerationError):
+                    retry = min(1, retry)
+
                 if retry > 0:
                     await asyncio.sleep(1)
                     return await wrapper(client, *args, retry=retry - 1, **kwargs)
+
                 raise
 
         return wrapper
@@ -371,11 +377,12 @@ class GeminiClient:
                 response_json = json.loads(response.text.split("\n")[2])
 
                 body = None
-                for part in response_json:
+                body_index = 0
+                for part_index, part in enumerate(response_json):
                     try:
                         main_part = json.loads(part[2])
                         if main_part[4]:
-                            body = main_part
+                            body_index, body = part_index, main_part
                             break
                     except (IndexError, TypeError, ValueError):
                         continue
@@ -412,7 +419,7 @@ class GeminiClient:
 
             try:
                 candidates = []
-                for i, candidate in enumerate(body[4]):
+                for candidate_index, candidate in enumerate(body[4]):
                     text = candidate[1][0]
                     if re.match(
                         r"^http://googleusercontent\.com/card_content/\d+$", text
@@ -429,45 +436,59 @@ class GeminiClient:
                         and candidate[12][1]
                         and [
                             WebImage(
-                                url=image[0][0][0],
-                                title=image[7][0],
-                                alt=image[0][4],
+                                url=web_image[0][0][0],
+                                title=web_image[7][0],
+                                alt=web_image[0][4],
                                 proxy=self.proxy,
                             )
-                            for image in candidate[12][1]
+                            for web_image in candidate[12][1]
                         ]
                         or []
                     )
 
                     generated_images = []
                     if candidate[12] and candidate[12][7] and candidate[12][7][0]:
-                        image_generation_body = json.loads(response_json[1][2])
-                        image_generation_candidate = image_generation_body[4][i]
+                        img_body = None
+                        for img_part_index, part in enumerate(response_json):
+                            if img_part_index < body_index:
+                                continue
+
+                            try:
+                                img_part = json.loads(part[2])
+                                if img_part[4][candidate_index][12][7][0]:
+                                    img_body = img_part
+                                    break
+                            except (IndexError, TypeError, ValueError):
+                                continue
+
+                        if not img_body:
+                            raise ImageGenerationError(
+                                "Failed to parse generated images. Please update gemini_webapi to the latest version. "
+                                "If the error persists and is caused by the package, please report it on GitHub."
+                            )
+
+                        img_candidate = img_body[4][candidate_index]
+
                         text = re.sub(
                             r"http://googleusercontent\.com/image_generation_content/\d+$",
                             "",
-                            image_generation_candidate[1][0],
+                            img_candidate[1][0],
                         ).rstrip()
 
-                        if (
-                            image_generation_candidate[12]
-                            and image_generation_candidate[12][7]
-                            and image_generation_candidate[12][7][0]
-                        ):
-                            generated_images = [
-                                GeneratedImage(
-                                    url=image[0][3][3],
-                                    title=f"[Generated Image {image[3][6]}]",
-                                    alt=len(image[3][5]) > i
-                                    and image[3][5][i]
-                                    or image[3][5][0],
-                                    proxy=self.proxy,
-                                    cookies=self.cookies,
-                                )
-                                for i, image in enumerate(
-                                    image_generation_candidate[12][7][0]
-                                )
-                            ]
+                        generated_images = [
+                            GeneratedImage(
+                                url=generated_image[0][3][3],
+                                title=f"[Generated Image {generated_image[3][6]}]",
+                                alt=len(generated_image[3][5]) > image_index
+                                and generated_image[3][5][image_index]
+                                or generated_image[3][5][0],
+                                proxy=self.proxy,
+                                cookies=self.cookies,
+                            )
+                            for image_index, generated_image in enumerate(
+                                img_candidate[12][7][0]
+                            )
+                        ]
 
                     candidates.append(
                         Candidate(
