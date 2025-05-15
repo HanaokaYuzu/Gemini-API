@@ -1,3 +1,4 @@
+import html
 from pydantic import BaseModel
 
 from .image import Image, WebImage, GeneratedImage
@@ -26,6 +27,14 @@ class Candidate(BaseModel):
     thoughts: str | None = None
     web_images: list[WebImage] = []
     generated_images: list[GeneratedImage] = []
+
+    def __init__(self, **data):
+        # HTML unescape text and thoughts if they exist
+        if "text" in data and data["text"]:
+            data["text"] = html.unescape(data["text"])
+        if "thoughts" in data and data["thoughts"]:
+            data["thoughts"] = html.unescape(data["thoughts"])
+        super().__init__(**data)
 
     def __str__(self):
         return self.text
