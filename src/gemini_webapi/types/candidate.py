@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+import html
+from pydantic import BaseModel, field_validator
 
 from .image import Image, WebImage, GeneratedImage
 
@@ -32,6 +33,17 @@ class Candidate(BaseModel):
 
     def __repr__(self):
         return f"Candidate(rcid='{self.rcid}', text='{len(self.text) <= 20 and self.text or self.text[:20] + '...'}', images={self.images})"
+
+    @field_validator("text", "thoughts")
+    @classmethod
+    def decode_html(cls, value: str) -> str:
+        """
+        Auto unescape HTML entities in text/thoughts if any.
+        """
+
+        if value:
+            value = html.unescape(value)
+        return value
 
     @property
     def images(self) -> list[Image]:
