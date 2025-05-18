@@ -313,7 +313,7 @@ class GeminiClient:
             If prompt is empty.
         `gemini_webapi.TimeoutError`
             If request timed out.
-        `gemini_webapi.GenimiError`
+        `gemini_webapi.GeminiError`
             If no reply candidate found in response.
         `gemini_webapi.APIError`
             - If request failed with status code other than 200.
@@ -630,7 +630,7 @@ class ChatSession:
             If prompt is empty.
         `gemini_webapi.TimeoutError`
             If request timed out.
-        `gemini_webapi.GenimiError`
+        `gemini_webapi.GeminiError`
             If no reply candidate found in response.
         `gemini_webapi.APIError`
             - If request failed with status code other than 200.
