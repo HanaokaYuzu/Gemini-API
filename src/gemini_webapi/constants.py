@@ -37,7 +37,7 @@ class Model(Enum):
     )  # Deprecated
     G_2_5_FLASH = (
         "gemini-2.5-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"35609594dbe934d8"]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"71c2d248d3b102ff"]'},
         False,
     )
     G_2_5_PRO = (
