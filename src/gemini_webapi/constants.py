@@ -27,7 +27,7 @@ class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
     G_2_5_FLASH = (
         "gemini-2.5-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861"]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"71c2d248d3b102ff"]'},
         False,
     )
     G_2_5_PRO = (
@@ -49,12 +49,12 @@ class Model(Enum):
         "gemini-2.0-exp-advanced",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
         True,
-    )
+    )  # Deprecated
     G_2_5_EXP_ADVANCED = (
         "gemini-2.5-exp-advanced",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"203e6bb81620bcfe"]'},
         True,
-    )
+    )  # Deprecated
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name
