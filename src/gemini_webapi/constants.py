@@ -25,19 +25,9 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    G_2_0_FLASH = (
-        "gemini-2.0-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"f299729663a2343f"]'},
-        False,
-    )
-    G_2_0_FLASH_THINKING = (
-        "gemini-2.0-flash-thinking",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7ca48d02d802f20a"]'},
-        False,
-    )  # Deprecated
     G_2_5_FLASH = (
         "gemini-2.5-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"35609594dbe934d8"]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861"]'},
         False,
     )
     G_2_5_PRO = (
@@ -45,6 +35,16 @@ class Model(Enum):
         {"x-goog-ext-525001261-jspb": '[1,null,null,null,"2525e3954d185b3c"]'},
         False,
     )
+    G_2_0_FLASH = (
+        "gemini-2.0-flash",
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"f299729663a2343f"]'},
+        False,
+    )  # Deprecated
+    G_2_0_FLASH_THINKING = (
+        "gemini-2.0-flash-thinking",
+        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7ca48d02d802f20a"]'},
+        False,
+    )  # Deprecated
     G_2_0_EXP_ADVANCED = (
         "gemini-2.0-exp-advanced",
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
