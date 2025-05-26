@@ -1,39 +1,37 @@
-import atexit
-from sys import stderr
+import sys
+from loguru import logger as _logger
 
-from loguru._logger import Core as _Core
-from loguru._logger import Logger as _Logger
-
-logger = _Logger(
-    core=_Core(),
-    exception=None,
-    depth=0,
-    record=False,
-    lazy=False,
-    colors=False,
-    raw=False,
-    capture=True,
-    patchers=[],
-    extra={},
-)
-
-if stderr:
-    logger.add(stderr, level="INFO")
-
-atexit.register(logger.remove)
+_handler_id = None
 
 
-def set_log_level(level: str):
+def set_log_level(level: str | int) -> None:
     """
-    Set the log level for the whole module. Default is "INFO". Set to "DEBUG" to see more detailed logs.
+    Set the log level for gemini_webapi. The default log level is "INFO".
+
+    Note: calling this function for the first time will globally remove all existing loguru
+    handlers. To avoid this, you may want to set logging behaviors directly with loguru.
 
     Parameters
     ----------
-    level : str
-        The log level to set. Must be one of "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+    level : `str | int`
+        Log level: "TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
+
+    Examples
+    --------
+    >>> from gemini_webapi import set_log_level
+    >>> set_log_level("DEBUG")  # Show debug messages
+    >>> set_log_level("ERROR")  # Only show errors
     """
 
-    assert level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    global _handler_id
 
-    logger.remove()
-    logger.add(stderr, level=level)
+    _logger.remove(_handler_id)
+
+    _handler_id = _logger.add(
+        sys.stderr,
+        level=level,
+        filter=lambda record: record["extra"].get("name") == "gemini_webapi",
+    )
+
+
+logger = _logger.bind(name="gemini_webapi")

@@ -3,9 +3,8 @@ import unittest
 import logging
 
 from httpx import HTTPError
-from loguru import logger
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level
+from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -18,7 +17,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init()
+            await self.geminiclient.init(auto_refresh=False)
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
 

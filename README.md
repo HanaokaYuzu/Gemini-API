@@ -53,7 +53,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate images with Imagen3](#generate-images-with-imagen3)
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
-  - [Control log level](#control-log-level)
+  - [Logging Configuration](#logging-configuration)
 - [References](#references)
 - [Stargazers](#stargazers)
 
@@ -353,15 +353,19 @@ async def main():
 asyncio.run(main())
 ```
 
-### Control log level
+### Logging Configuration
 
-You can set the log level of the package to one of the following values: `DEBUG`, `INFO`, `WARNING`, `ERROR` and `CRITICAL`. The default value is `INFO`.
+This package uses [loguru](https://loguru.readthedocs.io/en/stable/) for logging, and exposes a function `set_log_level` to control log level. You can set log level to one of the following values: `DEBUG`, `INFO`, `WARNING`, `ERROR` and `CRITICAL`. The default value is `INFO`.
 
 ```python
 from gemini_webapi import set_log_level
 
 set_log_level("DEBUG")
 ```
+
+> [!NOTE]
+>
+> Calling `set_log_level` for the first time will **globally** remove all existing loguru handlers. You may want to configure logging directly with loguru to avoid this issue and have more advanced control over logging behaviors.
 
 ## References
 

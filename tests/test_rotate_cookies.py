@@ -1,9 +1,7 @@
 import os
 import asyncio
 
-from loguru import logger
-
-from gemini_webapi import GeminiClient, set_log_level
+from gemini_webapi import GeminiClient, set_log_level, logger
 
 set_log_level("DEBUG")
 

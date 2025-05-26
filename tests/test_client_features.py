@@ -3,9 +3,7 @@ import unittest
 import logging
 from pathlib import Path
 
-from loguru import logger
-
-from gemini_webapi import GeminiClient, AuthError, set_log_level
+from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
 from gemini_webapi.constants import Model
 from gemini_webapi.exceptions import UsageLimitExceeded, ModelInvalid
 
@@ -20,7 +18,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init(timeout=60)
+            await self.geminiclient.init(timeout=60, auto_refresh=False)
         except AuthError as e:
             self.skipTest(e)
 
