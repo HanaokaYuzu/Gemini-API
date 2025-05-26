@@ -422,7 +422,7 @@ class GeminiClient:
                 for candidate_index, candidate in enumerate(body[4]):
                     text = candidate[1][0]
                     if re.match(
-                        r"^http://googleusercontent\.com/card_content/\d+$", text
+                        r"^http://googleusercontent\.com/card_content/\d+", text
                     ):
                         text = candidate[22] and candidate[22][0] or text
 
@@ -470,7 +470,7 @@ class GeminiClient:
                         img_candidate = img_body[4][candidate_index]
 
                         text = re.sub(
-                            r"http://googleusercontent\.com/image_generation_content/\d+$",
+                            r"http://googleusercontent\.com/image_generation_content/\d+",
                             "",
                             img_candidate[1][0],
                         ).rstrip()
