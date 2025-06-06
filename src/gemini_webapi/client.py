@@ -706,3 +706,43 @@ class ChatSession:
     @rcid.setter
     def rcid(self, value: str):
         self.__metadata[2] = value
+
+
+    async def retry_with_exponential_backoff(self, func, max_retries=3, base_delay=1):
+        '''
+        Execute a function with exponential backoff retry logic.
+
+        Parameters
+        ----------
+        func : callable
+            Async function to execute
+        max_retries : int, optional
+            Maximum number of retries, by default 3
+        base_delay : int, optional
+            Base delay in seconds, by default 1
+
+        Returns
+        -------
+        Any
+            Result of the function call
+
+        Raises
+        ------
+        Exception
+            Last exception encountered if all retries fail
+        '''
+        last_exception = None
+        for attempt in range(max_retries + 1):
+            try:
+                return await func()
+            except TransientError as e:
+                last_exception = e
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    self.logger.warning(f"Attempt {attempt+1} failed: {e}. Retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    self.logger.error(f"All {max_retries+1} attempts failed. Last error: {e}")
+
+        raise last_exception  # Re-raise the last exception if all retries failed
+

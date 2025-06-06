@@ -37,3 +37,5 @@ include = ["gemini_webapi"]
 [tool.setuptools_scm]
 version_scheme = "post-release"
 local_scheme = "no-local-version"
+
+version = "0.1.1"
