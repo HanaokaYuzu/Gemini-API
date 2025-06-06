@@ -52,6 +52,7 @@ async def get_access_token(
             headers=Headers.GEMINI.value,
             cookies=cookies,
             follow_redirects=True,
+            verify=False,
         ) as client:
             response = await client.get(Endpoint.INIT.value)
             response.raise_for_status()
