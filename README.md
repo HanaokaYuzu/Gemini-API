@@ -379,39 +379,3 @@ set_log_level("DEBUG")
     <a href="https://star-history.com/#HanaokaYuzu/Gemini-API">
         <img src="https://api.star-history.com/svg?repos=HanaokaYuzu/Gemini-API&type=Date" width="75%" alt="Star History Chart"></a>
 </p>
-
-
-## Error Handling
-
-The Gemini API wrapper provides comprehensive error handling for common issues:
-
-### Authentication Errors
-
-```python
-try:
-    client = GeminiChatAsync()
-    await client.start()
-except AuthError as e:
-    print(f"Authentication failed: {e}")
-    # Try to refresh cookies or use a different authentication method
-```
-
-### API Rate Limiting
-
-```python
-try:
-    response = await client.generate_content("Your prompt")
-except RateLimitError as e:
-    print(f"Rate limited: {e}. Try again in {e.retry_after} seconds")
-    # Implement backoff strategy
-```
-
-### Network Issues
-
-```python
-try:
-    response = await client.generate_content("Your prompt")
-except TransientError as e:
-    print(f"Temporary error: {e}. Retrying...")
-    # Use retry_with_exponential_backoff method to handle transient errors
-```
