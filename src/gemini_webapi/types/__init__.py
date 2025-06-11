@@ -1,3 +1,6 @@
-from .image import Image, WebImage, GeneratedImage  # noqa: F401
-from .candidate import Candidate  # noqa: F401
-from .modeloutput import ModelOutput  # noqa: F401
+# flake8: noqa
+
+from .candidate import Candidate
+from .gem import Gem, GemJar
+from .image import Image, WebImage, GeneratedImage
+from .modeloutput import ModelOutput

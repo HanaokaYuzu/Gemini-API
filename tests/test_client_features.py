@@ -31,15 +31,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response.text)
 
     @logger.catch(reraise=True)
-    async def test_thinking_model(self):
-        response = await self.geminiclient.generate_content(
-            "1+1=?",
-            model=Model.G_2_5_FLASH,
-        )
-        logger.debug(response.thoughts)
-        logger.debug(response.text)
-
-    @logger.catch(reraise=True)
     async def test_switch_model(self):
         for model in Model:
             if model.advanced_only:
@@ -74,6 +65,45 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response2.text)
 
     @logger.catch(reraise=True)
+    async def test_send_web_image(self):
+        response = await self.geminiclient.generate_content(
+            "Send me some pictures of cats"
+        )
+        self.assertTrue(response.images)
+        logger.debug(response.text)
+        for image in response.images:
+            self.assertTrue(image.url)
+            logger.debug(image)
+
+    @logger.catch(reraise=True)
+    async def test_image_generation(self):
+        response = await self.geminiclient.generate_content(
+            "Generate some pictures of cats"
+        )
+        self.assertTrue(response.images)
+        logger.debug(response.text)
+        for image in response.images:
+            self.assertTrue(image.url)
+            logger.debug(image)
+
+    @logger.catch(reraise=True)
+    async def test_fetch_gems(self):
+        await self.geminiclient.fetch_gems()
+        gems = self.geminiclient.gems
+        self.assertTrue(len(gems.filter(predefined=True)) > 0)
+        for gem in gems:
+            logger.debug(gem.name)
+
+    @logger.catch(reraise=True)
+    async def test_thinking_model(self):
+        response = await self.geminiclient.generate_content(
+            "1+1=?",
+            model=Model.G_2_5_FLASH,
+        )
+        logger.debug(response.thoughts)
+        logger.debug(response.text)
+
+    @logger.catch(reraise=True)
     async def test_retrieve_previous_conversation(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Fine weather today")
@@ -97,28 +127,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
         logger.debug(response2.text)
         logger.debug(response2.images)
-
-    @logger.catch(reraise=True)
-    async def test_send_web_image(self):
-        response = await self.geminiclient.generate_content(
-            "Send me some pictures of cats"
-        )
-        self.assertTrue(response.images)
-        logger.debug(response.text)
-        for image in response.images:
-            self.assertTrue(image.url)
-            logger.debug(image)
-
-    @logger.catch(reraise=True)
-    async def test_image_generation(self):
-        response = await self.geminiclient.generate_content(
-            "Generate some pictures of cats"
-        )
-        self.assertTrue(response.images)
-        logger.debug(response.text)
-        for image in response.images:
-            self.assertTrue(image.url)
-            logger.debug(image)
 
     @logger.catch(reraise=True)
     async def test_card_content(self):

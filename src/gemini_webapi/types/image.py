@@ -33,7 +33,7 @@ class Image(BaseModel):
         return f"{self.title}({self.url}) - {self.alt}"
 
     def __repr__(self):
-        return f"""Image(title='{self.title}', url='{len(self.url) <= 20 and self.url or self.url[:8] + '...' + self.url[-12:]}', alt='{self.alt}')"""
+        return f"Image(title='{self.title}', url='{len(self.url) <= 20 and self.url or self.url[:8] + '...' + self.url[-12:]}', alt='{self.alt}')"
 
     async def save(
         self,

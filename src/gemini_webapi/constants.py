@@ -1,11 +1,12 @@
-from enum import Enum
+from enum import Enum, IntEnum, StrEnum
 
 
-class Endpoint(Enum):
+class Endpoint(StrEnum):
     INIT = "https://gemini.google.com/app"
     GENERATE = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     ROTATE_COOKIES = "https://accounts.google.com/RotateCookies"
     UPLOAD = "https://content-push.googleapis.com/upload"
+    GEM_LIST = "https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=CNgdBe&source-path=/gems/view&bl=boq_assistant-bard-web-server_20250604.05_p2"
 
 
 class Headers(Enum):
@@ -71,7 +72,7 @@ class Model(Enum):
         )
 
 
-class ErrorCode(Enum):
+class ErrorCode(IntEnum):
     """
     Known error codes returned from server.
     """
