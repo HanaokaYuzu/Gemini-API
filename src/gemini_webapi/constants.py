@@ -46,16 +46,6 @@ class Model(Enum):
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7ca48d02d802f20a"]'},
         False,
     )  # Deprecated
-    G_2_0_EXP_ADVANCED = (
-        "gemini-2.0-exp-advanced",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
-        True,
-    )  # Deprecated
-    G_2_5_EXP_ADVANCED = (
-        "gemini-2.5-exp-advanced",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"203e6bb81620bcfe"]'},
-        True,
-    )  # Deprecated
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name
