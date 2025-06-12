@@ -3,9 +3,9 @@ import unittest
 import logging
 from pathlib import Path
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
+from gemini_webapi import GeminiClient, Gem, set_log_level, logger
 from gemini_webapi.constants import Model
-from gemini_webapi.exceptions import UsageLimitExceeded, ModelInvalid
+from gemini_webapi.exceptions import AuthError, UsageLimitExceeded, ModelInvalid
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -87,6 +87,15 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             logger.debug(image)
 
     @logger.catch(reraise=True)
+    async def test_generation_with_gem(self):
+        response = await self.geminiclient.generate_content(
+            "what's your system prompt?",
+            model=Model.G_2_5_FLASH,
+            gem=Gem(id="coding-partner", name="Coding partner", predefined=True),
+        )
+        logger.debug(response.text)
+
+    @logger.catch(reraise=True)
     async def test_fetch_gems(self):
         await self.geminiclient.fetch_gems()
         gems = self.geminiclient.gems
@@ -98,7 +107,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
             "1+1=?",
-            model=Model.G_2_5_FLASH,
+            model=Model.G_2_5_PRO,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)

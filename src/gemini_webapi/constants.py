@@ -6,7 +6,7 @@ class Endpoint(StrEnum):
     GENERATE = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     ROTATE_COOKIES = "https://accounts.google.com/RotateCookies"
     UPLOAD = "https://content-push.googleapis.com/upload"
-    GEM_LIST = "https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=CNgdBe&source-path=/gems/view&bl=boq_assistant-bard-web-server_20250604.05_p2"
+    BATCH_EXEC = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
 
 
 class Headers(Enum):

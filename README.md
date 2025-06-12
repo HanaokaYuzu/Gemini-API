@@ -43,14 +43,15 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - [Authentication](#authentication)
 - [Usage](#usage)
   - [Initialization](#initialization)
-  - [Generate contents from text](#generate-contents-from-text)
+  - [Generate contents](#generate-contents)
   - [Generate contents with files](#generate-contents-with-files)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
   - [Select language model](#select-language-model)
+  - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Retrieve model's thought process](#retrieve-models-thought-process)
   - [Retrieve images in response](#retrieve-images-in-response)
-  - [Generate images with Imagen3](#generate-images-with-imagen3)
+  - [Generate images with Imagen4](#generate-images-with-imagen4)
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
   - [Logging Configuration](#logging-configuration)
@@ -133,9 +134,9 @@ asyncio.run(main())
 >
 > `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In an always-on service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
 
-### Generate contents from text
+### Generate contents
 
-Ask a one-turn quick question by calling `GeminiClient.generate_content`.
+Ask a single-turn question by calling `GeminiClient.generate_content`, which returns a `gemini_webapi.ModelOutput` object containing the generated text, images, thoughts, and conversation metadata.
 
 ```python
 async def main():
@@ -166,7 +167,7 @@ asyncio.run(main())
 
 ### Conversations across multiple turns
 
-If you want to keep conversation continuous, please use `GeminiClient.start_chat` to create a `ChatSession` object and send messages through it. The conversation history will be automatically handled and get updated after each turn.
+If you want to keep conversation continuous, please use `GeminiClient.start_chat` to create a `gemini_webapi.ChatSession` object and send messages through it. The conversation history will be automatically handled and get updated after each turn.
 
 ```python
 async def main():
@@ -241,6 +242,38 @@ async def main():
 asyncio.run(main())
 ```
 
+### Apply system prompt with Gemini Gems
+
+System prompt can be applied to conversations via [Gemini Gems](https://gemini.google.com/gems/view). To use a gem, you can pass `gem` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. `gem` can be either a string of gem id or a `gemini_webapi.Gem` object. Only one gem can be applied to a single conversation.
+
+```python
+async def main():
+    # Fetch all gems for the current account, including both predefined and user-created ones
+    await client.fetch_gems()
+
+    # Once fetched, gems will be cached in `GeminiClient.gems`
+    gems = client.gems
+
+    # Get the gem you want to use
+    system_gems = gems.filter(predefined=True)
+    coding_partner = system_gems.get(id="coding-partner")
+
+    response1 = await client.generate_content(
+        "what's your system prompt?",
+        model=Model.G_2_5_FLASH,
+        gem=coding_partner,
+    )
+    print(response1.text)
+
+    # Another example with a user-created custom gem
+    # Gem ids are consistent strings. Store them somewhere to avoid fetching gems every time
+    your_gem = gems.get(name="Your Gem Name")
+    your_gem_id = your_gem.id
+    chat = client.start_chat(gem=your_gem_id)
+    response2 = await chat.send_message("what's your system prompt?")
+    print(response2)
+```
+
 ### Retrieve model's thought process
 
 When using models with thinking capabilities, the model's thought process will be populated in `ModelOutput.thoughts`.
@@ -258,7 +291,7 @@ asyncio.run(main())
 
 ### Retrieve images in response
 
-Images in the API's output are stored as a list of `Image` objects. You can access the image title, URL, and description by calling `image.title`, `image.url` and `image.alt` respectively.
+Images in the API's output are stored as a list of `gemini_webapi.Image` objects. You can access the image title, URL, and description by calling `Image.title`, `Image.url` and `Image.alt` respectively.
 
 ```python
 async def main():
@@ -269,9 +302,9 @@ async def main():
 asyncio.run(main())
 ```
 
-### Generate images with Imagen3
+### Generate images with Imagen4
 
-You can ask Gemini to generate and modify images with Imagen3, Google's latest AI image generator, simply by natural language.
+You can ask Gemini to generate and modify images with Imagen4, Google's latest AI image generator, simply by natural language.
 
 > [!IMPORTANT]
 >

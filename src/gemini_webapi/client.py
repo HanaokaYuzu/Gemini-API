@@ -308,19 +308,23 @@ class GeminiClient:
 
         Note that network request will be sent every time this method is called.
         Once the gems are fetched, they will be cached and accessible via `GeminiClient.gems` property.
+
+        Returns
+        -------
+        :class:`GemJar`
+            Refer to `gemini_webapi.types.GemJar`.
         """
 
         try:
             response = await self.client.post(
-                Endpoint.GEM_LIST,
+                Endpoint.BATCH_EXEC,
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
-                        # 3 for predefined gems, 2 for custom gems
                         [
                             [
-                                ["CNgdBe", '[3,["en"],0]', None, "1"],
-                                ["CNgdBe", '[2,["en"],0]', None, "2"],
+                                ["CNgdBe", '[2,["en"],0]', None, "custom"],
+                                ["CNgdBe", '[3,["en"],0]', None, "system"],
                             ]
                         ]
                     ).decode(),
@@ -344,9 +348,9 @@ class GeminiClient:
                 predefined_gems, custom_gems = [], []
 
                 for part in response_json:
-                    if part[-1] == "1":
+                    if part[-1] == "system":
                         predefined_gems = json.loads(part[2])[2]
-                    elif part[-1] == "2":
+                    elif part[-1] == "custom":
                         if custom_gems_container := json.loads(part[2]):
                             custom_gems = custom_gems_container[2]
 
@@ -361,22 +365,28 @@ class GeminiClient:
         self._gems = GemJar(
             itertools.chain(
                 (
-                    Gem(
-                        id=gem[0],
-                        name=gem[1][0],
-                        description=gem[1][1],
-                        prompt=gem[2] and gem[2][0] or None,
-                        predefined=True,
+                    (
+                        gem[0],
+                        Gem(
+                            id=gem[0],
+                            name=gem[1][0],
+                            description=gem[1][1],
+                            prompt=gem[2] and gem[2][0] or None,
+                            predefined=True,
+                        ),
                     )
                     for gem in predefined_gems
                 ),
                 (
-                    Gem(
-                        id=gem[0],
-                        name=gem[1][0],
-                        description=gem[1][1],
-                        prompt=gem[2] and gem[2][0] or None,
-                        predefined=False,
+                    (
+                        gem[0],
+                        Gem(
+                            id=gem[0],
+                            name=gem[1][0],
+                            description=gem[1][1],
+                            prompt=gem[2] and gem[2][0] or None,
+                            predefined=False,
+                        ),
                     )
                     for gem in custom_gems
                 ),
@@ -391,6 +401,7 @@ class GeminiClient:
         prompt: str,
         files: list[str | Path] | None = None,
         model: Model | str = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         **kwargs,
     ) -> ModelOutput:
@@ -406,6 +417,9 @@ class GeminiClient:
         model: `Model` | `str`, optional
             Specify the model to use for generation.
             Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+        gem: `Gem | str`, optional
+            Specify a gem to use as system prompt for the chat session.
+            Pass either a `gemini_webapi.types.Gem` object or a gem id string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
         kwargs: `dict`, optional
@@ -435,6 +449,9 @@ class GeminiClient:
 
         if not isinstance(model, Model):
             model = Model.from_name(model)
+
+        if isinstance(gem, Gem):
+            gem = gem.id
 
         if self.auto_close:
             await self.reset_close_task()
@@ -467,6 +484,7 @@ class GeminiClient:
                                     None,
                                     chat and chat.metadata,
                                 ]
+                                + (gem and [None] * 16 + [gem] or [])
                             ).decode(),
                         ]
                     ).decode(),
@@ -666,6 +684,9 @@ class ChatSession:
     model: `Model` | `str`, optional
         Specify the model to use for generation.
         Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+    gem: `Gem | str`, optional
+        Specify a gem to use as system prompt for the chat session.
+        Pass either a `gemini_webapi.types.Gem` object or a gem id string.
     """
 
     __slots__ = [
@@ -673,6 +694,7 @@ class ChatSession:
         "geminiclient",
         "last_output",
         "model",
+        "gem",
     ]
 
     def __init__(
@@ -683,11 +705,13 @@ class ChatSession:
         rid: str | None = None,  # reply id
         rcid: str | None = None,  # reply candidate id
         model: Model | str = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
     ):
         self.__metadata: list[str | None] = [None, None, None]
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
-        self.model = model
+        self.model: Model | str = model
+        self.gem: Gem | str | None = gem
 
         if metadata:
             self.metadata = metadata
@@ -750,7 +774,12 @@ class ChatSession:
         """
 
         return await self.geminiclient.generate_content(
-            prompt=prompt, files=files, model=self.model, chat=self, **kwargs
+            prompt=prompt,
+            files=files,
+            model=self.model,
+            gem=self.gem,
+            chat=self,
+            **kwargs,
         )
 
     def choose_candidate(self, index: int) -> ModelOutput:

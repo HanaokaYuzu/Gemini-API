@@ -33,18 +33,27 @@ class Gem(BaseModel):
         )
 
 
-class GemJar(list):
+class GemJar(dict[str, Gem]):
     """
-    Helper class for handling a collection of `Gem` objects.
-    This class extends `list` to allow retrieving gems with extra filtering options.
+    Helper class for handling a collection of `Gem` objects, stored by their ID.
+    This class extends `dict` to allows retrieving gems with extra filtering options.
     """
 
+    def __iter__(self):
+        """
+        Iter over the gems in the jar.
+        """
+
+        return self.values().__iter__()
+
     def get(
-        self, id: str = None, name: str = None, default: Gem | None = None
+        self, id: str | None = None, name: str | None = None, default: Gem | None = None
     ) -> Gem | None:
         """
         Retrieves a gem by its id and/or name.
         If both id and name are provided, returns the gem that matches both id and name.
+        If only id is provided, it's a direct lookup.
+        If only name is provided, it searches through the gems.
 
         Parameters
         ----------
@@ -54,19 +63,41 @@ class GemJar(list):
             The user-friendly name of the gem to retrieve.
         default: `Gem`, optional
             The default value to return if no matching gem is found.
+
+        Returns
+        -------
+        `Gem` | None
+            The matching gem if found, otherwise return the default value.
+
+        Raises
+        ------
+        `AssertionError`
+            If neither id nor name is provided.
         """
 
         assert not (
             id is None and name is None
         ), "At least one of gem id or name must be provided."
 
-        for gem in self:
-            if id is not None and gem.id != id:
-                continue
-            if name is not None and gem.name != name:
-                continue
-            return gem
+        if id is not None:
+            gem_candidate = super().get(id)
+            if gem_candidate:
+                if name is not None:
+                    if gem_candidate.name == name:
+                        return gem_candidate
+                    else:
+                        return default
+                else:
+                    return gem_candidate
+            else:
+                return default
+        elif name is not None:
+            for gem_obj in self.values():
+                if gem_obj.name == name:
+                    return gem_obj
+            return default
 
+        # Should be unreachable due to the assertion.
         return default
 
     def filter(
@@ -80,15 +111,22 @@ class GemJar(list):
         predefined: `bool`, optional
             If provided, filters gems by whether they are predefined (True) or user-created (False).
         name: `str`, optional
-            If provided, filters gems by their name.
+            If provided, filters gems by their name (exact match).
+
+        Returns
+        -------
+        `GemJar`
+            A new `GemJar` containing the filtered gems. Can be empty if no gems match the criteria.
         """
 
         filtered_gems = GemJar()
-        for gem in self:
+
+        for gem_id, gem in self.items():
             if predefined is not None and gem.predefined != predefined:
                 continue
             if name is not None and gem.name != name:
                 continue
-            filtered_gems.append(gem)
 
-        return filtered_gems
+            filtered_gems[gem_id] = gem
+
+        return GemJar(filtered_gems)
