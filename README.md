@@ -30,8 +30,9 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 
 - **Persistent Cookies** - Automatically refreshes cookies in background. Optimized for always-on services.
 - **Image Generation** - Natively supports generating and modifying images with natural language.
+- **System Prompt** - Supports customizing model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating contents with [Gemini extensions](https://gemini.google.com/extensions) on, like YouTube and Gmail.
-- **Classified Outputs** - Automatically categorizes texts, web images and AI generated images in the response.
+- **Classified Outputs** - Categorizes texts, thoughts, web images and AI generated images in the response.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generating tasks and return outputs efficiently.
 
@@ -363,7 +364,7 @@ asyncio.run(main())
 
 ### Check and switch to other reply candidates
 
-A response from Gemini usually contains multiple reply candidates with different generated contents. You can check all candidates and choose one to continue the conversation. By default, the first candidate will be chosen automatically.
+A response from Gemini sometimes contains multiple reply candidates with different generated contents. You can check all candidates and choose one to continue the conversation. By default, the first candidate will be chosen.
 
 ```python
 async def main():
