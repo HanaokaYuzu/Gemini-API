@@ -133,7 +133,7 @@ class GeminiClient:
         self.running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
-        self.timeout: float = 30
+        self.timeout: float = 300
         self.auto_close: bool = False
         self.close_delay: float = 300
         self.close_task: Task | None = None
