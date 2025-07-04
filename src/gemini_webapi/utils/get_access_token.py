@@ -11,6 +11,26 @@ from .load_browser_cookies import load_browser_cookies
 from .logger import logger
 
 
+async def send_request(
+    cookies: dict, proxy: str | None = None
+) -> tuple[Response | None, dict]:
+    """
+    Send http request with provided cookies.
+    """
+
+    async with AsyncClient(
+        http2=True,
+        proxy=proxy,
+        headers=Headers.GEMINI.value,
+        cookies=cookies,
+        follow_redirects=True,
+        verify=False,
+    ) as client:
+        response = await client.get(Endpoint.INIT.value)
+        response.raise_for_status()
+        return response, cookies
+
+
 async def get_access_token(
     base_cookies: dict, proxy: str | None = None, verbose: bool = False
 ) -> tuple[str, dict]:
@@ -45,24 +65,23 @@ async def get_access_token(
         If all requests failed.
     """
 
-    async def send_request(cookies: dict) -> tuple[Response | None, dict]:
-        async with AsyncClient(
-            http2=True,
-            proxy=proxy,
-            headers=Headers.GEMINI.value,
-            cookies=cookies,
-            follow_redirects=True,
-            verify=False,
-        ) as client:
-            response = await client.get(Endpoint.INIT.value)
-            response.raise_for_status()
-            return response, cookies
+    async with AsyncClient(
+        http2=True,
+        proxy=proxy,
+        follow_redirects=True,
+        verify=False,
+    ) as client:
+        response = await client.get(Endpoint.GOOGLE.value)
+
+    extra_cookies = {}
+    if response.status_code == 200:
+        extra_cookies = response.cookies
 
     tasks = []
 
     # Base cookies passed directly on initializing client
     if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
-        tasks.append(Task(send_request(base_cookies)))
+        tasks.append(Task(send_request({**extra_cookies, **base_cookies}, proxy=proxy)))
     elif verbose:
         logger.debug(
             "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
@@ -76,8 +95,12 @@ async def get_access_token(
         if cache_file.is_file():
             cached_1psidts = cache_file.read_text()
             if cached_1psidts:
-                cached_cookies = {**base_cookies, "__Secure-1PSIDTS": cached_1psidts}
-                tasks.append(Task(send_request(cached_cookies)))
+                cached_cookies = {
+                    **extra_cookies,
+                    **base_cookies,
+                    "__Secure-1PSIDTS": cached_1psidts,
+                }
+                tasks.append(Task(send_request(cached_cookies, proxy=proxy)))
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
         elif verbose:
@@ -89,10 +112,11 @@ async def get_access_token(
             cached_1psidts = cache_file.read_text()
             if cached_1psidts:
                 cached_cookies = {
+                    **extra_cookies,
                     "__Secure-1PSID": cache_file.stem[16:],
                     "__Secure-1PSIDTS": cached_1psidts,
                 }
-                tasks.append(Task(send_request(cached_cookies)))
+                tasks.append(Task(send_request(cached_cookies, proxy=proxy)))
                 valid_caches += 1
 
         if valid_caches == 0 and verbose:
@@ -109,7 +133,9 @@ async def get_access_token(
             local_cookies = {"__Secure-1PSID": secure_1psid}
             if secure_1psidts := browser_cookies.get("__Secure-1PSIDTS"):
                 local_cookies["__Secure-1PSIDTS"] = secure_1psidts
-            tasks.append(Task(send_request(local_cookies)))
+            if nid := browser_cookies.get("NID"):
+                local_cookies["NID"] = nid
+            tasks.append(Task(send_request(local_cookies, proxy=proxy)))
         elif verbose:
             logger.debug(
                 "Skipping loading local browser cookies. Login to gemini.google.com in your browser first."
