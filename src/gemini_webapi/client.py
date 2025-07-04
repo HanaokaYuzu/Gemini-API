@@ -357,6 +357,7 @@ class GeminiClient:
                 if not predefined_gems and not custom_gems:
                     raise Exception
             except Exception:
+                await self.close()
                 logger.debug(f"Invalid response: {response.text}")
                 raise APIError(
                     "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."

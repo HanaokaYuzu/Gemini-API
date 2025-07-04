@@ -137,7 +137,7 @@ class GeneratedImage(Image):
         return v
 
     # @override
-    async def save(self, **kwargs) -> str | None:
+    async def save(self, full_size=True, **kwargs) -> str | None:
         """
         Save the image to disk.
 
@@ -146,6 +146,8 @@ class GeneratedImage(Image):
         filename: `str`, optional
             Filename to save the image, generated images are always in .png format, but file extension will not be included in the URL.
             And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename.
+        full_size: `bool`, optional
+            If True, will modify the default preview (512*512) URL to get the full size image.
         kwargs: `dict`, optional
             Other arguments to pass to `Image.save`.
 
@@ -154,6 +156,9 @@ class GeneratedImage(Image):
         `str | None`
             Absolute path of the saved image if successfully saved.
         """
+
+        if full_size:
+            self.url += "=s2048"
 
         return await super().save(
             filename=kwargs.pop("filename", None)
