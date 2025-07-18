@@ -247,10 +247,14 @@ asyncio.run(main())
 
 System prompt can be applied to conversations via [Gemini Gems](https://gemini.google.com/gems/view). To use a gem, you can pass `gem` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. `gem` can be either a string of gem id or a `gemini_webapi.Gem` object. Only one gem can be applied to a single conversation.
 
+> [!TIP]
+>
+> There are some system predefined gems that by default are not shown to users (and therefore may not work properly). Use `client.fetch_gems(include_hidden=True)` to include them in the fetch result.
+
 ```python
 async def main():
     # Fetch all gems for the current account, including both predefined and user-created ones
-    await client.fetch_gems()
+    await client.fetch_gems(include_hidden=False)
 
     # Once fetched, gems will be cached in `GeminiClient.gems`
     gems = client.gems

@@ -97,7 +97,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_fetch_gems(self):
-        await self.geminiclient.fetch_gems()
+        await self.geminiclient.fetch_gems(include_hidden=True)
         gems = self.geminiclient.gems
         self.assertTrue(len(gems.filter(predefined=True)) > 0)
         for gem in gems:
