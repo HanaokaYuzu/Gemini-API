@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import orjson as json
-from httpx import AsyncClient, ReadTimeout
+from httpx import AsyncClient, ReadTimeout, Response
 
-from .constants import Endpoint, ErrorCode, Headers, Model
+from .constants import Endpoint, ErrorCode, Headers, Model, GRPC
 from .exceptions import (
     AuthError,
     APIError,
@@ -20,7 +20,15 @@ from .exceptions import (
     ModelInvalid,
     TemporarilyBlocked,
 )
-from .types import WebImage, GeneratedImage, Candidate, ModelOutput, Gem, GemJar
+from .types import (
+    WebImage,
+    GeneratedImage,
+    Candidate,
+    ModelOutput,
+    Gem,
+    GemJar,
+    RPCData,
+)
 from .utils import (
     upload_file,
     parse_file_name,
@@ -301,7 +309,6 @@ class GeminiClient:
 
         return self._gems
 
-    @running(retry=2)
     async def fetch_gems(self, **kwargs) -> GemJar:
         """
         Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
@@ -315,53 +322,38 @@ class GeminiClient:
             Refer to `gemini_webapi.types.GemJar`.
         """
 
+        response = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.LIST_GEMS, payload='[3,["en"],0]', identifier="system"
+                ),
+                RPCData(
+                    rpcid=GRPC.LIST_GEMS, payload='[2,["en"],0]', identifier="custom"
+                ),
+            ],
+            **kwargs,
+        )
+
         try:
-            response = await self.client.post(
-                Endpoint.BATCH_EXEC,
-                data={
-                    "at": self.access_token,
-                    "f.req": json.dumps(
-                        [
-                            [
-                                ["CNgdBe", '[2,["en"],0]', None, "custom"],
-                                ["CNgdBe", '[3,["en"],0]', None, "system"],
-                            ]
-                        ]
-                    ).decode(),
-                },
-                **kwargs,
-            )
-        except ReadTimeout:
-            raise TimeoutError(
-                "Fetch gems request timed out, please try again. If the problem persists, "
-                "consider setting a higher `timeout` value when initializing GeminiClient."
-            )
+            response_json = json.loads(response.text.split("\n")[2])
 
-        if response.status_code != 200:
+            predefined_gems, custom_gems = [], []
+
+            for part in response_json:
+                if part[-1] == "system":
+                    predefined_gems = json.loads(part[2])[2]
+                elif part[-1] == "custom":
+                    if custom_gems_container := json.loads(part[2]):
+                        custom_gems = custom_gems_container[2]
+
+            if not predefined_gems and not custom_gems:
+                raise Exception
+        except Exception:
+            await self.close()
+            logger.debug(f"Invalid response: {response.text}")
             raise APIError(
-                f"Failed to fetch gems. Request failed with status code {response.status_code}"
+                "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
             )
-        else:
-            try:
-                response_json = json.loads(response.text.split("\n")[2])
-
-                predefined_gems, custom_gems = [], []
-
-                for part in response_json:
-                    if part[-1] == "system":
-                        predefined_gems = json.loads(part[2])[2]
-                    elif part[-1] == "custom":
-                        if custom_gems_container := json.loads(part[2]):
-                            custom_gems = custom_gems_container[2]
-
-                if not predefined_gems and not custom_gems:
-                    raise Exception
-            except Exception:
-                await self.close()
-                logger.debug(f"Invalid response: {response.text}")
-                raise APIError(
-                    "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
-                )
 
         self._gems = GemJar(
             itertools.chain(
@@ -664,6 +656,54 @@ class GeminiClient:
         """
 
         return ChatSession(geminiclient=self, **kwargs)
+
+    @running(retry=2)
+    async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
+        """
+        Execute a batch of requests to Gemini API.
+
+        Parameters
+        ----------
+        payloads: `list[GRPC]`
+            List of `gemini_webapi.types.GRPC` objects to be executed.
+        kwargs: `dict`, optional
+            Additional arguments which will be passed to the post request.
+            Refer to `httpx.AsyncClient.request` for more information.
+
+        Returns
+        -------
+        :class:`httpx.Response`
+            Response object containing the result of the batch execution.
+        """
+
+        try:
+            response = await self.client.post(
+                Endpoint.BATCH_EXEC,
+                data={
+                    "at": self.access_token,
+                    "f.req": json.dumps(
+                        [[payload.serialize() for payload in payloads]]
+                    ).decode(),
+                },
+                **kwargs,
+            )
+        except ReadTimeout:
+            raise TimeoutError(
+                "Batch execute request timed out, please try again. If the problem persists, "
+                "consider setting a higher `timeout` value when initializing GeminiClient."
+            )
+
+        if response.status_code != 200:
+            logger.debug(
+                f"Batch execution failed with status code {response.status_code}. "
+                f"RPC: {', '.join({payload.rpcid.name for payload in payloads})}; "
+                f"Invalid response: {response.text}"
+            )
+            raise APIError(
+                f"Batch execution failed with status code {response.status_code}"
+            )
+
+        return response
 
 
 class ChatSession:

@@ -10,6 +10,18 @@ class Endpoint(StrEnum):
     BATCH_EXEC = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
 
 
+class GRPC(StrEnum):
+    """
+    Google RPC ids used in Gemini API.
+    """
+
+    # Chat methods
+    READ_CHAT = "hNvQHb"
+
+    # Gem methods
+    LIST_GEMS = "CNgdBe"
+
+
 class Headers(Enum):
     GEMINI = {
         "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
