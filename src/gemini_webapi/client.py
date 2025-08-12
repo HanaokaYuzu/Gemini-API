@@ -449,10 +449,21 @@ class GeminiClient(GemMixin):
                         generated_images = [
                             GeneratedImage(
                                 url=generated_image[0][3][3],
-                                title=f"[Generated Image {generated_image[3][6]}]",
-                                alt=len(generated_image[3][5]) > image_index
-                                and generated_image[3][5][image_index]
-                                or generated_image[3][5][0],
+                                title=(
+                                    f"[Generated Image {generated_image[3][6]}]"
+                                    if generated_image[3][6]
+                                    else "[Generated Image]"
+                                ),
+                                alt=(
+                                    generated_image[3][5][image_index]
+                                    if generated_image[3][5]
+                                    and len(generated_image[3][5]) > image_index
+                                    else (
+                                        generated_image[3][5][0]
+                                        if generated_image[3][5]
+                                        else ""
+                                    )
+                                ),
                                 proxy=self.proxy,
                                 cookies=self.cookies,
                             )

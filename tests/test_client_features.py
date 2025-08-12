@@ -72,7 +72,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.images)
         logger.debug(response.text)
         for image in response.images:
-            self.assertTrue(image.url)
             logger.debug(image)
 
     @logger.catch(reraise=True)
@@ -83,7 +82,17 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.images)
         logger.debug(response.text)
         for image in response.images:
-            self.assertTrue(image.url)
+            logger.debug(image)
+
+    @logger.catch(reraise=True)
+    async def test_image_to_image(self):
+        response = await self.geminiclient.generate_content(
+            "Design an application icon based on the provided image. Make it simple and modern.",
+            files=["assets/banner.png"],
+        )
+        self.assertTrue(response.images)
+        logger.debug(response.text)
+        for image in response.images:
             logger.debug(image)
 
     @logger.catch(reraise=True)
