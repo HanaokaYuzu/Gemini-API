@@ -96,14 +96,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response.text)
 
     @logger.catch(reraise=True)
-    async def test_fetch_gems(self):
-        await self.geminiclient.fetch_gems(include_hidden=True)
-        gems = self.geminiclient.gems
-        self.assertTrue(len(gems.filter(predefined=True)) > 0)
-        for gem in gems:
-            logger.debug(gem.name)
-
-    @logger.catch(reraise=True)
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
             "1+1=?",

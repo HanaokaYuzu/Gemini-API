@@ -1,6 +1,4 @@
 import asyncio
-import functools
-import itertools
 import re
 from asyncio import Task
 from pathlib import Path
@@ -9,7 +7,8 @@ from typing import Any, Optional
 import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
 
-from .constants import Endpoint, ErrorCode, Headers, Model, GRPC
+from .components import GemMixin
+from .constants import Endpoint, ErrorCode, Headers, Model
 from .exceptions import (
     AuthError,
     APIError,
@@ -26,7 +25,6 @@ from .types import (
     Candidate,
     ModelOutput,
     Gem,
-    GemJar,
     RPCData,
 )
 from .utils import (
@@ -35,60 +33,13 @@ from .utils import (
     rotate_1psidts,
     get_access_token,
     load_browser_cookies,
+    running,
     rotate_tasks,
     logger,
 )
 
 
-def running(retry: int = 0) -> callable:
-    """
-    Decorator to check if client is running before making a request.
-
-    Parameters
-    ----------
-    retry: `int`, optional
-        Max number of retries when `gemini_webapi.APIError` is raised.
-    """
-
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(client: "GeminiClient", *args, retry=retry, **kwargs):
-            try:
-                if not client.running:
-                    await client.init(
-                        timeout=client.timeout,
-                        auto_close=client.auto_close,
-                        close_delay=client.close_delay,
-                        auto_refresh=client.auto_refresh,
-                        refresh_interval=client.refresh_interval,
-                        verbose=False,
-                    )
-                    if client.running:
-                        return await func(client, *args, **kwargs)
-
-                    # Should not reach here
-                    raise APIError(
-                        f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
-                    )
-                else:
-                    return await func(client, *args, **kwargs)
-            except APIError as e:
-                # Image generation takes too long, only retry once
-                if isinstance(e, ImageGenerationError):
-                    retry = min(1, retry)
-
-                if retry > 0:
-                    await asyncio.sleep(1)
-                    return await wrapper(client, *args, retry=retry - 1, **kwargs)
-
-                raise
-
-        return wrapper
-
-    return decorator
-
-
-class GeminiClient:
+class GeminiClient(GemMixin):
     """
     Async httpx client interface for gemini.google.com.
 
@@ -125,7 +76,7 @@ class GeminiClient:
         "close_task",
         "auto_refresh",
         "refresh_interval",
-        "_gems",
+        "_gems",  # From GemMixin
         "kwargs",
     ]
 
@@ -136,6 +87,7 @@ class GeminiClient:
         proxy: str | None = None,
         **kwargs,
     ):
+        super().__init__()
         self.cookies = {}
         self.proxy = proxy
         self.running: bool = False
@@ -147,7 +99,6 @@ class GeminiClient:
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
-        self._gems: GemJar | None = None
         self.kwargs = kwargs
 
         # Validate cookies
@@ -284,119 +235,6 @@ class GeminiClient:
             if new_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
             await asyncio.sleep(self.refresh_interval)
-
-    @property
-    def gems(self) -> GemJar:
-        """
-        Returns a `GemJar` object containing cached gems.
-        Only available after calling `GeminiClient.fetch_gems()`.
-
-        Returns
-        -------
-        :class:`GemJar`
-            Refer to `gemini_webapi.types.GemJar`.
-
-        Raises
-        ------
-        `RuntimeError`
-            If `GeminiClient.fetch_gems()` has not been called before accessing this property.
-        """
-
-        if self._gems is None:
-            raise RuntimeError(
-                "Gems not fetched yet. Call `GeminiClient.fetch_gems()` method to fetch gems from gemini.google.com."
-            )
-
-        return self._gems
-
-    async def fetch_gems(self, include_hidden: bool = False, **kwargs) -> GemJar:
-        """
-        Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
-
-        Note that network request will be sent every time this method is called.
-        Once the gems are fetched, they will be cached and accessible via `GeminiClient.gems` property.
-
-        Parameters
-        ----------
-        include_hidden: `bool`, optional
-            There are some predefined gems that by default are not shown to users (and therefore may not work properly).
-            Set this parameter to `True` to include them in the fetched gem list.
-
-        Returns
-        -------
-        :class:`GemJar`
-            Refer to `gemini_webapi.types.GemJar`.
-        """
-
-        response = await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.LIST_GEMS,
-                    payload="[4]" if include_hidden else "[3]",
-                    identifier="system",
-                ),
-                RPCData(
-                    rpcid=GRPC.LIST_GEMS,
-                    payload="[2]",
-                    identifier="custom",
-                ),
-            ],
-            **kwargs,
-        )
-
-        try:
-            response_json = json.loads(response.text.split("\n")[2])
-
-            predefined_gems, custom_gems = [], []
-
-            for part in response_json:
-                if part[-1] == "system":
-                    predefined_gems = json.loads(part[2])[2]
-                elif part[-1] == "custom":
-                    if custom_gems_container := json.loads(part[2]):
-                        custom_gems = custom_gems_container[2]
-
-            if not predefined_gems and not custom_gems:
-                raise Exception
-        except Exception:
-            await self.close()
-            logger.debug(f"Invalid response: {response.text}")
-            raise APIError(
-                "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
-            )
-
-        self._gems = GemJar(
-            itertools.chain(
-                (
-                    (
-                        gem[0],
-                        Gem(
-                            id=gem[0],
-                            name=gem[1][0],
-                            description=gem[1][1],
-                            prompt=gem[2] and gem[2][0] or None,
-                            predefined=True,
-                        ),
-                    )
-                    for gem in predefined_gems
-                ),
-                (
-                    (
-                        gem[0],
-                        Gem(
-                            id=gem[0],
-                            name=gem[1][0],
-                            description=gem[1][1],
-                            prompt=gem[2] and gem[2][0] or None,
-                            predefined=False,
-                        ),
-                    )
-                    for gem in custom_gems
-                ),
-            )
-        )
-
-        return self._gems
 
     @running(retry=2)
     async def generate_content(
@@ -667,7 +505,6 @@ class GeminiClient:
 
         return ChatSession(geminiclient=self, **kwargs)
 
-    @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
         Execute a batch of requests to Gemini API.

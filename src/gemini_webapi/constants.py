@@ -20,6 +20,7 @@ class GRPC(StrEnum):
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
+    DELETE_GEM = "UXcSJb"
 
 
 class Headers(Enum):
