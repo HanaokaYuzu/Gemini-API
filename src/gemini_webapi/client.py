@@ -551,12 +551,10 @@ class GeminiClient(GemMixin):
                 "consider setting a higher `timeout` value when initializing GeminiClient."
             )
 
+        # ? Seems like batch execution will immediately invalidate the current access token,
+        # ? causing the next request to fail with 401 Unauthorized.
         if response.status_code != 200:
-            logger.debug(
-                f"Batch execution failed with status code {response.status_code}. "
-                f"RPC: {', '.join({payload.rpcid.name for payload in payloads})}; "
-                f"Invalid response: {response.text}"
-            )
+            await self.close()
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )

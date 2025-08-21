@@ -132,9 +132,76 @@ class GemMixin:
         return self._gems
 
     @running(retry=2)
+    async def create_gem(self, name: str, prompt: str, description: str = "") -> Gem:
+        """
+        Create a new custom gem.
+
+        Parameters
+        ----------
+        name: `str`
+            Name of the custom gem.
+        prompt: `str`
+            System instructions for the custom gem.
+        description: `str`, optional
+            Description of the custom gem (has no effect on the model's behavior).
+
+        Returns
+        -------
+        :class:`Gem`
+            The created gem.
+        """
+
+        response = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.CREATE_GEM,
+                    payload=json.dumps(
+                        [
+                            [
+                                name,
+                                description,
+                                prompt,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                0,
+                                None,
+                                1,
+                                None,
+                                None,
+                                None,
+                                None,
+                            ]
+                        ]
+                    ).decode(),
+                )
+            ]
+        )
+
+        try:
+            response_json = json.loads(response.text.split("\n")[2])
+            gem_id = json.loads(response_json[0][2])[0]
+        except Exception:
+            await self.close()
+            logger.debug(f"Invalid response: {response.text}")
+            raise APIError(
+                "Failed to create gem. Invalid response data received. Client will try to re-initialize on next request."
+            )
+
+        return Gem(
+            id=gem_id,
+            name=name,
+            description=description,
+            prompt=prompt,
+            predefined=False,
+        )
+
+    @running(retry=2)
     async def delete_gem(self, gem: Gem | str, **kwargs) -> None:
         """
-        Delete a custom gem from gemini.google.com.
+        Delete a custom gem.
 
         Parameters
         ----------
@@ -146,6 +213,6 @@ class GemMixin:
             gem = gem.id
 
         await self._batch_execute(
-            [RPCData(rpcid=GRPC.DELETE_GEM, payload=[gem])],
+            [RPCData(rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem]).decode())],
             **kwargs,
         )

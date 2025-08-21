@@ -20,6 +20,7 @@ class GRPC(StrEnum):
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
+    CREATE_GEM = "oMH3Zd"
     DELETE_GEM = "UXcSJb"
 
 

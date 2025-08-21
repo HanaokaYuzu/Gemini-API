@@ -28,6 +28,38 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
         for gem in gems:
             logger.debug(gem.name)
 
+        custom_gems = gems.filter(predefined=False)
+        if custom_gems:
+            logger.debug(f"Found {len(custom_gems)} custom gems:")
+            for gem in custom_gems:
+                logger.debug(gem)
+
+    @logger.catch(reraise=True)
+    async def test_create_gem(self):
+        gem = await self.geminiclient.create_gem(
+            name="Test Gem",
+            prompt="Gemini API has launched creating gem functionality on Aug 1st, 2025",
+            description="This gem is used for testing the functionality of Gemini API",
+        )
+        logger.debug(f"Gem created: {gem}")
+
+    @logger.catch(reraise=True)
+    async def test_delete_gem(self):
+        await self.geminiclient.fetch_gems()
+        custom_gems = self.geminiclient.gems.filter(predefined=False)
+        total_before_deletion = len(custom_gems)
+        if total_before_deletion == 0:
+            self.skipTest("No custom gems available to delete.")
+
+        last_created_gem = next(iter(custom_gems.values()))
+        await self.geminiclient.delete_gem(last_created_gem.id)
+        logger.debug(f"Gem deleted: {last_created_gem}")
+
+        await self.geminiclient.fetch_gems()
+        custom_gems = self.geminiclient.gems.filter(predefined=False)
+        total_after_deletion = len(custom_gems)
+        self.assertEqual(total_after_deletion, total_before_deletion - 1)
+
 
 if __name__ == "__main__":
     unittest.main()
