@@ -50,6 +50,10 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Continue previous conversations](#continue-previous-conversations)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
+  - [Manage Custom Gems](#manage-custom-gems)
+    - [Create a custom gem](#create-a-custom-gem)
+    - [Update an existing gem](#update-an-existing-gem)
+    - [Delete a custom gem](#delete-a-custom-gem)
   - [Retrieve model's thought process](#retrieve-models-thought-process)
   - [Retrieve images in response](#retrieve-images-in-response)
   - [Generate images with Imagen4](#generate-images-with-imagen4)
@@ -277,6 +281,75 @@ async def main():
     chat = client.start_chat(gem=your_gem_id)
     response2 = await chat.send_message("what's your system prompt?")
     print(response2)
+```
+
+### Manage Custom Gems
+
+You can create, update, and delete your custom gems programmatically with the API. Note that predefined system gems cannot be modified or deleted.
+
+#### Create a custom gem
+
+Create a new custom gem with a name, system prompt (instructions), and optional description:
+
+```python
+async def main():
+    # Create a new custom gem
+    new_gem = await client.create_gem(
+        name="Python Tutor",
+        prompt="You are a helpful Python programming tutor.",
+        description="A specialized gem for Python programming"
+    )
+
+    print(f"Custom gem created: {new_gem}")
+
+    # Use the newly created gem in a conversation
+    response = await client.generate_content(
+        "Explain how list comprehensions work in Python",
+        gem=new_gem
+    )
+    print(response.text)
+
+asyncio.run(main())
+```
+
+#### Update an existing gem
+
+> [!NOTE]
+>
+> When updating a gem, you must provide all parameters (name, prompt, description) even if you only want to change one of them.
+
+```python
+async def main():
+    # Get a custom gem (assuming you have one named "Python Tutor")
+    await client.fetch_gems()
+    python_tutor = client.gems.get(name="Python Tutor")
+
+    # Update the gem with new instructions
+    updated_gem = await client.update_gem(
+        gem=python_tutor,  # Can also pass gem ID string
+        name="Advanced Python Tutor",
+        prompt="You are an expert Python programming tutor.",
+        description="An advanced Python programming assistant"
+    )
+
+    print(f"Custom gem updated: {updated_gem}")
+
+asyncio.run(main())
+```
+
+#### Delete a custom gem
+
+```python
+async def main():
+    # Get the gem to delete
+    await client.fetch_gems()
+    gem_to_delete = client.gems.get(name="Advanced Python Tutor")
+
+    # Delete the gem
+    await client.delete_gem(gem_to_delete)  # Can also pass gem ID string
+    print(f"Custom gem deleted: {gem_to_delete.name}")
+
+asyncio.run(main())
 ```
 
 ### Retrieve model's thought process
