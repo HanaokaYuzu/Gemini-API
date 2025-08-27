@@ -1,4 +1,5 @@
 import os
+import random
 import unittest
 import logging
 
@@ -42,6 +43,28 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
             description="This gem is used for testing the functionality of Gemini API",
         )
         logger.debug(f"Gem created: {gem}")
+
+    @logger.catch(reraise=True)
+    async def test_update_gem(self):
+        await self.geminiclient.fetch_gems()
+        custom_gems = self.geminiclient.gems.filter(predefined=False)
+        if not custom_gems:
+            self.skipTest("No custom gems available to update.")
+
+        last_created_gem = next(iter(custom_gems.values()))
+        randint = random.randint(0, 100)
+        updated_gem = await self.geminiclient.update_gem(
+            last_created_gem.id,
+            name="Updated Test Gem",
+            prompt="Updated prompt for the gem.",
+            description=f"{randint}",
+        )
+        logger.debug(f"Gem updated: {updated_gem}")
+
+        await self.geminiclient.fetch_gems()
+        custom_gems = self.geminiclient.gems.filter(predefined=False)
+        last_created_gem = next(iter(custom_gems.values()))
+        self.assertEqual(last_created_gem.description, updated_gem.description)
 
     @logger.catch(reraise=True)
     async def test_delete_gem(self):

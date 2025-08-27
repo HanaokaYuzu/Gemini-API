@@ -172,7 +172,7 @@ class GemMixin:
                                 None,
                                 None,
                                 None,
-                                None,
+                                [],
                             ]
                         ]
                     ).decode(),
@@ -199,6 +199,74 @@ class GemMixin:
         )
 
     @running(retry=2)
+    async def update_gem(
+        self, gem: Gem | str, name: str, prompt: str, description: str = ""
+    ) -> Gem:
+        """
+        Update an existing custom gem.
+
+        Parameters
+        ----------
+        gem: `Gem | str`
+            Gem to update, can be either a `gemini_webapi.types.Gem` object or a gem id string.
+        name: `str`
+            New name for the custom gem.
+        prompt: `str`
+            New system instructions for the custom gem.
+        description: `str`, optional
+            New description of the custom gem (has no effect on the model's behavior).
+
+        Returns
+        -------
+        :class:`Gem`
+            The updated gem.
+        """
+
+        if isinstance(gem, Gem):
+            gem_id = gem.id
+        else:
+            gem_id = gem
+
+        await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.UPDATE_GEM,
+                    payload=json.dumps(
+                        [
+                            gem_id,
+                            [
+                                name,
+                                description,
+                                prompt,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                0,
+                                None,
+                                1,
+                                None,
+                                None,
+                                None,
+                                [],
+                                0,
+                            ],
+                        ]
+                    ).decode(),
+                )
+            ]
+        )
+
+        return Gem(
+            id=gem_id,
+            name=name,
+            description=description,
+            prompt=prompt,
+            predefined=False,
+        )
+
+    @running(retry=2)
     async def delete_gem(self, gem: Gem | str, **kwargs) -> None:
         """
         Delete a custom gem.
@@ -210,9 +278,11 @@ class GemMixin:
         """
 
         if isinstance(gem, Gem):
-            gem = gem.id
+            gem_id = gem.id
+        else:
+            gem_id = gem
 
         await self._batch_execute(
-            [RPCData(rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem]).decode())],
+            [RPCData(rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem_id]).decode())],
             **kwargs,
         )

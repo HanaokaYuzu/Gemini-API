@@ -292,7 +292,9 @@ class GeminiClient(GemMixin):
             model = Model.from_name(model)
 
         if isinstance(gem, Gem):
-            gem = gem.id
+            gem_id = gem.id
+        else:
+            gem_id = gem
 
         if self.auto_close:
             await self.reset_close_task()
@@ -325,7 +327,7 @@ class GeminiClient(GemMixin):
                                     None,
                                     chat and chat.metadata,
                                 ]
-                                + (gem and [None] * 16 + [gem] or [])
+                                + (gem_id and [None] * 16 + [gem_id] or [])
                             ).decode(),
                         ]
                     ).decode(),

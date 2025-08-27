@@ -21,6 +21,7 @@ class GRPC(StrEnum):
     # Gem methods
     LIST_GEMS = "CNgdBe"
     CREATE_GEM = "oMH3Zd"
+    UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
 
