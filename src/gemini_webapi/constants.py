@@ -44,12 +44,12 @@ class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
     G_2_5_FLASH = (
         "gemini-2.5-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"71c2d248d3b102ff"]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"71c2d248d3b102ff",null,null,0,[4]]'},
         False,
     )
     G_2_5_PRO = (
         "gemini-2.5-pro",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"2525e3954d185b3c"]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]'},
         False,
     )
     G_2_0_FLASH = (
