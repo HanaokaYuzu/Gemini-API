@@ -118,7 +118,7 @@ class GeminiClient(GemMixin):
 
     async def init(
         self,
-        timeout: float = 30,
+        timeout: float = 300,
         auto_close: bool = False,
         close_delay: float = 300,
         auto_refresh: bool = True,
@@ -370,6 +370,11 @@ class GeminiClient(GemMixin):
                         case ErrorCode.USAGE_LIMIT_EXCEEDED:
                             raise UsageLimitExceeded(
                                 f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                            )
+                        case ErrorCode.MODEL_INCONSISTENT:
+                            raise ModelInvalid(
+                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                "`model` parameter when starting a chat session with previous metadata."
                             )
                         case ErrorCode.MODEL_HEADER_INVALID:
                             raise ModelInvalid(

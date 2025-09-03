@@ -17,17 +17,17 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init(timeout=60, auto_refresh=False)
+            await self.geminiclient.init(auto_refresh=False)
         except AuthError as e:
             self.skipTest(e)
 
     @logger.catch(reraise=True)
     async def test_fetch_gems(self):
-        await self.geminiclient.fetch_gems(include_hidden=True)
+        await self.geminiclient.fetch_gems(include_hidden=False)
         gems = self.geminiclient.gems
         self.assertTrue(len(gems.filter(predefined=True)) > 0)
         for gem in gems:
-            logger.debug(gem.name)
+            logger.debug(gem)
 
         custom_gems = gems.filter(predefined=False)
         if custom_gems:
