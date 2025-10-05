@@ -185,7 +185,11 @@ async def main():
     # Process chunks as they arrive
     async for chunk in stream:
         # chunk.delta_text contains the new text added in this chunk
-        print(chunk.delta_text, end="", flush=True)
+        # chunk.delta_thoughts contains the thought added in this chunk
+        if chunk.delta_thoughts:
+            print(chunk.delta_thoughts, end="", flush=True)
+        if chunk.delta_text:
+            print(chunk.delta_text, end="", flush=True)
         
         # chunk.text contains the accumulated text so far
         # chunk.is_final indicates if this is the last chunk
@@ -199,7 +203,7 @@ asyncio.run(main())
 >
 > `generate_content_stream` supports all the same parameters as `generate_content`, including `files`, `model`, and `gem`.
 >
-> For detailed documentation on streaming API including advanced usage, error handling, and best practices, see [Streaming API Guide](docs/STREAMING_API.md).
+> For detailed documentation on streaming API including advanced usage, error handling, and best practices, see [Streaming API Guide](docs/STREAMING_API_REFERENCE.md).
 
 ### Generate streaming contents with files
 

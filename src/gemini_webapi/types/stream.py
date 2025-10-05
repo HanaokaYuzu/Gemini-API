@@ -25,6 +25,10 @@ class StreamChunk(BaseModel):
         Text delta that was added in this chunk (may be different from text which is cumulative).
     thoughts: `str`, optional
         Model's thought process if available.
+    web_images: `list`, optional
+        Web images found in the response.
+    generated_images: `list`, optional
+        AI-generated images in the response.
     """
 
     text: str = ""
@@ -34,6 +38,8 @@ class StreamChunk(BaseModel):
     delta_text: str = ""
     thoughts: str | None = None
     delta_thoughts: str = ""
+    web_images: list = []
+    generated_images: list = []
 
     def __str__(self):
         return self.text
@@ -74,6 +80,9 @@ class StreamedResponse:
         self._rcid = None  # Track reply candidate id separately
         self._cid = None   # Track chat id
         self._rid = None   # Track reply id
+        self._web_images = []  # Track web images
+        self._generated_images = []  # Track generated images
+        self._all_response_data = []  # Store all response data for image generation parsing
 
     @classmethod
     def create_stream(
@@ -146,6 +155,7 @@ class StreamedResponse:
                 if json_str and json_str.startswith('['):
                     try:
                         response_data = json.loads('['+json_str+']')
+                        self._all_response_data.append(response_data)  # Store for image parsing
                         async for chunk_result in self._parse_response_chunk(response_data):
                             yield chunk_result
                     except Exception as e:
@@ -157,6 +167,7 @@ class StreamedResponse:
         if buffer and not buffer[0].isdigit() and buffer.startswith('['):
             try:
                 response_data = json.loads(buffer)
+                self._all_response_data.append(response_data)  # Store for image parsing
                 # 在处理最后的buffer时，尝试提取token并更新metadata
                 # 最后一个响应块通常只包含 [null, [cid, rid], null*22, token]
                 if isinstance(response_data, list) and len(response_data) > 0:
@@ -188,7 +199,7 @@ class StreamedResponse:
             except:
                 pass
 
-        # 确保发送最终块，包含最终的metadata
+        # 确保发送最终块，包含最终的metadata和images
         if self._accumulated_text and not self._is_complete:
             self._is_complete = True
             yield StreamChunk(
@@ -198,7 +209,9 @@ class StreamedResponse:
                 candidates=self._candidates,
                 delta_text="",
                 thoughts=self._thoughts,
-                delta_thoughts=""
+                delta_thoughts="",
+                web_images=self._web_images,
+                generated_images=self._generated_images
             )
 
     async def _parse_response_chunk(self, response_data: Any, is_final: bool = False) -> AsyncIterator[StreamChunk]:
@@ -244,6 +257,31 @@ class StreamedResponse:
                                                             delta_thoughts = new_thoughts[len(self._thoughts):]
                                                             self._thoughts = new_thoughts
                                                 except (TypeError, IndexError):
+                                                    pass
+                                                
+                                                # Extract web images (position 12[1])
+                                                try:
+                                                    if len(candidate_item) > 12 and candidate_item[12] and candidate_item[12][1]:
+                                                        self._web_images = [
+                                                            WebImage(
+                                                                url=web_image[0][0][0],
+                                                                title=web_image[7][0],
+                                                                alt=web_image[0][4],
+                                                                proxy=self.proxy,
+                                                            )
+                                                            for web_image in candidate_item[12][1]
+                                                        ]
+                                                except (TypeError, IndexError, KeyError):
+                                                    pass
+                                                
+                                                # Check for generated images flag (position 12[7][0])
+                                                try:
+                                                    if len(candidate_item) > 12 and candidate_item[12] and candidate_item[12][7] and candidate_item[12][7][0]:
+                                                        # Need to find the image data in stored response data
+                                                        img_data = self._find_image_generation_data(0)  # candidate_index = 0 for streaming
+                                                        if img_data:
+                                                            self._generated_images = img_data
+                                                except (TypeError, IndexError, KeyError):
                                                     pass
                                                 
                                                 if isinstance(candidate_content, list) and len(candidate_content) > 0:
@@ -292,7 +330,9 @@ class StreamedResponse:
                                                                 candidates=self._candidates,
                                                                 delta_text=delta_text,
                                                                 thoughts=self._thoughts,
-                                                                delta_thoughts=delta_thoughts
+                                                                delta_thoughts=delta_thoughts,
+                                                                web_images=self._web_images,
+                                                                generated_images=self._generated_images
                                                             )
                                                             yield chunk
                                                         elif is_final and self._accumulated_text:
@@ -304,7 +344,9 @@ class StreamedResponse:
                                                                 candidates=self._candidates,
                                                                 delta_text="",
                                                                 thoughts=self._thoughts,
-                                                                delta_thoughts=""
+                                                                delta_thoughts="",
+                                                                web_images=self._web_images,
+                                                                generated_images=self._generated_images
                                                             )
                                                             yield chunk
                                                         
@@ -316,33 +358,113 @@ class StreamedResponse:
             # Skip response parsing errors silently
             pass
 
+    def _find_image_generation_data(self, candidate_index: int = 0):
+        """
+        Find and parse generated image data from stored response chunks.
+        Similar to the logic in generate_content for image generation.
+        """
+        import orjson as json
+        import re
+        from . import GeneratedImage
+        
+        try:
+            # Search through all stored response data for image generation info
+            for response_data in self._all_response_data:
+                if isinstance(response_data, list):
+                    for item in response_data:
+                        if isinstance(item, list) and len(item) >= 3 and item[0] == "wrb.fr":
+                            try:
+                                inner_data = json.loads(item[2])
+                                if isinstance(inner_data, list) and len(inner_data) > 4:
+                                    candidates_data = inner_data[4]
+                                    if isinstance(candidates_data, list) and len(candidates_data) > candidate_index:
+                                        candidate = candidates_data[candidate_index]
+                                        # Check if this candidate has generated images
+                                        if (isinstance(candidate, list) and len(candidate) > 12 and 
+                                            candidate[12] and candidate[12][7] and candidate[12][7][0]):
+                                            
+                                            # Clean text from image generation markers
+                                            if len(candidate) > 1 and candidate[1] and len(candidate[1]) > 0:
+                                                self._accumulated_text = re.sub(
+                                                    r"http://googleusercontent\.com/image_generation_content/\d+",
+                                                    "",
+                                                    candidate[1][0],
+                                                ).rstrip()
+                                            
+                                            # Parse generated images
+                                            generated_images = [
+                                                GeneratedImage(
+                                                    url=generated_image[0][3][3],
+                                                    title=(
+                                                        f"[Generated Image {generated_image[3][6]}]"
+                                                        if generated_image[3][6]
+                                                        else "[Generated Image]"
+                                                    ),
+                                                    alt=(
+                                                        generated_image[3][5][image_index]
+                                                        if generated_image[3][5]
+                                                        and len(generated_image[3][5]) > image_index
+                                                        else (
+                                                            generated_image[3][5][0]
+                                                            if generated_image[3][5]
+                                                            else ""
+                                                        )
+                                                    ),
+                                                    proxy=self.proxy,
+                                                    cookies=self.cookies,
+                                                )
+                                                for image_index, generated_image in enumerate(
+                                                    candidate[12][7][0]
+                                                )
+                                            ]
+                                            return generated_images
+                            except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                                continue
+        except Exception:
+            pass
+        
+        return []
+
     async def collect(self) -> ModelOutput:
         """
         Collect all streamed chunks and return a complete ModelOutput.
         """
         final_text = ""
         final_metadata = []
+        final_thoughts = None
+        final_web_images = []
+        final_generated_images = []
         
         async for chunk in self:
             final_text = chunk.text
             if chunk.metadata:
                 final_metadata = chunk.metadata
+            if chunk.thoughts:
+                final_thoughts = chunk.thoughts
+            if chunk.web_images:
+                final_web_images = chunk.web_images
+            if chunk.generated_images:
+                final_generated_images = chunk.generated_images
             if chunk.is_final:
                 break
         
-        # Create a basic candidate with the collected text
+        # Create a candidate with the collected text and images
         from . import Candidate, ModelOutput
         
+        # Extract only first 3 elements (cid, rid, rcid) and filter out None values
+        # ModelOutput expects list[str], not list[str | None]
+        metadata_for_output = [m for m in final_metadata[:3] if m is not None]
+        
         candidate = Candidate(
-            rcid="stream_final",
+            rcid=final_metadata[2] if len(final_metadata) > 2 and final_metadata[2] else "stream_final",
             text=final_text,
-            thoughts=None,
-            web_images=[],
-            generated_images=[]
+            thoughts=final_thoughts,
+            web_images=final_web_images,
+            generated_images=final_generated_images
         )
         
         return ModelOutput(
-            metadata=final_metadata,
+            metadata=metadata_for_output,
             candidates=[candidate],
             chosen=0
         )
@@ -411,3 +533,47 @@ class _StreamManager:
                 "Generate content stream request timed out, please try again. If the problem persists, "
                 "consider setting a higher `timeout` value when initializing GeminiClient."
             )
+    
+    async def collect(self) -> ModelOutput:
+        """
+        Collect all streamed chunks and return a complete ModelOutput.
+        """
+        final_text = ""
+        final_metadata = []
+        final_thoughts = None
+        final_web_images = []
+        final_generated_images = []
+        
+        async for chunk in self:
+            final_text = chunk.text
+            if chunk.metadata:
+                final_metadata = chunk.metadata
+            if chunk.thoughts:
+                final_thoughts = chunk.thoughts
+            if chunk.web_images:
+                final_web_images = chunk.web_images
+            if chunk.generated_images:
+                final_generated_images = chunk.generated_images
+            if chunk.is_final:
+                break
+        
+        # Create a candidate with the collected text and images
+        from . import Candidate, ModelOutput
+        
+        # Extract only first 3 elements (cid, rid, rcid) and filter out None values
+        # ModelOutput expects list[str], not list[str | None]
+        metadata_for_output = [m for m in final_metadata[:3] if m is not None]
+        
+        candidate = Candidate(
+            rcid=final_metadata[2] if len(final_metadata) > 2 and final_metadata[2] else "stream_final",
+            text=final_text,
+            thoughts=final_thoughts,
+            web_images=final_web_images,
+            generated_images=final_generated_images
+        )
+        
+        return ModelOutput(
+            metadata=metadata_for_output,
+            candidates=[candidate],
+            chosen=0
+        )
