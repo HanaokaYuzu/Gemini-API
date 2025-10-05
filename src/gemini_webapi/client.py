@@ -26,6 +26,7 @@ from .types import (
     ModelOutput,
     Gem,
     RPCData,
+    StreamedResponse,
 )
 from .utils import (
     upload_file,
@@ -505,6 +506,136 @@ class GeminiClient(GemMixin):
 
             return output
 
+    @running(retry=2)
+    async def generate_content_stream(
+        self,
+        prompt: str,
+        files: list[str | Path] | None = None,
+        model: Model | str = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
+        chat: Optional["ChatSession"] = None,
+        **kwargs,
+    ) -> "StreamedResponse":
+        """
+        Generates contents with prompt using streaming response.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Prompt provided by user.
+        files: `list[str | Path]`, optional
+            List of file paths to be attached.
+        model: `Model` | `str`, optional
+            Specify the model to use for generation.
+            Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+        gem: `Gem | str`, optional
+            Specify a gem to use as system prompt for the chat session.
+            Pass either a `gemini_webapi.types.Gem` object or a gem id string.
+        chat: `ChatSession`, optional
+            Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+        kwargs: `dict`, optional
+            Additional arguments which will be passed to the post request.
+            Refer to `httpx.AsyncClient.request` for more information.
+
+        Returns
+        -------
+        :class:`StreamedResponse`
+            Streamed response handler that yields chunks as they arrive.
+
+        Raises
+        ------
+        `AssertionError`
+            If prompt is empty.
+        `gemini_webapi.TimeoutError`
+            If request timed out.
+        `gemini_webapi.APIError`
+            If request failed with status code other than 200.
+        """
+
+        assert prompt, "Prompt cannot be empty."
+
+        if not isinstance(model, Model):
+            model = Model.from_name(model)
+
+        if isinstance(gem, Gem):
+            gem_id = gem.id
+        else:
+            gem_id = gem
+
+        if self.auto_close:
+            await self.reset_close_task()
+
+        # Create the request data for streaming
+        # Streaming requests require a different structure with additional parameters
+        request_data = {
+            "at": self.access_token,
+            "f.req": json.dumps(
+                [
+                    None,
+                    json.dumps(
+                        [
+                            # First element: prompt with optional files
+                            files
+                            and [
+                                prompt,
+                                0,
+                                None,
+                                [
+                                    [
+                                        [await upload_file(file, self.proxy)],
+                                        parse_file_name(file),
+                                    ]
+                                    for file in files
+                                ],
+                                None,
+                                None,
+                                0,  # Streaming flag
+                            ]
+                            or [prompt, 0, None, None, None, None, 0],  # Streaming flag at position 6
+                            # Second element: language code
+                            ["zh-CN"],
+                            # Third element: chat metadata (conversation history) - must be 10 elements array
+                            chat and chat.metadata or None,
+                            # Fourth element: access token (will be used for streaming auth)
+                            None,
+                            # Fifth element: request ID or similar
+                            None,
+                            # Sixth element: unknown
+                            None,
+                            # Seventh element: array with [1]
+                            [1],
+                            # Eighth element: 1 (streaming enabled)
+                            1,
+                            # Additional nulls
+                            None,
+                            None,
+                            # Eleventh element: 1
+                            1,
+                            # Twelfth element: 0
+                            0,
+                        ]
+                        + (gem_id and [None] * 16 + [gem_id] or [])
+                    ).decode(),
+                ]
+            ).decode(),
+        }
+
+        # Log stream request details
+        logger.debug("generate_content_stream called")
+
+        from .types import StreamedResponse
+
+        return StreamedResponse.create_stream(
+            client=self.client,
+            method="POST",
+            url=Endpoint.GENERATE.value,
+            headers=model.model_header,
+            data=request_data,
+            proxy=self.proxy,
+            cookies=self.cookies,
+            **kwargs,
+        )
+
     def start_chat(self, **kwargs) -> "ChatSession":
         """
         Returns a `ChatSession` object attached to this client.
@@ -579,6 +710,7 @@ class ChatSession:
         Async httpx client interface for gemini.google.com.
     metadata: `list[str]`, optional
         List of chat metadata `[cid, rid, rcid]`, can be shorter than 3 elements, like `[cid, rid]` or `[cid]` only.
+        Note: Streaming responses may return 10-element metadata arrays, but only the first 3 elements are stored.
     cid: `str`, optional
         Chat id, if provided together with metadata, will override the first value in it.
     rid: `str`, optional
@@ -686,6 +818,55 @@ class ChatSession:
             **kwargs,
         )
 
+    async def send_message_stream(
+        self,
+        prompt: str,
+        files: list[str | Path] | None = None,
+        **kwargs,
+    ) -> StreamedResponse:
+        """
+        Generates streamed contents with prompt.
+        Use as a shortcut for `GeminiClient.generate_content_stream(prompt, files, model, gem, self)`.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Prompt provided by user.
+        files: `list[str | Path]`, optional
+            List of file paths to be attached.
+        kwargs: `dict`, optional
+            Additional arguments which will be passed to the post request.
+            Refer to `httpx.AsyncClient.request` for more information.
+
+        Returns
+        -------
+        :class:`StreamedResponse`
+            Streamed response handler that yields chunks as they arrive.
+            Note: To preserve conversation history, iterate through all chunks
+            to ensure metadata is properly updated in the ChatSession.
+
+        Raises
+        ------
+        `AssertionError`
+            If prompt is empty.
+        `gemini_webapi.TimeoutError`
+            If request timed out.
+        `gemini_webapi.APIError`
+            If request failed with status code other than 200.
+        """
+
+        stream = await self.geminiclient.generate_content_stream(
+            prompt=prompt,
+            files=files,
+            model=self.model,
+            gem=self.gem,
+            chat=self,
+            **kwargs,
+        )
+        
+        # Wrap the stream to update chat metadata after streaming completes
+        return _ChatStreamWrapper(stream, self)
+
     def choose_candidate(self, index: int) -> ModelOutput:
         """
         Choose a candidate from the last `ModelOutput` to control the ongoing conversation flow.
@@ -724,9 +905,13 @@ class ChatSession:
 
     @metadata.setter
     def metadata(self, value: list[str]):
-        if len(value) > 3:
-            raise ValueError("metadata cannot exceed 3 elements")
-        self.__metadata[: len(value)] = value
+        # For streaming responses, metadata can be 10 elements: [cid, rid, rcid, None*6, token]
+        # We only store the first 3 elements [cid, rid, rcid] internally
+        if len(value) > 10:
+            raise ValueError("metadata cannot exceed 10 elements")
+        # Extract only the first 3 elements (cid, rid, rcid) for internal storage
+        elements_to_store = min(len(value), 3)
+        self.__metadata[:elements_to_store] = value[:elements_to_store]
 
     @property
     def cid(self):
@@ -751,3 +936,29 @@ class ChatSession:
     @rcid.setter
     def rcid(self, value: str):
         self.__metadata[2] = value
+
+
+class _ChatStreamWrapper:
+    """
+    Internal wrapper for StreamedResponse to automatically update ChatSession metadata.
+    """
+    
+    def __init__(self, stream: StreamedResponse, chat_session: ChatSession):
+        self.stream = stream
+        self.chat_session = chat_session
+        self._last_metadata = None
+    
+    async def __aiter__(self):
+        """
+        Iterate through stream chunks and update chat metadata from the final chunk.
+        """
+        async for chunk in self.stream:
+            # Track the latest metadata
+            if chunk.metadata:
+                self._last_metadata = chunk.metadata
+            
+            yield chunk
+            
+            # Update chat session metadata when stream completes
+            if chunk.is_final and self._last_metadata:
+                self.chat_session.metadata = self._last_metadata

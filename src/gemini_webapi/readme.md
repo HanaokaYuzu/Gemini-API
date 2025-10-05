@@ -46,10 +46,12 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Initialization](#initialization)
   - [Generate contents](#generate-contents)
   - [Generate contents with files](#generate-contents-with-files)
-  - [Generate streaming contents](#generate-streaming-contents)
-  - [Generate streaming contents with files](#generate-streaming-contents-with-files)
+  - [Stream contents in real-time](#stream-contents-in-real-time)
+    - [Basic streaming](#basic-streaming)
+    - [Streaming with chat sessions](#streaming-with-chat-sessions)
+    - [Advanced streaming usage](#advanced-streaming-usage)
+    - [Streaming with thinking models](#streaming-with-thinking-models)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
-  - [Streaming in conversations](#streaming-in-conversations)
   - [Continue previous conversations](#continue-previous-conversations)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
@@ -173,50 +175,142 @@ async def main():
 asyncio.run(main())
 ```
 
-### Generate streaming contents
+### Stream contents in real-time
 
-For real-time applications, you can use `GeminiClient.generate_content_stream` to get streaming responses. This method returns a `gemini_webapi.StreamedResponse` object that yields `StreamChunk` objects as they arrive from the API.
+For applications that need real-time response updates (like chatbots or live interfaces), you can use streaming to receive partial responses as they are generated. This provides a more responsive user experience.
+
+#### Basic streaming
+
+Use `GeminiClient.generate_content_stream` to get a streaming response that yields chunks as they arrive:
 
 ```python
 async def main():
-    # Generate streaming response
-    stream = await client.generate_content_stream("Tell me a long story about space exploration")
+    # Generate content with streaming
+    stream = await client.generate_content_stream("Write a long story about a brave knight")
     
-    # Process chunks as they arrive
+    # Iterate through chunks as they arrive
     async for chunk in stream:
-        # chunk.delta_text contains the new text added in this chunk
-        print(chunk.delta_text, end="", flush=True)
+        if chunk.delta_text:  # Only print new text
+            print(chunk.delta_text, end="", flush=True)
         
-        # chunk.text contains the accumulated text so far
-        # chunk.is_final indicates if this is the last chunk
         if chunk.is_final:
-            print("\n\n[Stream complete]")
+            print("\n\n[Stream completed]")
+            break
+
+asyncio.run(main())
+```
+
+#### Streaming with chat sessions
+
+You can also use streaming within chat sessions for continuous conversations:
+
+```python
+async def main():
+    chat = client.start_chat()
+    
+    # Send a message with streaming
+    stream = await chat.send_message_stream("Tell me about artificial intelligence")
+    
+    full_response = ""
+    async for chunk in stream:
+        if chunk.delta_text:
+            print(chunk.delta_text, end="", flush=True)
+            full_response += chunk.delta_text
+        
+        if chunk.is_final:
+            print(f"\n\nComplete response: {full_response}")
+            break
+    
+    # Continue the conversation normally
+    response = await chat.send_message("Can you summarize what you just told me?")
+    print(f"Summary: {response.text}")
+
+asyncio.run(main())
+```
+
+#### Advanced streaming usage
+
+For more control, you can collect the full response while still processing chunks:
+
+```python
+async def main():
+    stream = await client.generate_content_stream(
+        "Explain quantum computing in simple terms",
+        model="gemini-2.5-flash"
+    )
+    
+    # Process chunks and collect full response
+    chunks = []
+    async for chunk in stream:
+        chunks.append(chunk)
+        
+        # Show real-time progress
+        if chunk.delta_text:
+            print(f"[{len(chunk.text)} chars] {chunk.delta_text}", end="")
+        
+        if chunk.is_final:
+            break
+    
+    # Convert stream to ModelOutput for compatibility
+    final_output = await stream.collect()
+    print(f"\n\nFinal output: {final_output.text}")
+    print(f"Metadata: {final_output.metadata}")
 
 asyncio.run(main())
 ```
 
 > [!TIP]
 >
-> `generate_content_stream` supports all the same parameters as `generate_content`, including `files`, `model`, and `gem`.
->
-> For detailed documentation on streaming API including advanced usage, error handling, and best practices, see [Streaming API Guide](docs/STREAMING_API.md).
+> - Use `chunk.delta_text` to get only the new text added in the current chunk
+> - Use `chunk.text` to get the accumulated text so far
+> - Use `chunk.is_final` to detect when the stream is complete
+> - Call `stream.collect()` to get a complete `ModelOutput` from the stream
 
-### Generate streaming contents with files
+#### Streaming with thinking models
 
-You can also use streaming with file inputs:
+When using models with thinking capabilities (like Gemini 2.5 Pro), you can access the model's thought process in real-time through `chunk.delta_thoughts`:
 
 ```python
 async def main():
     stream = await client.generate_content_stream(
-        "Analyze this document and provide a detailed summary",
-        files=["assets/sample.pdf"]
+        "Solve this physics problem: A block with mass 10kg slides onto a conveyor belt...",
+        model="gemini-2.5-pro"
     )
     
     async for chunk in stream:
-        print(chunk.delta_text, end="", flush=True)
+        # Display new thoughts as they arrive
+        if chunk.delta_thoughts:
+            print(f"\n[Thinking]: {chunk.delta_thoughts}", end="", flush=True)
+        
+        # Display new text content
+        if chunk.delta_text:
+            print(chunk.delta_text, end="", flush=True)
+        
+        if chunk.is_final:
+            break
+    
+    print("\n\n[Completed]")
 
 asyncio.run(main())
 ```
+
+**StreamChunk Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `text` | `str` | Accumulated text content from the start |
+| `delta_text` | `str` | New text added in this chunk only |
+| `thoughts` | `str \| None` | Accumulated thought process from the start |
+| `delta_thoughts` | `str` | New thought process added in this chunk only |
+| `is_final` | `bool` | Whether this is the final chunk |
+| `metadata` | `list[str \| None]` | Chat metadata (10-element array: `[cid, rid, rcid, None*6, token]`) |
+| `candidates` | `list[Candidate]` | Response candidates if available |
+
+> [!NOTE]
+>
+> - Only Gemini 2.5 Pro (`Model.G_2_5_PRO`) currently supports thought process output
+> - Use `delta_thoughts` for incremental updates to avoid repeating content
+> - Thoughts and text may arrive in interleaved chunks
 
 ### Conversations across multiple turns
 
@@ -241,29 +335,6 @@ asyncio.run(main())
 > [!TIP]
 >
 > Same as `GeminiClient.generate_content`, `ChatSession.send_message` also accepts `image` as an optional argument.
-
-### Streaming in conversations
-
-You can also use streaming responses in multi-turn conversations:
-
-```python
-async def main():
-    chat = client.start_chat()
-    
-    # First turn with streaming
-    stream1 = await chat.send_message_stream("Briefly introduce quantum computing")
-    async for chunk in stream1:
-        print(chunk.delta_text, end="", flush=True)
-    print("\n")
-    
-    # Second turn with streaming
-    stream2 = await chat.send_message_stream("What are its practical applications?")
-    async for chunk in stream2:
-        print(chunk.delta_text, end="", flush=True)
-    print("\n")
-
-asyncio.run(main())
-```
 
 ### Continue previous conversations
 
