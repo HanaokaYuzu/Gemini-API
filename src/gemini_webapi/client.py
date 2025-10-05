@@ -727,6 +727,7 @@ class ChatSession:
 
     __slots__ = [
         "__metadata",
+        "__candidates",
         "geminiclient",
         "last_output",
         "model",
@@ -737,6 +738,7 @@ class ChatSession:
         self,
         geminiclient: GeminiClient,
         metadata: list[str | None] | None = None,
+        candidates: list[Candidate | None] | None = None,
         cid: str | None = None,  # chat id
         rid: str | None = None,  # reply id
         rcid: str | None = None,  # reply candidate id
@@ -744,6 +746,7 @@ class ChatSession:
         gem: Gem | str | None = None,
     ):
         self.__metadata: list[str | None] = [None, None, None]
+        self.__candidates: list[Candidate] = []
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
         self.model: Model | str = model
@@ -751,6 +754,8 @@ class ChatSession:
 
         if metadata:
             self.metadata = metadata
+        if candidates:
+            self.candidates = candidates
         if cid:
             self.cid = cid
         if rid:
@@ -937,6 +942,14 @@ class ChatSession:
     def rcid(self, value: str):
         self.__metadata[2] = value
 
+    @property
+    def candidates(self):
+        return self.__candidates
+
+    @candidates.setter
+    def candidates(self, value: list[Candidate]):
+        self.__candidates = value
+
 
 class _ChatStreamWrapper:
     """
@@ -947,6 +960,7 @@ class _ChatStreamWrapper:
         self.stream = stream
         self.chat_session = chat_session
         self._last_metadata = None
+        self._last_candidates = None
     
     async def __aiter__(self):
         """
@@ -956,9 +970,15 @@ class _ChatStreamWrapper:
             # Track the latest metadata
             if chunk.metadata:
                 self._last_metadata = chunk.metadata
+
+            if chunk.candidates:
+                self._last_candidates = chunk.candidates
             
             yield chunk
             
-            # Update chat session metadata when stream completes
-            if chunk.is_final and self._last_metadata:
-                self.chat_session.metadata = self._last_metadata
+            # Update chat session metadata and candidates when stream completes
+            if chunk.is_final:
+                if self._last_metadata:
+                    self.chat_session.metadata = self._last_metadata
+                if self._last_candidates:
+                    self.chat_session.candidates = self._last_candidates

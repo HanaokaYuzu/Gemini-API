@@ -46,6 +46,12 @@ async def test_chat_metadata_in_stream():
     print(f"   CID: {chat.cid}")
     print(f"   RID: {chat.rid}")
     print(f"   RCID: {chat.rcid}")
+
+    for candidate in response1.candidates:
+        print(f"\nCandidate.metadata: {candidate}")
+        print(f"\nCandidate metadata detailed structure:")
+        for i, item in enumerate(candidate):
+            print(f"  [{i}]: {repr(item)} (type: {type(item).__name__})")
     
     # Verify metadata updated
     if all(x is None for x in chat.metadata[:3]):
@@ -69,6 +75,13 @@ async def test_chat_metadata_in_stream():
             final_metadata = chunk.metadata
         if chunk.is_final:
             break
+
+    for candidate in chat.candidates:
+        print(f"\nCandidate.metadata: {candidate}")
+        print(f"\nCandidate metadata detailed structure:")
+        for i, item in enumerate(candidate):
+            print(f"  [{i}]: {repr(item)} (type: {type(item).__name__})")
+    chat.choose_candidate(0)
     
     print("\n")
     print(f"\nMetadata after streaming response: {chat.metadata}")
@@ -132,6 +145,12 @@ async def test_metadata_structure():
     print(f"\nChatSession metadata detailed structure:")
     for i, item in enumerate(chat.metadata):
         print(f"  [{i}]: {repr(item)} (type: {type(item).__name__})")
+
+    for candidate in response.candidates:
+        print(f"\nCandidate.metadata: {candidate}")
+        print(f"\nCandidate metadata detailed structure:")
+        for i, item in enumerate(candidate):
+            print(f"  [{i}]: {repr(item)} (type: {type(item).__name__})")
     
     await client.close()
     
