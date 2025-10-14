@@ -29,7 +29,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 ## Features
 
 - **Persistent Cookies** - Automatically refreshes cookies in background. Optimized for always-on services.
-- **Image Generation** - Natively supports generating and modifying images with natural language.
+- **Image Generation** - Natively supports generating and editing images with natural language.
 - **System Prompt** - Supports customizing model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating contents with [Gemini extensions](https://gemini.google.com/extensions) on, like YouTube and Gmail.
 - **Classified Outputs** - Categorizes texts, thoughts, web images and AI generated images in the response.
@@ -56,7 +56,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
     - [Delete a custom gem](#delete-a-custom-gem)
   - [Retrieve model's thought process](#retrieve-models-thought-process)
   - [Retrieve images in response](#retrieve-images-in-response)
-  - [Generate images with Imagen4](#generate-images-with-imagen4)
+  - [Generate and edit images](#generate-and-edit-images)
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
   - [Logging Configuration](#logging-configuration)
@@ -380,13 +380,13 @@ async def main():
 asyncio.run(main())
 ```
 
-### Generate images with Imagen4
+### Generate and edit images
 
-You can ask Gemini to generate and modify images with Imagen4, Google's latest AI image generator, simply by natural language.
+You can ask Gemini to generate and edit images with Nano Banana, Google's latest image model, simply by natural language.
 
 > [!IMPORTANT]
 >
-> Google has some limitations on the image generation feature in Gemini, so its availability could be different per region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of March 19th, 2025):
+> Google has some limitations on the image generation feature in Gemini, so its availability could be different per region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
 >
 > > This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
 > >
