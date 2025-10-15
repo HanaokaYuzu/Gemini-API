@@ -32,7 +32,6 @@ from .utils import (
     parse_file_name,
     rotate_1psidts,
     get_access_token,
-    load_browser_cookies,
     running,
     rotate_tasks,
     logger,
@@ -101,20 +100,10 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 540
         self.kwargs = kwargs
 
-        # Validate cookies
         if secure_1psid:
             self.cookies["__Secure-1PSID"] = secure_1psid
             if secure_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = secure_1psidts
-        else:
-            try:
-                cookies = load_browser_cookies(domain_name="google.com")
-                if not (cookies and cookies.get("__Secure-1PSID")):
-                    raise ValueError(
-                        "Failed to load cookies from local browser. Please pass cookie values manually."
-                    )
-            except ImportError:
-                pass
 
     async def init(
         self,

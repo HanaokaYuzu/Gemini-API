@@ -16,6 +16,7 @@ class GRPC(StrEnum):
     """
 
     # Chat methods
+    LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
 
     # Gem methods

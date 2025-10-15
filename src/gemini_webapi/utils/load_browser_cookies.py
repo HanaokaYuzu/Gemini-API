@@ -1,3 +1,5 @@
+from http.cookiejar import CookieJar
+
 from .logger import logger
 
 
@@ -15,8 +17,9 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
 
     Returns
     -------
-    `dict`
-        Dictionary with cookie name as key and cookie value as value.
+    `dict[str, dict]`
+        Dictionary with browser as keys and their cookies for the specified domain as values.
+        Only browsers that have cookies for the specified domain will be included.
     """
 
     import browser_cookie3 as bc3
@@ -35,8 +38,11 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
         bc3.safari,
     ]:
         try:
-            for cookie in cookie_fn(domain_name=domain_name):
-                cookies[cookie.name] = cookie.value
+            jar: CookieJar = cookie_fn(domain_name=domain_name)
+            if jar:
+                cookies[cookie_fn.__name__] = {
+                    cookie.name: cookie.value for cookie in jar
+                }
         except bc3.BrowserCookieError:
             pass
         except PermissionError as e:

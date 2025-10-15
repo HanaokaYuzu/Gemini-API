@@ -93,15 +93,17 @@ pip install -U browser-cookie3
 
 > [!NOTE]
 >
-> If your application is deployed in a containerized environment (e.g. Docker), you may want to persist the cookies with a volume to avoid re-authentication every time the container rebuilds.
+> If your application is deployed in a containerized environment (e.g. Docker), you may want to persist the cookies with a volume to avoid re-authentication every time the container rebuilds. You can set `GEMINI_COOKIE_PATH` environment variable to specify the path where auto-refreshed cookies are stored. Make sure the path is writable by the application.
 >
 > Here's part of a sample `docker-compose.yml` file:
 
 ```yaml
 services:
-    main:
-        volumes:
-            - ./gemini_cookies:/usr/local/lib/python3.12/site-packages/gemini_webapi/utils/temp
+  main:
+    environment:
+      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+    volumes:
+      - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
