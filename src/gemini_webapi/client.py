@@ -211,19 +211,41 @@ class GeminiClient(GemMixin):
         """
 
         while True:
+            new_1psidts: str | None = None
             try:
                 new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
             except AuthError:
-                if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
+                if task := rotate_tasks.get(self.cookies.get("__Secure-1PSID", "")):
                     task.cancel()
                 logger.warning(
-                    "Failed to refresh cookies. Background auto refresh task canceled."
+                    "Failed to refresh cookies (AuthError). Auto refresh task canceled."
                 )
+                return
+            except Exception as exc:
+                logger.warning(f"Unexpected error while refreshing cookies: {exc}")
 
-            logger.debug(f"Cookies refreshed. New __Secure-1PSIDTS: {new_1psidts}")
             if new_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
+                self._sync_httpx_cookie("__Secure-1PSIDTS", new_1psidts)
+                logger.debug("Cookies refreshed. New __Secure-1PSIDTS applied.")
             await asyncio.sleep(self.refresh_interval)
+
+    def _sync_httpx_cookie(self, name: str, value: str) -> None:
+        """
+        Ensure the underlying httpx client uses the refreshed cookie value.
+        """
+        if not self.client:
+            return
+
+        jar = self.client.cookies.jar
+        matched = False
+        for cookie in jar:
+            if cookie.name == name:
+                cookie.value = value
+                matched = True
+        if not matched:
+            # Fall back to setting the cookie with default scope if we did not find an existing entry.
+            self.client.cookies.set(name, value)
 
     @running(retry=2)
     async def generate_content(
@@ -391,7 +413,7 @@ class GeminiClient(GemMixin):
                     if re.match(
                         r"^http://googleusercontent\.com/card_content/\d+", text
                     ):
-                        text = candidate[22] and candidate[22][0] or text
+                        text = self._safe_get(candidate, [22, 0]) or text
 
                     try:
                         thoughts = candidate[37][0][0]
