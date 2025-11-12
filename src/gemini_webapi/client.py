@@ -258,8 +258,8 @@ class GeminiClient(GemMixin):
                 current = current[key]
             except (IndexError, TypeError, KeyError) as e:
                 current_repr = repr(current)
-                if len(current_repr) > 150:
-                    current_repr = current_repr[:150] + "..."
+                if len(current_repr) > 200:
+                    current_repr = f"{current_repr[:197]}..."
 
                 logger.debug(
                     f"safe_get failed at path {path} (index {i}, key '{key}'). "
