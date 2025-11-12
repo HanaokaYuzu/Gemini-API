@@ -42,7 +42,7 @@ class GeminiClient(GemMixin):
     """
     Async httpx client interface for gemini.google.com.
 
-    `secure_1psid` must be provided unless the optional dependency `browser-cookie3` is installed and
+    `secure_1psid` must be provided unless the optional dependency `browser-cookie3` is installed, and
     you have logged in to google.com in your local browser.
 
     Parameters
@@ -381,6 +381,9 @@ class GeminiClient(GemMixin):
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
         else:
+            response_json: list[Any] = []
+            body: list[Any] = []
+            body_index = 0
             try:
                 response_text = response.text
                 if response_text.startswith(")]}'\n"):
@@ -400,8 +403,6 @@ class GeminiClient(GemMixin):
 
                 response_json = json.loads(json_str)
 
-                body = None
-                body_index = 0
                 for part_index, part in enumerate(response_json):
                     try:
                         part_str = self._safe_get(part, [2])
@@ -638,7 +639,7 @@ class GeminiClient(GemMixin):
             )
 
         # ? Seems like batch execution will immediately invalidate the current access token,
-        # ? causing the next request to fail with 401 Unauthorized.
+        # causing the next request to fail with 401 Unauthorized.
         if response.status_code != 200:
             await self.close()
             raise APIError(
