@@ -247,6 +247,28 @@ class GeminiClient(GemMixin):
             # Fall back to setting the cookie with default scope if we did not find an existing entry.
             self.client.cookies.set(name, value)
 
+    @staticmethod
+    def _safe_get(data: list, path: list[int], default: Any = None) -> Any:
+        """
+        Safely get a value from a nested list.
+        """
+        current = data
+        for i, key in enumerate(path):
+            try:
+                current = current[key]
+            except (IndexError, TypeError, KeyError) as e:
+                current_repr = repr(current)
+                if len(current_repr) > 150:
+                    current_repr = current_repr[:150] + "..."
+
+                logger.debug(
+                    f"safe_get failed at path {path} (index {i}, key '{key}'). "
+                    f"Reason: {type(e).__name__}. "
+                    f"Attempted to access key on: {current_repr}"
+                )
+                return default
+        return current
+
     @running(retry=2)
     async def generate_content(
         self,
@@ -358,17 +380,37 @@ class GeminiClient(GemMixin):
             )
         else:
             try:
-                response_json = json.loads(response.text.split("\n")[2])
+                response_text = response.text
+                if response_text.startswith(")]}'\n"):
+                    response_text = response_text[5:]
+                elif response_text.startswith(")]}'"):
+                    response_text = response_text[4:]
+
+                json_str = ""
+                for line in response_text.splitlines():
+                    stripped_line = line.strip()
+                    if stripped_line.startswith("[") or stripped_line.startswith("{"):
+                        json_str = stripped_line
+                        break
+
+                if not json_str:
+                    json_str = response_text.strip()
+
+                response_json = json.loads(json_str)
 
                 body = None
                 body_index = 0
                 for part_index, part in enumerate(response_json):
                     try:
-                        main_part = json.loads(part[2])
-                        if main_part[4]:
+                        part_str = self._safe_get(part, [2])
+                        if not part_str:
+                            continue
+
+                        main_part = json.loads(part_str)
+                        if self._safe_get(main_part, [4]):
                             body_index, body = part_index, main_part
                             break
-                    except (IndexError, TypeError, ValueError):
+                    except (TypeError, ValueError):
                         continue
 
                 if not body:
@@ -377,7 +419,8 @@ class GeminiClient(GemMixin):
                 await self.close()
 
                 try:
-                    match ErrorCode(response_json[0][5][2][0][1][0]):
+                    error_code = self._safe_get(response_json, [0, 5, 2, 0, 1, 0], -1)
+                    match ErrorCode(error_code):
                         case ErrorCode.USAGE_LIMIT_EXCEEDED:
                             raise UsageLimitExceeded(
                                 f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
@@ -408,43 +451,50 @@ class GeminiClient(GemMixin):
 
             try:
                 candidates = []
-                for candidate_index, candidate in enumerate(body[4]):
-                    text = candidate[1][0]
+                # Safely get the list of candidates from the response body
+                candidate_list = self._safe_get(body, [4], [])
+
+                for candidate_index, candidate in enumerate(candidate_list):
+                    # Safely extract data for each candidate
+                    rcid = self._safe_get(candidate, [0])
+                    if not rcid:
+                        continue  # Skip candidate if it has no rcid
+
+                    text = self._safe_get(candidate, [1, 0], "")
                     if re.match(
-                        r"^http://googleusercontent\.com/card_content/\d+", text
+                        r"^http://googleusercontent\.com/card_content/\d+", text or ""
                     ):
                         text = self._safe_get(candidate, [22, 0]) or text
 
-                    try:
-                        thoughts = candidate[37][0][0]
-                    except (TypeError, IndexError):
-                        thoughts = None
+                    thoughts = self._safe_get(candidate, [37, 0, 0])
 
-                    web_images = (
-                        candidate[12]
-                        and candidate[12][1]
-                        and [
+                    # Safely extract web images
+                    web_images = []
+                    for web_image_data in self._safe_get(candidate, [12, 1], []):
+                        url = self._safe_get(web_image_data, [0, 0, 0])
+                        if not url:
+                            continue
+                        web_images.append(
                             WebImage(
-                                url=web_image[0][0][0],
-                                title=web_image[7][0],
-                                alt=web_image[0][4],
+                                url=url,
+                                title=self._safe_get(web_image_data, [7, 0], ""),
+                                alt=self._safe_get(web_image_data, [0, 4], ""),
                                 proxy=self.proxy,
                             )
-                            for web_image in candidate[12][1]
-                        ]
-                        or []
-                    )
+                        )
 
+                    # Safely extract generated images
                     generated_images = []
-                    if candidate[12] and candidate[12][7] and candidate[12][7][0]:
+                    if self._safe_get(candidate, [12, 7, 0]):
                         img_body = None
                         for img_part_index, part in enumerate(response_json):
                             if img_part_index < body_index:
                                 continue
-
                             try:
                                 img_part = json.loads(part[2])
-                                if img_part[4][candidate_index][12][7][0]:
+                                if self._safe_get(
+                                    img_part, [4, candidate_index, 12, 7, 0]
+                                ):
                                     img_body = img_part
                                     break
                             except (IndexError, TypeError, ValueError):
@@ -456,57 +506,73 @@ class GeminiClient(GemMixin):
                                 "If the error persists and is caused by the package, please report it on GitHub."
                             )
 
-                        img_candidate = img_body[4][candidate_index]
+                        img_candidate = self._safe_get(
+                            img_body, [4, candidate_index], []
+                        )
 
-                        text = re.sub(
-                            r"http://googleusercontent\.com/image_generation_content/\d+",
-                            "",
-                            img_candidate[1][0],
-                        ).rstrip()
+                        img_text = self._safe_get(
+                            img_candidate, [1, 0]
+                        )  # Get text, could be None
+                        if (
+                            img_text is not None
+                        ):  # Only overwrite if text is found in the image candidate
+                            text = re.sub(
+                                r"http://googleusercontent\.com/image_generation_content/\d+",
+                                "",
+                                img_text,
+                            ).rstrip()
 
-                        generated_images = [
-                            GeneratedImage(
-                                url=generated_image[0][3][3],
-                                title=(
-                                    f"[Generated Image {generated_image[3][6]}]"
-                                    if generated_image[3][6]
-                                    else "[Generated Image]"
-                                ),
-                                alt=(
-                                    generated_image[3][5][image_index]
-                                    if generated_image[3][5]
-                                    and len(generated_image[3][5]) > image_index
-                                    else (
-                                        generated_image[3][5][0]
-                                        if generated_image[3][5]
-                                        else ""
-                                    )
-                                ),
-                                proxy=self.proxy,
-                                cookies=self.cookies,
+                        for image_index, gen_img_data in enumerate(
+                            self._safe_get(img_candidate, [12, 7, 0], [])
+                        ):
+                            url = self._safe_get(gen_img_data, [0, 3, 3])
+                            if not url:
+                                continue
+
+                            img_num = self._safe_get(gen_img_data, [3, 6])
+                            title = (
+                                f"[Generated Image {img_num}]"
+                                if img_num
+                                else "[Generated Image]"
                             )
-                            for image_index, generated_image in enumerate(
-                                img_candidate[12][7][0]
+
+                            alt_list = self._safe_get(gen_img_data, [3, 5], [])
+                            alt = (
+                                self._safe_get(alt_list, [image_index])
+                                or self._safe_get(alt_list, [0])
+                                or ""
                             )
-                        ]
+
+                            generated_images.append(
+                                GeneratedImage(
+                                    url=url,
+                                    title=title,
+                                    alt=alt,
+                                    proxy=self.proxy,
+                                    cookies=self.cookies,
+                                )
+                            )
 
                     candidates.append(
                         Candidate(
-                            rcid=candidate[0],
+                            rcid=rcid,
                             text=text,
                             thoughts=thoughts,
                             web_images=web_images,
                             generated_images=generated_images,
                         )
                     )
+
                 if not candidates:
                     raise GeminiError(
                         "Failed to generate contents. No output data found in response."
                     )
 
-                output = ModelOutput(metadata=body[1], candidates=candidates)
-            except (TypeError, IndexError):
-                logger.debug(f"Invalid response: {response.text}")
+                output = ModelOutput(
+                    metadata=self._safe_get(body, [1], []), candidates=candidates
+                )
+            except (TypeError, IndexError) as e:
+                logger.debug(f"Invalid response structure: {response.text}, error: {e}")
                 raise APIError(
                     "Failed to parse response body. Data structure is invalid."
                 )
