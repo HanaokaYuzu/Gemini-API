@@ -267,6 +267,8 @@ class GeminiClient(GemMixin):
                     f"Attempted to access key on: {current_repr}"
                 )
                 return default
+        if current is None and default is not None:
+            return default
         return current
 
     @running(retry=2)
