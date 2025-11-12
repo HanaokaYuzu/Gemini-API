@@ -271,6 +271,51 @@ class GeminiClient(GemMixin):
             return default
         return current
 
+    @staticmethod
+    def _extract_json_from_response(text: str) -> str:
+        """
+        Clean and extract the JSON content from a Google API response.
+
+        Parameters
+        ----------
+        text : str
+            The raw response text from a Google API.
+
+        Returns
+        -------
+        str
+            A cleaned JSON string ready to be parsed with json.loads().
+
+        Raises
+        ------
+        TypeError
+            If the input is not a string.
+        ValueError
+            If no JSON object is found or the response is empty.
+        """
+        if not isinstance(text, str):
+            raise TypeError("Expected text to be a string")
+
+        # Remove BOM (if any) and leading whitespace
+        text = text.lstrip("\ufeff").lstrip()
+
+        # Remove common Google XSSI prefixes
+        if text.startswith(")]}',"):
+            text = text[5:]
+        elif text.startswith(")]}'"):
+            text = text[4:]
+
+        # Find the first line starting with { or [
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith(("{", "[")):
+                return "\n".join(lines[i:]).strip()
+
+        # If no JSON start is found, raise a ValueError
+        raise ValueError(
+            "Could not find the start of a JSON object or array in the response."
+        )
+
     @running(retry=2)
     async def generate_content(
         self,
@@ -385,21 +430,7 @@ class GeminiClient(GemMixin):
             body: list[Any] = []
             body_index = 0
             try:
-                response_text = response.text
-                if response_text.startswith(")]}'\n"):
-                    response_text = response_text[5:]
-                elif response_text.startswith(")]}'"):
-                    response_text = response_text[4:]
-
-                json_str = ""
-                for line in response_text.splitlines():
-                    stripped_line = line.strip()
-                    if stripped_line.startswith("[") or stripped_line.startswith("{"):
-                        json_str = stripped_line
-                        break
-
-                if not json_str:
-                    json_str = response_text.strip()
+                json_str = self._extract_json_from_response(response.text)
 
                 response_json = json.loads(json_str)
 
