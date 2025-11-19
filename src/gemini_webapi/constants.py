@@ -43,6 +43,11 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
+    G_3_0_PRO = (
+        "gemini-3.0-pro",
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,null,[4]]'},
+        False,
+    )
     G_2_5_FLASH = (
         "gemini-2.5-flash",
         {"x-goog-ext-525001261-jspb": '[1,null,null,null,"71c2d248d3b102ff",null,null,0,[4]]'},
