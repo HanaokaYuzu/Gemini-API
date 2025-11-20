@@ -10,31 +10,33 @@ from httpx import AsyncClient, ReadTimeout, Response
 from .components import GemMixin
 from .constants import Endpoint, ErrorCode, Headers, Model
 from .exceptions import (
-    AuthError,
     APIError,
-    ImageGenerationError,
-    TimeoutError,
+    AuthError,
     GeminiError,
-    UsageLimitExceeded,
+    ImageGenerationError,
     ModelInvalid,
     TemporarilyBlocked,
+    TimeoutError,
+    UsageLimitExceeded,
 )
 from .types import (
-    WebImage,
-    GeneratedImage,
     Candidate,
-    ModelOutput,
     Gem,
+    GeneratedImage,
+    ModelOutput,
     RPCData,
+    WebImage,
 )
 from .utils import (
-    upload_file,
+    extract_json_from_response,
+    get_access_token,
+    get_nested_value,
+    logger,
     parse_file_name,
     rotate_1psidts,
-    get_access_token,
-    running,
     rotate_tasks,
-    logger,
+    running,
+    upload_file,
 )
 
 
@@ -203,6 +205,7 @@ class GeminiClient(GemMixin):
         if self.close_task:
             self.close_task.cancel()
             self.close_task = None
+
         self.close_task = asyncio.create_task(self.close(self.close_delay))
 
     async def start_auto_refresh(self) -> None:
@@ -218,7 +221,7 @@ class GeminiClient(GemMixin):
                 if task := rotate_tasks.get(self.cookies.get("__Secure-1PSID", "")):
                     task.cancel()
                 logger.warning(
-                    "Failed to refresh cookies (AuthError). Auto refresh task canceled."
+                    "AuthError: Failed to refresh cookies. Auto refresh task canceled."
                 )
                 return
             except Exception as exc:
@@ -226,95 +229,11 @@ class GeminiClient(GemMixin):
 
             if new_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
-                self._sync_httpx_cookie("__Secure-1PSIDTS", new_1psidts)
+                if self.running:
+                    self.client.cookies.set("__Secure-1PSIDTS", new_1psidts)
                 logger.debug("Cookies refreshed. New __Secure-1PSIDTS applied.")
+
             await asyncio.sleep(self.refresh_interval)
-
-    def _sync_httpx_cookie(self, name: str, value: str) -> None:
-        """
-        Ensure the underlying httpx client uses the refreshed cookie value.
-        """
-        if not self.client:
-            return
-
-        jar = self.client.cookies.jar
-        matched = False
-        for cookie in jar:
-            if cookie.name == name:
-                cookie.value = value
-                matched = True
-        if not matched:
-            # Fall back to setting the cookie with default scope if we did not find an existing entry.
-            self.client.cookies.set(name, value)
-
-    @staticmethod
-    def _safe_get(data: list, path: list[int], default: Any = None) -> Any:
-        """
-        Safely get a value from a nested list.
-        """
-        current = data
-        for i, key in enumerate(path):
-            try:
-                current = current[key]
-            except (IndexError, TypeError, KeyError) as e:
-                current_repr = repr(current)
-                if len(current_repr) > 200:
-                    current_repr = f"{current_repr[:197]}..."
-
-                logger.debug(
-                    f"safe_get failed at path {path} (index {i}, key '{key}'). "
-                    f"Reason: {type(e).__name__}. "
-                    f"Attempted to access key on: {current_repr}"
-                )
-                return default
-        if current is None and default is not None:
-            return default
-        return current
-
-    @staticmethod
-    def _extract_json_from_response(text: str) -> str:
-        """
-        Clean and extract the JSON content from a Google API response.
-
-        Parameters
-        ----------
-        text : str
-            The raw response text from a Google API.
-
-        Returns
-        -------
-        str
-            A cleaned JSON string ready to be parsed with json.loads().
-
-        Raises
-        ------
-        TypeError
-            If the input is not a string.
-        ValueError
-            If no JSON object is found or the response is empty.
-        """
-        if not isinstance(text, str):
-            raise TypeError("Expected text to be a string")
-
-        # Remove BOM (if any) and leading whitespace
-        text = text.lstrip("\ufeff").lstrip()
-
-        # Remove common Google XSSI prefixes
-        if text.startswith(")]}',"):
-            text = text[5:]
-        elif text.startswith(")]}'"):
-            text = text[4:]
-
-        # Find the first line starting with { or [
-        lines = text.splitlines()
-        for i, line in enumerate(lines):
-            if line.lstrip().startswith(("{", "[")):
-                return "\n".join(lines[i:]).strip()
-
-        # If no JSON start is found, raise a ValueError
-        raise ValueError(
-            "Could not find the start of a JSON object or array in the response."
-        )
 
     @running(retry=2)
     async def generate_content(
@@ -429,20 +348,19 @@ class GeminiClient(GemMixin):
             response_json: list[Any] = []
             body: list[Any] = []
             body_index = 0
-            try:
-                json_str = self._extract_json_from_response(response.text)
 
-                response_json = json.loads(json_str)
+            try:
+                response_json = extract_json_from_response(response.text)
 
                 for part_index, part in enumerate(response_json):
                     try:
-                        part_str = self._safe_get(part, [2])
-                        if not part_str:
+                        part_body = get_nested_value(part, [2])
+                        if not part_body:
                             continue
 
-                        main_part = json.loads(part_str)
-                        if self._safe_get(main_part, [4]):
-                            body_index, body = part_index, main_part
+                        part_json = json.loads(part_body)
+                        if get_nested_value(part_json, [4]):
+                            body_index, body = part_index, part_json
                             break
                     except (TypeError, ValueError):
                         continue
@@ -453,7 +371,7 @@ class GeminiClient(GemMixin):
                 await self.close()
 
                 try:
-                    error_code = self._safe_get(response_json, [0, 5, 2, 0, 1, 0], -1)
+                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
                     match ErrorCode(error_code):
                         case ErrorCode.USAGE_LIMIT_EXCEEDED:
                             raise UsageLimitExceeded(
@@ -484,49 +402,49 @@ class GeminiClient(GemMixin):
                     )
 
             try:
-                candidates = []
-                # Safely get the list of candidates from the response body
-                candidate_list = self._safe_get(body, [4], [])
+                candidate_list: list[Any] = get_nested_value(body, [4], [])
+                output_candidates: list[Candidate] = []
 
                 for candidate_index, candidate in enumerate(candidate_list):
-                    # Safely extract data for each candidate
-                    rcid = self._safe_get(candidate, [0])
+                    rcid = get_nested_value(candidate, [0])
                     if not rcid:
                         continue  # Skip candidate if it has no rcid
 
-                    text = self._safe_get(candidate, [1, 0], "")
+                    # Text output and thoughts
+                    text = get_nested_value(candidate, [1, 0], "")
                     if re.match(
-                        r"^http://googleusercontent\.com/card_content/\d+", text or ""
+                        r"^http://googleusercontent\.com/card_content/\d+", text
                     ):
-                        text = self._safe_get(candidate, [22, 0]) or text
+                        text = get_nested_value(candidate, [22, 0]) or text
 
-                    thoughts = self._safe_get(candidate, [37, 0, 0])
+                    thoughts = get_nested_value(candidate, [37, 0, 0])
 
-                    # Safely extract web images
+                    # Web images
                     web_images = []
-                    for web_image_data in self._safe_get(candidate, [12, 1], []):
-                        url = self._safe_get(web_image_data, [0, 0, 0])
+                    for web_img_data in get_nested_value(candidate, [12, 1], []):
+                        url = get_nested_value(web_img_data, [0, 0, 0])
                         if not url:
                             continue
+
                         web_images.append(
                             WebImage(
                                 url=url,
-                                title=self._safe_get(web_image_data, [7, 0], ""),
-                                alt=self._safe_get(web_image_data, [0, 4], ""),
+                                title=get_nested_value(web_img_data, [7, 0], ""),
+                                alt=get_nested_value(web_img_data, [0, 4], ""),
                                 proxy=self.proxy,
                             )
                         )
 
-                    # Safely extract generated images
+                    # Generated images
                     generated_images = []
-                    if self._safe_get(candidate, [12, 7, 0]):
+                    if get_nested_value(candidate, [12, 7, 0]):
                         img_body = None
                         for img_part_index, part in enumerate(response_json):
                             if img_part_index < body_index:
                                 continue
                             try:
                                 img_part = json.loads(part[2])
-                                if self._safe_get(
+                                if get_nested_value(
                                     img_part, [4, candidate_index, 12, 7, 0]
                                 ):
                                     img_body = img_part
@@ -540,40 +458,37 @@ class GeminiClient(GemMixin):
                                 "If the error persists and is caused by the package, please report it on GitHub."
                             )
 
-                        img_candidate = self._safe_get(
+                        img_candidate = get_nested_value(
                             img_body, [4, candidate_index], []
                         )
 
-                        img_text = self._safe_get(
+                        if finished_text := get_nested_value(
                             img_candidate, [1, 0]
-                        )  # Get text, could be None
-                        if (
-                            img_text is not None
-                        ):  # Only overwrite if text is found in the image candidate
+                        ):  # Only overwrite if new text is returned after image generation
                             text = re.sub(
                                 r"http://googleusercontent\.com/image_generation_content/\d+",
                                 "",
-                                img_text,
+                                finished_text,
                             ).rstrip()
 
-                        for image_index, gen_img_data in enumerate(
-                            self._safe_get(img_candidate, [12, 7, 0], [])
+                        for img_index, gen_img_data in enumerate(
+                            get_nested_value(img_candidate, [12, 7, 0], [])
                         ):
-                            url = self._safe_get(gen_img_data, [0, 3, 3])
+                            url = get_nested_value(gen_img_data, [0, 3, 3])
                             if not url:
                                 continue
 
-                            img_num = self._safe_get(gen_img_data, [3, 6])
+                            img_num = get_nested_value(gen_img_data, [3, 6])
                             title = (
                                 f"[Generated Image {img_num}]"
                                 if img_num
                                 else "[Generated Image]"
                             )
 
-                            alt_list = self._safe_get(gen_img_data, [3, 5], [])
+                            alt_list = get_nested_value(gen_img_data, [3, 5], [])
                             alt = (
-                                self._safe_get(alt_list, [image_index])
-                                or self._safe_get(alt_list, [0])
+                                get_nested_value(alt_list, [img_index])
+                                or get_nested_value(alt_list, [0])
                                 or ""
                             )
 
@@ -587,7 +502,7 @@ class GeminiClient(GemMixin):
                                 )
                             )
 
-                    candidates.append(
+                    output_candidates.append(
                         Candidate(
                             rcid=rcid,
                             text=text,
@@ -597,16 +512,19 @@ class GeminiClient(GemMixin):
                         )
                     )
 
-                if not candidates:
+                if not output_candidates:
                     raise GeminiError(
                         "Failed to generate contents. No output data found in response."
                     )
 
                 output = ModelOutput(
-                    metadata=self._safe_get(body, [1], []), candidates=candidates
+                    metadata=get_nested_value(body, [1], []),
+                    candidates=output_candidates,
                 )
             except (TypeError, IndexError) as e:
-                logger.debug(f"Invalid response structure: {response.text}, error: {e}")
+                logger.debug(
+                    f"{type(e).__name__}: {e}; Invalid response structure: {response.text}"
+                )
                 raise APIError(
                     "Failed to parse response body. Data structure is invalid."
                 )
@@ -670,7 +588,7 @@ class GeminiClient(GemMixin):
             )
 
         # ? Seems like batch execution will immediately invalidate the current access token,
-        # causing the next request to fail with 401 Unauthorized.
+        # ? causing the next request to fail with 401 Unauthorized.
         if response.status_code != 200:
             await self.close()
             raise APIError(
