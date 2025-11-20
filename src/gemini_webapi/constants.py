@@ -50,13 +50,29 @@ class Model(Enum):
     )
     G_2_5_FLASH = (
         "gemini-2.5-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861",null,null,null,[4]]'},
         False,
     )
     G_2_5_PRO = (
         "gemini-2.5-pro",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]'},
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,null,[4]]'},
         False,
+    )
+
+    G_3_0_PRO_PREMIUM = (
+        "gemini-3.0-pro-premium",
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,null,[4]]'},
+        True,
+    )
+    G_2_5_FLASH_PREMIUM = (
+        "gemini-2.5-flash-premium",
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"71c2d248d3b102ff",null,null,null,[4]]'},
+        True,
+    )
+    G_2_5_PRO_PREMIUM = (
+        "gemini-2.5-pro-premium",
+        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,null,[4]]'},
+        True,
     )
 
     def __init__(self, name, header, advanced_only):

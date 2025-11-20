@@ -227,6 +227,13 @@ Currently available models (as of November 20, 2025):
 - `gemini-3.0-pro` - Gemini 3.0 Pro
 - `gemini-2.5-pro` - Gemini 2.5 Pro
 - `gemini-2.5-flash` - Gemini 2.5 Flash
+- `gemini-3.0-pro-premium` - Gemini 3.0 Pro Premium (requires advanced access)
+- `gemini-2.5-flash-premium` - Gemini 2.5 Flash Premium (requires advanced access)
+- `gemini-2.5-pro-premium` - Gemini 2.5 Pro Premium (requires advanced access)
+
+> [!NOTE]
+>
+> Premium models (marked with "Premium") require a Google Gemini Advanced subscription. Using these models without proper access may result in errors.
 
 ```python
 from gemini_webapi.constants import Model
