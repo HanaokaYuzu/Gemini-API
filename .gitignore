@@ -201,4 +201,4 @@ Temporary Items
 .apdisk
 
 # Temporary files
-temp/
+.temp/
