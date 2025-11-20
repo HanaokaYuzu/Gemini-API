@@ -221,16 +221,12 @@ asyncio.run(main())
 
 You can specify which language model to use by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
-Currently available models (as of June 12, 2025):
+Currently available models (as of November 20, 2025):
 
 - `unspecified` - Default model
+- `gemini-3.0-pro` - Gemini 3.0 Pro
+- `gemini-2.5-pro` - Gemini 2.5 Pro
 - `gemini-2.5-flash` - Gemini 2.5 Flash
-- `gemini-2.5-pro` - Gemini 2.5 Pro (daily usage limit imposed)
-
-Deprecated models (yet still working):
-
-- `gemini-2.0-flash` - Gemini 2.0 Flash
-- `gemini-2.0-flash-thinking` - Gemini 2.0 Flash Thinking
 
 ```python
 from gemini_webapi.constants import Model
