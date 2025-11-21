@@ -1,5 +1,6 @@
 import html
 from pydantic import BaseModel, field_validator
+from collections.abc import Sequence
 
 from .image import Image, WebImage, GeneratedImage
 
@@ -46,5 +47,5 @@ class Candidate(BaseModel):
         return value
 
     @property
-    def images(self) -> list[Image]:
+    def images(self) -> Sequence[Image]:
         return self.web_images + self.generated_images

@@ -1,10 +1,11 @@
 import asyncio
 import functools
+from collections.abc import Callable
 
 from ..exceptions import APIError, ImageGenerationError
 
 
-def running(retry: int = 0) -> callable:
+def running(retry: int = 0) -> Callable:
     """
     Decorator to check if GeminiClient is running before making a request.
 
