@@ -240,7 +240,7 @@ class GeminiClient(GemMixin):
         self,
         prompt: str,
         files: list[str | Path] | None = None,
-        model: Model | str = Model.UNSPECIFIED,
+        model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         **kwargs,
@@ -254,9 +254,10 @@ class GeminiClient(GemMixin):
             Prompt provided by user.
         files: `list[str | Path]`, optional
             List of file paths to be attached.
-        model: `Model` | `str`, optional
+        model: `Model | str | dict`, optional
             Specify the model to use for generation.
-            Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+            Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
+            Pass a dictionary to use custom model header strings ("model_name" and "model_header" keys must be provided).
         gem: `Gem | str`, optional
             Specify a gem to use as system prompt for the chat session.
             Pass either a `gemini_webapi.types.Gem` object or a gem id string.
@@ -287,8 +288,15 @@ class GeminiClient(GemMixin):
 
         assert prompt, "Prompt cannot be empty."
 
-        if not isinstance(model, Model):
+        if isinstance(model, str):
             model = Model.from_name(model)
+        elif isinstance(model, dict):
+            model = Model.from_dict(model)
+        elif not isinstance(model, Model):
+            raise TypeError(
+                f"'model' must be a `gemini_webapi.constants.Model` instance, "
+                f"string, or dictionary; got `{type(model).__name__}`"
+            )
 
         if isinstance(gem, Gem):
             gem_id = gem.id
@@ -362,7 +370,7 @@ class GeminiClient(GemMixin):
                         if get_nested_value(part_json, [4]):
                             body_index, body = part_index, part_json
                             break
-                    except (TypeError, ValueError):
+                    except json.JSONDecodeError:
                         continue
 
                 if not body:
@@ -443,13 +451,17 @@ class GeminiClient(GemMixin):
                             if img_part_index < body_index:
                                 continue
                             try:
-                                img_part = json.loads(part[2])
+                                img_part_body = get_nested_value(part, [2])
+                                if not img_part_body:
+                                    continue
+
+                                img_part_json = json.loads(img_part_body)
                                 if get_nested_value(
-                                    img_part, [4, candidate_index, 12, 7, 0]
+                                    img_part_json, [4, candidate_index, 12, 7, 0]
                                 ):
-                                    img_body = img_part
+                                    img_body = img_part_json
                                     break
-                            except (IndexError, TypeError, ValueError):
+                            except json.JSONDecodeError:
                                 continue
 
                         if not img_body:
@@ -614,9 +626,10 @@ class ChatSession:
         Reply id, if provided together with metadata, will override the second value in it.
     rcid: `str`, optional
         Reply candidate id, if provided together with metadata, will override the third value in it.
-    model: `Model` | `str`, optional
+    model: `Model | str | dict`, optional
         Specify the model to use for generation.
-        Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+        Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
+        Pass a dictionary to use custom model header strings ("model_name" and "model_header" keys must be provided).
     gem: `Gem | str`, optional
         Specify a gem to use as system prompt for the chat session.
         Pass either a `gemini_webapi.types.Gem` object or a gem id string.
@@ -637,13 +650,13 @@ class ChatSession:
         cid: str | None = None,  # chat id
         rid: str | None = None,  # reply id
         rcid: str | None = None,  # reply candidate id
-        model: Model | str = Model.UNSPECIFIED,
+        model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
         self.__metadata: list[str | None] = [None, None, None]
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
-        self.model: Model | str = model
+        self.model: Model | str | dict = model
         self.gem: Gem | str | None = gem
 
         if metadata:

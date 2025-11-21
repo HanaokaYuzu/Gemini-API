@@ -99,11 +99,11 @@ pip install -U browser-cookie3
 
 ```yaml
 services:
-  main:
-    environment:
-      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-    volumes:
-      - ./gemini_cookies:/tmp/gemini_webapi
+    main:
+        environment:
+            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+        volumes:
+            - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -243,6 +243,23 @@ async def main():
     print(f"Model version (gemini-2.5-pro): {response2.text}")
 
 asyncio.run(main())
+```
+
+You can also pass custom model header strings directly to access models which are not listed above.
+
+```python
+# "model_name" and "model_header" keys must be present
+custom_model = {
+    "model_name": "xxx",
+    "model_header": {
+        "x-goog-ext-525001261-jspb": "[1,null,null,null,'e6fa609c3fa255c0',null,null,null,[4]]"
+    },
+}
+
+response = await client.generate_content(
+    "What's your model version?",
+    model=custom_model
+)
 ```
 
 ### Apply system prompt with Gemini Gems

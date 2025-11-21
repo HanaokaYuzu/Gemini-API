@@ -45,17 +45,23 @@ class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
     G_3_0_PRO = (
         "gemini-3.0-pro",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,null,[4]]'},
-        False,
-    )
-    G_2_5_FLASH = (
-        "gemini-2.5-flash",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]'},
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
+        },
         False,
     )
     G_2_5_PRO = (
         "gemini-2.5-pro",
-        {"x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]'},
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]'
+        },
+        False,
+    )
+    G_2_5_FLASH = (
+        "gemini-2.5-flash",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]'
+        },
         False,
     )
 
@@ -69,9 +75,27 @@ class Model(Enum):
         for model in cls:
             if model.model_name == name:
                 return model
+
         raise ValueError(
             f"Unknown model name: {name}. Available models: {', '.join([model.model_name for model in cls])}"
         )
+
+    @classmethod
+    def from_dict(cls, model_dict: dict):
+        if "model_name" not in model_dict or "model_header" not in model_dict:
+            raise ValueError(
+                "When passing a custom model as a dictionary, 'model_name' and 'model_header' keys must be provided."
+            )
+
+        if not isinstance(model_dict["model_header"], dict):
+            raise ValueError(
+                "When passing a custom model as a dictionary, 'model_header' must be a dictionary containing valid header strings."
+            )
+
+        custom_model = cls.UNSPECIFIED
+        custom_model.model_name = model_dict["model_name"]
+        custom_model.model_header = model_dict["model_header"]
+        return custom_model
 
 
 class ErrorCode(IntEnum):
