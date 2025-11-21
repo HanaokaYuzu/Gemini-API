@@ -41,5 +41,13 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].images
 
     @property
+    def delta_text(self) -> str | None:
+        return self.candidates[self.chosen].delta_text
+
+    @property
+    def delta_thoughts(self) -> str | None:
+        return self.candidates[self.chosen].delta_thoughts
+
+    @property
     def rcid(self) -> str:
         return self.candidates[self.chosen].rcid
