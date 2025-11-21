@@ -35,7 +35,7 @@ from .utils import (
     parse_file_name,
     rotate_1psidts,
     rotate_tasks,
-    running,
+    running as arunning,
     upload_file,
 )
 
@@ -230,12 +230,13 @@ class GeminiClient(GemMixin):
             if new_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
                 if self.running:
+                    assert self.client, "Client is not initialized."
                     self.client.cookies.set("__Secure-1PSIDTS", new_1psidts)
                 logger.debug("Cookies refreshed. New __Secure-1PSIDTS applied.")
 
             await asyncio.sleep(self.refresh_interval)
 
-    @running(retry=2)
+    @arunning(retry=2)
     async def generate_content(
         self,
         prompt: str,
@@ -285,7 +286,7 @@ class GeminiClient(GemMixin):
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
-
+        assert self.client, "Client is not initialized. Please call `init()` before making requests."
         assert prompt, "Prompt cannot be empty."
 
         if isinstance(model, str):
@@ -581,7 +582,7 @@ class GeminiClient(GemMixin):
         :class:`httpx.Response`
             Response object containing the result of the batch execution.
         """
-
+        assert self.client, "Client is not initialized. Please call `init()` before making requests."
         try:
             response = await self.client.post(
                 Endpoint.BATCH_EXEC,
@@ -765,7 +766,7 @@ class ChatSession:
         return self.__metadata
 
     @metadata.setter
-    def metadata(self, value: list[str]):
+    def metadata(self, value: list[str | None]):
         if len(value) > 3:
             raise ValueError("metadata cannot exceed 3 elements")
         self.__metadata[: len(value)] = value
