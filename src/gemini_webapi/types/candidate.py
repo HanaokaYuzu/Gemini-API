@@ -48,4 +48,4 @@ class Candidate(BaseModel):
 
     @property
     def images(self) -> Sequence[Image]:
-        return self.web_images + self.generated_images
+        return tuple(self.web_images + self.generated_images)

@@ -46,10 +46,16 @@ class GemJar:
         Parameters
         ----------
         items: iterable, optional
-            An iterable of (key, value) pairs to initialize the jar.
+            An iterable of (key, value) pairs, a dict, or a GemJar to initialize the jar.
         """
-        self._data: dict[str, Gem] = dict(items) if items else {}
-
+        if items is None:
+            self._data: dict[str, Gem] = {}
+        elif isinstance(items, GemJar):
+            self._data: dict[str, Gem] = items._data.copy()
+        elif isinstance(items, dict):
+            self._data: dict[str, Gem] = dict(items)
+        else:
+            self._data: dict[str, Gem] = dict(items)
     def __getitem__(self, key: str) -> Gem:
         """Get a gem by its ID."""
         return self._data[key]
@@ -64,9 +70,9 @@ class GemJar:
 
     def __iter__(self):
         """
-        Iter over the gems in the jar.
+        Iterate over the gem IDs in the jar (dict-like behavior).
         """
-        return iter(self._data.values())
+        return iter(self._data)
 
     def __len__(self) -> int:
         """Return the number of gems in the jar."""
