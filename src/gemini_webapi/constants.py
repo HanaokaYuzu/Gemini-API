@@ -64,6 +64,27 @@ class Model(Enum):
         },
         False,
     )
+    G_3_0_PRO_NOTHINKING = (
+        "gemini-3.0-pro-nothinking",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,null,[4]]'
+        },
+        False,
+    )
+    G_2_5_PRO_NOTHINKING = (
+        "gemini-2.5-pro-nothinking",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,null,[4]]'
+        },
+        False,
+    )
+    G_2_5_FLASH_NOTHINKING = (
+        "gemini-2.5-flash-nothinking",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861",null,null,null,[4]]'
+        },
+        False,
+    )
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name

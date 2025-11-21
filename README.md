@@ -227,6 +227,9 @@ Currently available models (as of November 20, 2025):
 - `gemini-3.0-pro` - Gemini 3.0 Pro
 - `gemini-2.5-pro` - Gemini 2.5 Pro
 - `gemini-2.5-flash` - Gemini 2.5 Flash
+- `gemini-3.0-pro-nothinking` - Gemini 3.0 Pro (No Thinking)
+- `gemini-2.5-pro-nothinking` - Gemini 2.5 Pro (No Thinking)
+- `gemini-2.5-flash-nothinking` - Gemini 2.5 Flash (No Thinking)
 
 ```python
 from gemini_webapi.constants import Model
