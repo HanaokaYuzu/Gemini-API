@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from collections.abc import Sequence
 
 from .image import Image
 from .candidate import Candidate
@@ -19,7 +18,7 @@ class ModelOutput(BaseModel):
         Index of the chosen candidate, by default will choose the first one
     """
 
-    metadata: list[str | None]
+    metadata: list[str]
     candidates: list[Candidate]
     chosen: int = 0
 
@@ -38,7 +37,7 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].thoughts
 
     @property
-    def images(self) -> Sequence[Image]:
+    def images(self) -> list[Image]:
         return self.candidates[self.chosen].images
 
     @property

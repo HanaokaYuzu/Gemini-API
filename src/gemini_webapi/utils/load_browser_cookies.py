@@ -21,12 +21,8 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
         Dictionary with browser as keys and their cookies for the specified domain as values.
         Only browsers that have cookies for the specified domain will be included.
     """
-    try:
-        import browser_cookie3 as bc3 # type: ignore
-    except ImportError:
-        raise ImportError(
-            "browser_cookie3 is not installed. Please install it with `pip install browser-cookie3` to use this feature."
-        )
+
+    import browser_cookie3 as bc3
 
     cookies = {}
     for cookie_fn in [

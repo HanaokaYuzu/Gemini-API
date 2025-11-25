@@ -33,66 +33,18 @@ class Gem(BaseModel):
         )
 
 
-class GemJar:
+class GemJar(dict[str, Gem]):
     """
     Helper class for handling a collection of `Gem` objects, stored by their ID.
-    This class provides a dict-like interface with extra filtering options.
+    This class extends `dict` to allows retrieving gems with extra filtering options.
     """
-
-    def __init__(self, items=None):
-        """
-        Initialize a GemJar.
-
-        Parameters
-        ----------
-        items: iterable, optional
-            An iterable of (key, value) pairs, a dict, or a GemJar to initialize the jar.
-        """
-        if items is None:
-            self._data: dict[str, Gem] = {}
-        elif isinstance(items, GemJar):
-            self._data: dict[str, Gem] = items._data.copy()
-        elif isinstance(items, dict):
-            self._data: dict[str, Gem] = dict(items)
-        else:
-            self._data: dict[str, Gem] = dict(items)
-    def __getitem__(self, key: str) -> Gem:
-        """Get a gem by its ID."""
-        return self._data[key]
-
-    def __setitem__(self, key: str, value: Gem) -> None:
-        """Set a gem by its ID."""
-        self._data[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        """Delete a gem by its ID."""
-        del self._data[key]
 
     def __iter__(self):
         """
-        Iterate over the gem IDs in the jar (dict-like behavior).
+        Iter over the gems in the jar.
         """
-        return iter(self._data)
 
-    def __len__(self) -> int:
-        """Return the number of gems in the jar."""
-        return len(self._data)
-
-    def __contains__(self, key: str) -> bool:
-        """Check if a gem ID exists in the jar."""
-        return key in self._data
-
-    def keys(self):
-        """Return a view of gem IDs."""
-        return self._data.keys()
-
-    def values(self):
-        """Return a view of gems."""
-        return self._data.values()
-
-    def items(self):
-        """Return a view of (ID, gem) pairs."""
-        return self._data.items()
+        return self.values().__iter__()
 
     def get(
         self, id: str | None = None, name: str | None = None, default: Gem | None = None
@@ -128,7 +80,7 @@ class GemJar:
         ), "At least one of gem id or name must be provided."
 
         if id is not None:
-            gem_candidate = self._data.get(id)
+            gem_candidate = super().get(id)
             if gem_candidate:
                 if name is not None:
                     if gem_candidate.name == name:

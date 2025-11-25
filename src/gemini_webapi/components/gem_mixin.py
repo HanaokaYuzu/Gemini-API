@@ -1,5 +1,4 @@
 import itertools
-from typing import TYPE_CHECKING
 
 import orjson as json
 
@@ -8,19 +7,11 @@ from ..exceptions import APIError
 from ..types import Gem, GemJar, RPCData
 from ..utils import running, logger
 
-if TYPE_CHECKING:
-    from httpx import Response
-
 
 class GemMixin:
     """
     Mixin class providing gem-related functionality for GeminiClient.
     """
-    
-    if TYPE_CHECKING:
-        # Type hints for methods that will be available from the parent class
-        async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response: ...
-        async def close(self, delay: float = 0) -> None: ...
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

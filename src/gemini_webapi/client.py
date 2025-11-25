@@ -35,7 +35,7 @@ from .utils import (
     parse_file_name,
     rotate_1psidts,
     rotate_tasks,
-    running as arunning,
+    running,
     upload_file,
 )
 
@@ -68,7 +68,7 @@ class GeminiClient(GemMixin):
     __slots__ = [
         "cookies",
         "proxy",
-        "running",
+        "_running",
         "client",
         "access_token",
         "timeout",
@@ -91,7 +91,7 @@ class GeminiClient(GemMixin):
         super().__init__()
         self.cookies = {}
         self.proxy = proxy
-        self.running: bool = False
+        self._running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
         self.timeout: float = 300
@@ -152,7 +152,7 @@ class GeminiClient(GemMixin):
             )
             self.access_token = access_token
             self.cookies = valid_cookies
-            self.running = True
+            self._running = True
 
             self.timeout = timeout
             self.auto_close = auto_close
@@ -188,7 +188,7 @@ class GeminiClient(GemMixin):
         if delay:
             await asyncio.sleep(delay)
 
-        self.running = False
+        self._running = False
 
         if self.close_task:
             self.close_task.cancel()
@@ -229,14 +229,13 @@ class GeminiClient(GemMixin):
 
             if new_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
-                if self.running:
-                    assert self.client, "Client is not initialized."
+                if self._running:
                     self.client.cookies.set("__Secure-1PSIDTS", new_1psidts)
                 logger.debug("Cookies refreshed. New __Secure-1PSIDTS applied.")
 
             await asyncio.sleep(self.refresh_interval)
 
-    @arunning(retry=2)
+    @running(retry=2)
     async def generate_content(
         self,
         prompt: str,
@@ -286,7 +285,7 @@ class GeminiClient(GemMixin):
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
-        assert self.client, "Client is not initialized. Please call `init()` before making requests."
+
         assert prompt, "Prompt cannot be empty."
 
         if isinstance(model, str):
@@ -582,7 +581,7 @@ class GeminiClient(GemMixin):
         :class:`httpx.Response`
             Response object containing the result of the batch execution.
         """
-        assert self.client, "Client is not initialized. Please call `init()` before making requests."
+
         try:
             response = await self.client.post(
                 Endpoint.BATCH_EXEC,
@@ -766,7 +765,7 @@ class ChatSession:
         return self.__metadata
 
     @metadata.setter
-    def metadata(self, value: list[str | None]):
+    def metadata(self, value: list[str]):
         if len(value) > 3:
             raise ValueError("metadata cannot exceed 3 elements")
         self.__metadata[: len(value)] = value

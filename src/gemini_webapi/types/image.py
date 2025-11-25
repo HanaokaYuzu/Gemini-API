@@ -91,10 +91,10 @@ class Image(BaseModel):
                         f"Content type of {filename} is not image, but {content_type}."
                     )
 
-                path_obj = Path(path)
-                path_obj.mkdir(parents=True, exist_ok=True)
+                path = Path(path)
+                path.mkdir(parents=True, exist_ok=True)
 
-                dest = path_obj / filename
+                dest = path / filename
                 dest.write_bytes(response.content)
 
                 if verbose:
