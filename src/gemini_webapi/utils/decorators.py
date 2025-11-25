@@ -1,10 +1,11 @@
 import asyncio
 import functools
+from collections.abc import Callable
 
 from ..exceptions import APIError, ImageGenerationError
 
 
-def running(retry: int = 0) -> callable:
+def running(retry: int = 0) -> Callable:
     """
     Decorator to check if GeminiClient is running before making a request.
 
@@ -18,7 +19,7 @@ def running(retry: int = 0) -> callable:
         @functools.wraps(func)
         async def wrapper(client, *args, retry=retry, **kwargs):
             try:
-                if not client.running:
+                if not client._running:
                     await client.init(
                         timeout=client.timeout,
                         auto_close=client.auto_close,
@@ -27,7 +28,7 @@ def running(retry: int = 0) -> callable:
                         refresh_interval=client.refresh_interval,
                         verbose=False,
                     )
-                    if client.running:
+                    if client._running:
                         return await func(client, *args, **kwargs)
 
                     # Should not reach here
