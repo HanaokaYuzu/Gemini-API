@@ -6,7 +6,7 @@ class Endpoint(StrEnum):
     INIT = "https://gemini.google.com/app"
     GENERATE = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     ROTATE_COOKIES = "https://accounts.google.com/RotateCookies"
-    UPLOAD = "https://content-push.googleapis.com/upload"
+    UPLOAD = "https://push.clients6.google.com/upload"
     BATCH_EXEC = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
 
 
@@ -38,7 +38,10 @@ class Headers(Enum):
     ROTATE_COOKIES = {
         "Content-Type": "application/json",
     }
-    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz"}
+    UPLOAD = {
+        "push-id": "feeds/mcudyrk2a4khkz",
+        "x-goog-upload-protocol": "resumable",
+    }
 
 
 class Model(Enum):

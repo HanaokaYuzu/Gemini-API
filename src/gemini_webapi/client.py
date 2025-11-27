@@ -1,7 +1,6 @@
 import asyncio
 import re
 from asyncio import Task
-from pathlib import Path
 from typing import Any, Optional
 
 import orjson as json
@@ -21,6 +20,8 @@ from .exceptions import (
 )
 from .types import (
     Candidate,
+    File,
+    FileDict,
     Gem,
     GeneratedImage,
     ModelOutput,
@@ -32,7 +33,6 @@ from .utils import (
     get_access_token,
     get_nested_value,
     logger,
-    parse_file_name,
     rotate_1psidts,
     rotate_tasks,
     running,
@@ -239,7 +239,7 @@ class GeminiClient(GemMixin):
     async def generate_content(
         self,
         prompt: str,
-        files: list[str | Path] | None = None,
+        files: list[File | FileDict] | None = None,
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
@@ -252,8 +252,8 @@ class GeminiClient(GemMixin):
         ----------
         prompt: `str`
             Prompt provided by user.
-        files: `list[str | Path]`, optional
-            List of file paths to be attached.
+        files: `list[File | dict]`, optional
+            List of file objects to be attached.
         model: `Model | str | dict`, optional
             Specify the model to use for generation.
             Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
@@ -287,6 +287,12 @@ class GeminiClient(GemMixin):
         """
 
         assert prompt, "Prompt cannot be empty."
+
+        if files:
+            files = [
+                File.model_validate(file) if isinstance(file, dict) else file
+                for file in files
+            ]
 
         if isinstance(model, str):
             model = Model.from_name(model)
@@ -323,10 +329,7 @@ class GeminiClient(GemMixin):
                                         0,
                                         None,
                                         [
-                                            [
-                                                [await upload_file(file, self.proxy)],
-                                                parse_file_name(file),
-                                            ]
+                                            await upload_file(file, self.proxy)
                                             for file in files
                                         ],
                                     ]
@@ -683,7 +686,7 @@ class ChatSession:
     async def send_message(
         self,
         prompt: str,
-        files: list[str | Path] | None = None,
+        files: list[File | FileDict] | None = None,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -694,8 +697,8 @@ class ChatSession:
         ----------
         prompt: `str`
             Prompt provided by user.
-        files: `list[str | Path]`, optional
-            List of file paths to be attached.
+        files: `list[File | dict]`, optional
+            List of file objects to be attached.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
