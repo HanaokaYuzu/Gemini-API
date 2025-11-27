@@ -13,7 +13,10 @@ FILES_ENUM_INT = {
     "video": 2,
     "text": 3,
     "audio": 4,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 7,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 10,
     "application/pdf": 11,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": 12,
     "application/json": 16,
 }
 
