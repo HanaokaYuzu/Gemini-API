@@ -20,8 +20,9 @@ FILES_ENUM_INT = {
     "application/json": 16,
 }
 
+
 @validate_call
-async def upload_file(file: File, proxy: str | None = None) -> list[Any | list[Any | None | str] | str]:
+async def upload_file(file: File, proxy: str | None = None) -> list[Any]:
     """
     Upload a file to Google's server and return its identifier.
 
@@ -44,45 +45,48 @@ async def upload_file(file: File, proxy: str | None = None) -> list[Any | list[A
         If the upload request failed.
     """
 
-    with open(file.path, "rb") as f:
-        file_content = f.read()
-
     filename = parse_file_name(file.path)
     file_code = get_file_id(file)
 
-    data = f'File name: {filename}'
+    with open(file.path, "rb") as f:
+        file_content = f.read()
+
+    data = f"File name: {filename}"
 
     async with AsyncClient(http2=True, proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.UPLOAD.value,
-            headers=dict(**Headers.UPLOAD.value, **{"x-goog-upload-command": "start", 'x-goog-upload-header-content-length': str(len(file_content))}),
+            headers=dict(
+                **Headers.UPLOAD.value,
+                **{
+                    "x-goog-upload-command": "start",
+                    "x-goog-upload-header-content-length": str(len(file_content)),
+                },
+            ),
             content=data,
         )
         response.raise_for_status()
 
         upload_url = response.headers.get("x-goog-upload-url")
-        
+
         if not upload_url:
             raise ValueError("Upload URL not found in the response headers.")
 
         response = await client.post(
             url=upload_url,
-            headers=dict(**Headers.UPLOAD.value, **{"x-goog-upload-command": "upload, finalize", "x-goog-upload-offset": "0"}),
+            headers=dict(
+                **Headers.UPLOAD.value,
+                **{
+                    "x-goog-upload-command": "upload, finalize",
+                    "x-goog-upload-offset": "0",
+                },
+            ),
             content=file_content,
             follow_redirects=True,
         )
 
         response.raise_for_status()
-        return [
-            [
-                response.text,
-                file_code,
-                None,
-                file.mime_type
-            ],
-            filename
-        ]
-
+        return [[response.text, file_code, None, file.mime_type], filename]
 
 
 def parse_file_name(file: str | Path) -> str:
@@ -123,6 +127,9 @@ def get_file_id(file: File) -> int:
     """
 
     # If mime type doesn't start with application, then match the first part
-    mime_type_key = file.mime_type if file.mime_type.startswith("application") else file.mime_type.split("/")[0]
+    mime_type_key = (
+        file.mime_type
+        if file.mime_type.startswith("application")
+        else file.mime_type.split("/")[0]
+    )
     return FILES_ENUM_INT.get(mime_type_key, 0)
-    

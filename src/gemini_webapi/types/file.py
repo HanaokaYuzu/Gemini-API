@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class FileDict(TypedDict):
@@ -20,5 +20,13 @@ class File(BaseModel):
     mime_type: `str`
         MIME type of the file.
     """
+
     path: str | Path
     mime_type: str
+
+    @field_validator("mime_type")
+    @classmethod
+    def validate_mime_type(cls, v: str) -> str:
+        if not v or "/" not in v:
+            raise ValueError(f"Invalid MIME type format: {v}")
+        return v
