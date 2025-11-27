@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from pydantic import validate_call
 
 from ..constants import Endpoint, Headers
-from ..types import File
+from ..types.file import File
 
 FILES_ENUM_INT = {
     "application/octet-stream": 0,

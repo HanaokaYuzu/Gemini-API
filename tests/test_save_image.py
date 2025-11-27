@@ -4,7 +4,7 @@ import logging
 
 from httpx import HTTPError
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
+from gemini_webapi import GeminiClient, AuthError, File, set_log_level, logger
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -43,7 +43,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_save_image_to_image(self):
         response = await self.geminiclient.generate_content(
             "Design an application icon based on the provided image. Make it simple and modern.",
-            files=["assets/banner.png"],
+            files=[File(path="assets/banner.png", mime_type="image/png")],
         )
         self.assertTrue(response.images)
         for image in response.images:

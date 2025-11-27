@@ -3,7 +3,7 @@ import unittest
 import logging
 from pathlib import Path
 
-from gemini_webapi import GeminiClient, Gem, set_log_level, logger
+from gemini_webapi import GeminiClient, Gem, File, set_log_level, logger
 from gemini_webapi.constants import Model
 from gemini_webapi.exceptions import AuthError, UsageLimitExceeded, ModelInvalid
 
@@ -52,7 +52,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_upload_files(self):
         response = await self.geminiclient.generate_content(
             "Introduce the contents of these two files. Is there any connection between them?",
-            files=["assets/sample.pdf", Path("assets/banner.png")],
+            files=[
+                {"path": "assets/sample.pdf", "mime_type": "application/pdf"},
+                File(path="assets/banner.png", mime_type="image/png"),
+            ],
         )
         logger.debug(response.text)
 
@@ -88,7 +91,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_image_to_image(self):
         response = await self.geminiclient.generate_content(
             "Design an application icon based on the provided image. Make it simple and modern.",
-            files=["assets/banner.png"],
+            files=[File(path="assets/banner.png", mime_type="image/png")],
         )
         self.assertTrue(response.images)
         logger.debug(response.text)
@@ -129,7 +132,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         chat = self.geminiclient.start_chat()
         response1 = await chat.send_message(
             "What's the difference between these two images?",
-            files=["assets/banner.png", "assets/favicon.png"],
+            files=[
+                File(path="assets/banner.png", mime_type="image/png"),
+                File(path="assets/favicon.png", mime_type="image/png"),
+            ],
         )
         logger.debug(response1.text)
         response2 = await chat.send_message(

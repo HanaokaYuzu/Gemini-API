@@ -159,13 +159,21 @@ asyncio.run(main())
 
 ### Generate contents with files
 
-Gemini supports file input, including images and documents. Optionally, you can pass files as a list of paths in `str` or `pathlib.Path` to `GeminiClient.generate_content` together with text prompt.
+Gemini supports file input, including images, audio, video and documents. Optionally, you can pass files as a list of `File` objects or dictionaries to `GeminiClient.generate_content` together with text prompt.
 
 ```python
+from gemini_webapi import File
+
 async def main():
+    # You can pass files as dictionaries
+    file1 = {"path": "assets/sample.pdf", "mime_type": "application/pdf"}
+
+    # Or as File objects
+    file2 = File(path="assets/banner.png", mime_type="image/png")
+
     response = await client.generate_content(
             "Introduce the contents of these two files. Is there any connection between them?",
-            files=["assets/sample.pdf", Path("assets/banner.png")],
+            files=[file1, file2],
         )
     print(response.text)
 
@@ -181,7 +189,10 @@ async def main():
     chat = client.start_chat()
     response1 = await chat.send_message(
         "Introduce the contents of these two files. Is there any connection between them?",
-        files=["assets/sample.pdf", Path("assets/banner.png")],
+        files=[
+            {"path": "assets/sample.pdf", "mime_type": "application/pdf"},
+            {"path": "assets/banner.png", "mime_type": "image/png"},
+        ],
     )
     print(response1.text)
     response2 = await chat.send_message(
