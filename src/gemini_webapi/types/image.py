@@ -71,9 +71,10 @@ class Image(BaseModel):
         """
 
         filename = filename or self.url.split("/")[-1].split("?")[0]
-        try:
-            filename = re.search(r"^(.*\.\w+)", filename).group()
-        except AttributeError:
+        match = re.search(r"^(.*\.\w+)", filename)
+        if match:
+            filename = match.group()
+        else:
             if verbose:
                 logger.warning(f"Invalid filename: {filename}")
             if skip_invalid_filename:
@@ -137,19 +138,33 @@ class GeneratedImage(Image):
         return v
 
     # @override
-    async def save(self, full_size=True, **kwargs) -> str | None:
+    async def save(
+        self,
+        path: str = "temp",
+        filename: str | None = None,
+        cookies: dict | None = None,
+        verbose: bool = False,
+        skip_invalid_filename: bool = False,
+        full_size: bool = True,
+    ) -> str | None:
         """
         Save the image to disk.
 
         Parameters
         ----------
+        path: `str`, optional
+            Path to save the image, by default will save to "./temp".
         filename: `str`, optional
             Filename to save the image, generated images are always in .png format, but file extension will not be included in the URL.
             And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename.
+        cookies: `dict`, optional
+            Cookies used for requesting the content of the image. If not provided, will use the cookies from the GeneratedImage instance.
+        verbose : `bool`, optional
+            If True, will print the path of the saved file or warning for invalid file name, by default False.
+        skip_invalid_filename: `bool`, optional
+            If True, will only save the image if the file name and extension are valid, by default False.
         full_size: `bool`, optional
-            If True, will modify the default preview (512*512) URL to get the full size image.
-        kwargs: `dict`, optional
-            Other arguments to pass to `Image.save`.
+            If True, will modify the default preview (512*512) URL to get the full size image, by default True.
 
         Returns
         -------
@@ -161,8 +176,10 @@ class GeneratedImage(Image):
             self.url += "=s2048"
 
         return await super().save(
-            filename=kwargs.pop("filename", None)
+            path=path,
+            filename=filename
             or f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{self.url[-10:]}.png",
-            cookies=self.cookies,
-            **kwargs,
+            cookies=cookies or self.cookies,
+            verbose=verbose,
+            skip_invalid_filename=skip_invalid_filename,
         )

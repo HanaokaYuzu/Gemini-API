@@ -68,7 +68,7 @@ class GeminiClient(GemMixin):
     __slots__ = [
         "cookies",
         "proxy",
-        "running",
+        "_running",
         "client",
         "access_token",
         "timeout",
@@ -91,7 +91,7 @@ class GeminiClient(GemMixin):
         super().__init__()
         self.cookies = {}
         self.proxy = proxy
-        self.running: bool = False
+        self._running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
         self.timeout: float = 300
@@ -152,7 +152,7 @@ class GeminiClient(GemMixin):
             )
             self.access_token = access_token
             self.cookies = valid_cookies
-            self.running = True
+            self._running = True
 
             self.timeout = timeout
             self.auto_close = auto_close
@@ -188,7 +188,7 @@ class GeminiClient(GemMixin):
         if delay:
             await asyncio.sleep(delay)
 
-        self.running = False
+        self._running = False
 
         if self.close_task:
             self.close_task.cancel()
@@ -229,7 +229,7 @@ class GeminiClient(GemMixin):
 
             if new_1psidts:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
-                if self.running:
+                if self._running:
                     self.client.cookies.set("__Secure-1PSIDTS", new_1psidts)
                 logger.debug("Cookies refreshed. New __Secure-1PSIDTS applied.")
 
