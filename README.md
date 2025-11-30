@@ -180,6 +180,20 @@ async def main():
 asyncio.run(main())
 ```
 
+### Generate contents stream
+
+You can also stream the response by calling `GeminiClient.generate_content_stream`. This method yields `gemini_webapi.ModelOutput` objects as they are received from the server.
+
+```python
+async def main():
+    async for response in client.generate_content_stream("Hello World!"):
+        print(response.text, end="")
+
+asyncio.run(main())
+```
+
+> `generate_content_stream` also supports `files` argument, similar to `generate_content`.
+
 ### Conversations across multiple turns
 
 If you want to keep conversation continuous, please use `GeminiClient.start_chat` to create a `gemini_webapi.ChatSession` object and send messages through it. The conversation history will be automatically handled and get updated after each turn.
