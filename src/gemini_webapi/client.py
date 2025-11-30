@@ -729,7 +729,60 @@ class GeminiClient(GemMixin):
 
                             # Generated images
                             generated_images = []
-                            # TODO: Implement generated images parsing in streaming response.
+                            if get_nested_value(candidate, [12, 7, 0]):
+                                img_candidate = candidate
+                                if finished_text := get_nested_value(
+                                    img_candidate, [1, 0]
+                                ):  # Only overwrite if new text is returned after image generation
+                                    text = re.sub(
+                                        r"http://googleusercontent\.com/image_generation_content/\d+",
+                                        "",
+                                        finished_text,
+                                    ).rstrip()
+
+                                for img_index, gen_img_data in enumerate(
+                                    get_nested_value(img_candidate, [12, 7, 0], [])
+                                ):
+                                    url = get_nested_value(gen_img_data, [0, 3, 3])
+                                    if not url:
+                                        continue
+
+                                    img_num = get_nested_value(gen_img_data, [3, 6])
+                                    title = (
+                                        f"[Generated Image {img_num}]"
+                                        if img_num
+                                        else "[Generated Image]"
+                                    )
+
+                                    alt_list = get_nested_value(gen_img_data, [3, 5], [])
+                                    alt = (
+                                        get_nested_value(alt_list, [img_index])
+                                        or get_nested_value(alt_list, [0])
+                                        or ""
+                                    )
+
+                                    generated_images.append(
+                                        GeneratedImage(
+                                            url=url,
+                                            title=title,
+                                            alt=alt,
+                                            proxy=self.proxy,
+                                            cookies=self.cookies,
+                                        )
+                                    )
+
+                            last_candidate = None
+                            if last_output_candidates and candidate_index < len(last_output_candidates):
+                                last_candidate = last_output_candidates[candidate_index]
+
+                            delta_text = text
+                            if last_candidate:
+                                delta_text = text[len(last_candidate.text) :]
+
+                            delta_thoughts = thoughts
+                            if thoughts and last_candidate:
+                                last_thoughts = last_candidate.thoughts or ""
+                                delta_thoughts = thoughts[len(last_thoughts) :]
 
                             output_candidates.append(
                                 Candidate(
@@ -738,8 +791,8 @@ class GeminiClient(GemMixin):
                                     thoughts=thoughts,
                                     web_images=web_images,
                                     generated_images=generated_images,
-                                    delta_text=text[len(last_output_candidates[candidate_index].text):] if (last_output_candidates and candidate_index < len(last_output_candidates)) else text,
-                                    delta_thoughts=thoughts[len(last_output_candidates[candidate_index].thoughts or ""):] if (thoughts and last_output_candidates and candidate_index < len(last_output_candidates)) else thoughts,
+                                    delta_text=delta_text,
+                                    delta_thoughts=delta_thoughts,
                                 )
                             )
 
