@@ -20,6 +20,10 @@ class Candidate(BaseModel):
         List of web images in reply, can be empty.
     generated_images: `list[GeneratedImage]`, optional
         List of generated images in reply, can be empty
+    delta_text: `str`, optional
+        Delta text for streaming responses, can be empty.
+    delta_thoughts: `str`, optional
+        Delta thoughts for streaming responses, can be empty.
     """
 
     rcid: str
@@ -27,6 +31,8 @@ class Candidate(BaseModel):
     thoughts: str | None = None
     web_images: list[WebImage] = []
     generated_images: list[GeneratedImage] = []
+    delta_text: str | None = None  # for streaming responses
+    delta_thoughts: str | None = None  # for streaming responses
 
     def __str__(self):
         return self.text
