@@ -30,8 +30,8 @@ def get_nested_value(data: list, path: list[int], default: Any = None) -> Any:
                 current_repr = f"{current_repr[:197]}..."
 
             logger.debug(
-                f"Safe navigation: Path {path} ended at index {i} (key '{key}'). "
-                f"Returning default. [Debug: {type(e).__name__} - Context: `{current_repr}`]"
+                f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
+                f"returning default. <Debug: {type(e).__name__}; Context: {current_repr}>"
             )
             return default
 

@@ -75,9 +75,9 @@ class GemJar(dict[str, Gem]):
             If neither id nor name is provided.
         """
 
-        assert not (id is None and name is None), (
-            "At least one of gem id or name must be provided."
-        )
+        assert not (
+            id is None and name is None
+        ), "At least one of gem id or name must be provided."
 
         if id is not None:
             gem_candidate = super().get(id)

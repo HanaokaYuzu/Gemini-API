@@ -474,8 +474,8 @@ class GeminiClient(GemMixin):
                             img_body, [4, candidate_index], []
                         )
 
-                        if (
-                            finished_text := get_nested_value(img_candidate, [1, 0])
+                        if finished_text := get_nested_value(
+                            img_candidate, [1, 0]
                         ):  # Only overwrite if new text is returned after image generation
                             text = re.sub(
                                 r"http://googleusercontent\.com/image_generation_content/\d+",
