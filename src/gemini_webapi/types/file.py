@@ -1,12 +1,14 @@
+import mimetypes
 from pathlib import Path
 from typing import TypedDict
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, model_validator
+from typing_extensions import NotRequired
 
 
 class FileDict(TypedDict):
     path: str | Path
-    mime_type: str
+    mime_type: NotRequired[str]
 
 
 class File(BaseModel):
@@ -17,16 +19,18 @@ class File(BaseModel):
     ----------
     path: `str | Path`
         Path to the file to be uploaded.
-    mime_type: `str`
-        MIME type of the file.
+    mime_type: `str`, optional
+        MIME type of the file. If not provided, it will be guessed from the file extension.
     """
 
     path: str | Path
-    mime_type: str
+    mime_type: str | None = None
 
-    @field_validator("mime_type")
-    @classmethod
-    def validate_mime_type(cls, v: str) -> str:
-        if not v or "/" not in v:
-            raise ValueError(f"Invalid MIME type format: {v}")
-        return v
+    @model_validator(mode="after")
+    def validate_mime_type(self) -> "File":
+        if not self.mime_type:
+            self.mime_type = mimetypes.guess_type(str(self.path))[0]
+
+        if not self.mime_type or "/" not in self.mime_type:
+            raise ValueError(f"Invalid MIME type: {self.mime_type}")
+        return self

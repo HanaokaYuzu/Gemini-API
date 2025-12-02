@@ -2,6 +2,7 @@ import asyncio
 import re
 from asyncio import Task
 from typing import Any, Optional
+from pathlib import Path
 from collections.abc import AsyncIterator
 
 import orjson as json
@@ -240,7 +241,7 @@ class GeminiClient(GemMixin):
     async def generate_content(
         self,
         prompt: str,
-        files: list[File | FileDict] | None = None,
+        files: list[File | FileDict | str | Path] | None = None,
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
@@ -253,7 +254,7 @@ class GeminiClient(GemMixin):
         ----------
         prompt: `str`
             Prompt provided by user.
-        files: `list[File | dict]`, optional
+        files: `list[File | dict | str | Path]`, optional
             List of file objects to be attached.
         model: `Model | str | dict`, optional
             Specify the model to use for generation.
@@ -291,7 +292,11 @@ class GeminiClient(GemMixin):
 
         if files:
             files = [
-                File.model_validate(file) if isinstance(file, dict) else file
+                File(path=file)
+                if isinstance(file, (str, Path))
+                else File.model_validate(file)
+                if isinstance(file, dict)
+                else file
                 for file in files
             ]
 
@@ -553,7 +558,7 @@ class GeminiClient(GemMixin):
     async def generate_content_stream(
         self,
         prompt: str,
-        files: list[File | FileDict] | None = None,
+        files: list[File | FileDict | str | Path] | None = None,
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: "ChatSession | None" = None,
@@ -566,7 +571,7 @@ class GeminiClient(GemMixin):
         ----------
         prompt: `str`
             Prompt provided by user.
-        files: `list[File | dict]`, optional
+        files: `list[File | dict | str | Path]`, optional
             List of file objects to be attached.
         model: `Model | str | dict`, optional
             Specify the model to use for generation.
@@ -604,7 +609,11 @@ class GeminiClient(GemMixin):
 
         if files:
             files = [
-                File.model_validate(file) if isinstance(file, dict) else file
+                File(path=file)
+                if isinstance(file, (str, Path))
+                else File.model_validate(file)
+                if isinstance(file, dict)
+                else file
                 for file in files
             ]
 
