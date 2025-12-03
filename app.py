@@ -218,10 +218,23 @@ def run_api():
         }
         ```
         """
+        # Детальная проверка состояния клиента
+        print(f"🔍 Проверка клиента:")
+        print(f"   gemini_client is None: {gemini_client is None}")
+        if gemini_client:
+            print(f"   gemini_client._running: {gemini_client._running}")
+        
         if not gemini_client:
+            print(f"❌ Клиент = None")
             raise HTTPException(status_code=503, detail="Gemini клиент не инициализирован")
         
+        if not gemini_client._running:
+            print(f"❌ Клиент не в режиме running")
+            raise HTTPException(status_code=503, detail="Gemini клиент не активен")
+        
         try:
+            print(f"📤 Отправка запроса в Gemini: {request.prompt[:50]}...")
+            
             # Отправка запроса
             kwargs = {}
             if request.model:
@@ -232,6 +245,8 @@ def run_api():
                 **kwargs
             )
             
+            print(f"✅ Получен ответ от Gemini")
+            
             # Формирование ответа
             return AskResponse(
                 text=response.text,
@@ -241,6 +256,7 @@ def run_api():
             )
             
         except Exception as e:
+            print(f"❌ Ошибка: {type(e).__name__}: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка при обработке запроса: {str(e)}")
     
     @app.get("/health", response_model=HealthResponse)
