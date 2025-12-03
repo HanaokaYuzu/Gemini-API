@@ -594,6 +594,24 @@ MODE=api python app.py
   "prompt": "Расскажи анекдот про программистов",
   "model": "gemini-2.5-flash"
 }
+### 1. Отправка запроса (`/ask`)
+
+**Endpoint:** `POST /ask`
+
+**Параметры (JSON):**
+*   `prompt` (str, required): Текст запроса.
+*   `model` (str, optional): Модель для генерации.
+    *   Доступные значения: `gemini-3.0-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`.
+    *   По умолчанию: `gemini-2.5-flash` (или последняя активная).
+
+**Пример запроса (cURL):**
+```bash
+curl -X POST "http://localhost:8000/ask" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "prompt": "Напиши код на Python",
+           "model": "gemini-2.5-pro"
+         }'
 ```
 
 **Response:**
@@ -604,13 +622,6 @@ MODE=api python app.py
   "images": ["url1", "url2"],
   "metadata": ["cid", "rid", "rcid"]
 }
-```
-
-**Пример (curl):**
-```bash
-curl -X POST http://localhost:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Привет!", "model": "gemini-2.5-flash"}'
 ```
 
 **Пример (Python):**
