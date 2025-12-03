@@ -427,6 +427,23 @@ class GeminiClient(GemMixin):
 
                     thoughts = get_nested_value(candidate, [37, 0, 0])
 
+                    # DEBUG: Check for image generation signature
+                    if "image_generation_content" in text:
+                        logger.warning(f"🎨 Image generation detected in text: {text}")
+                        logger.warning(f"🔍 Candidate structure keys: {len(candidate)}")
+                        # Log specific paths where images usually reside
+                        logger.warning(f"   candidate[12][7][0]: {get_nested_value(candidate, [12, 7, 0])}")
+                        
+                        # Log raw response parts to find where images are hiding
+                        logger.warning("🔍 Inspecting response_json parts for image data:")
+                        for idx, part in enumerate(response_json):
+                            part_body = get_nested_value(part, [2])
+                            if part_body and isinstance(part_body, str) and len(part_body) > 100:
+                                # Check if this part looks like it has image data
+                                if "http://googleusercontent.com/image_generation_content" in part_body or "generated_image" in part_body:
+                                    logger.warning(f"   Part {idx} contains suspicious data (len={len(part_body)})")
+                                    logger.warning(f"   Snippet: {part_body[:200]}...")
+
                     # Web images
                     web_images = []
                     for web_img_data in get_nested_value(candidate, [12, 1], []):
