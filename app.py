@@ -174,6 +174,37 @@ def run_api():
         lifespan=lifespan
     )
     
+    # ============================================
+    # Request Logging Middleware
+    # ============================================
+    from fastapi import Request
+    import time
+    
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        """Логирование всех входящих запросов"""
+        start_time = time.time()
+        
+        # Логируем до обработки
+        print(f"🔵 Incoming Request:")
+        print(f"   Method: {request.method}")
+        print(f"   URL: {request.url}")
+        print(f"   Path: {request.url.path}")
+        print(f"   Headers: {dict(request.headers)}")
+        print(f"   Client: {request.client.host if request.client else 'unknown'}")
+        
+        # Обрабатываем запрос
+        response = await call_next(request)
+        
+        # Логируем после обработки
+        process_time = time.time() - start_time
+        print(f"✅ Response:")
+        print(f"   Status: {response.status_code}")
+        print(f"   Processing time: {process_time:.3f}s")
+        print(f"   ---")
+        
+        return response
+    
     @app.post("/ask", response_model=AskResponse)
     async def ask_gemini(request: AskRequest):
         """
