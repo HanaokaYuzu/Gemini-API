@@ -264,29 +264,47 @@ def run_api():
                         # Используем HTTP/1.1 и стандартные заголовки для надежности
                         headers = {
                             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+                            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                            "Referer": "https://gemini.google.com/",
+                            "Origin": "https://gemini.google.com"
                         }
                         
-                        async with AsyncClient(
-                            http2=False,  # Отключаем HTTP/2 так как он может вызывать проблемы через прокси
-                            follow_redirects=True, 
-                            cookies=cookies, 
-                            proxy=gemini_client.proxy,
-                            headers=headers,
-                            timeout=30.0
-                        ) as client:
-                            # Для GeneratedImage нужно добавить параметр размера
-                            url = img.url
-                            if hasattr(img, "validate_cookies"): # Check if GeneratedImage
-                                if "=s" not in url:
-                                    url += "=s2048" # Full size
-                                
-                            print(f"   ⬇️ Downloading image: {url[:50]}...")
-                            img_resp = await client.get(url)
-                            img_resp.raise_for_status()
-                            img_bytes = img_resp.content
-                            
-                            # Проверяем настройки S3
+                        # Retry logic
+                        max_retries = 3
+                        img_bytes = None
+                        last_error = None
+                        
+                        for attempt in range(max_retries):
+                            try:
+                                async with AsyncClient(
+                                    http2=False,
+                                    follow_redirects=True, 
+                                    cookies=cookies, 
+                                    proxy=gemini_client.proxy,
+                                    headers=headers,
+                                    timeout=30.0
+                                ) as client:
+                                    # Для GeneratedImage нужно добавить параметр размера
+                                    url = img.url
+                                    if hasattr(img, "validate_cookies"): # Check if GeneratedImage
+                                        if "=s" not in url:
+                                            url += "=s2048" # Full size
+                                        
+                                    print(f"   ⬇️ Downloading image (attempt {attempt+1}/{max_retries}): {url[:50]}...")
+                                    img_resp = await client.get(url)
+                                    img_resp.raise_for_status()
+                                    img_bytes = img_resp.content
+                                    break # Success
+                            except Exception as e:
+                                print(f"   ⚠️ Download attempt {attempt+1} failed: {e}")
+                                last_error = e
+                                import asyncio
+                                await asyncio.sleep(1 * (attempt + 1)) # Backoff
+                        
+                        if img_bytes is None:
+                            raise last_error or Exception("Failed to download image after retries")
+
+                        # Проверяем настройки S3
                             s3_endpoint = os.getenv("S3_ENDPOINT_URL")
                             s3_key = os.getenv("S3_ACCESS_KEY_ID")
                             s3_secret = os.getenv("S3_SECRET_ACCESS_KEY")
