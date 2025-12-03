@@ -243,12 +243,13 @@ def run_api():
             if ask_request.model:
                 kwargs["model"] = ask_request.model
             
-            # Если указан aspect_ratio, передаем его в клиент
+            # Если указан aspect_ratio, передаем его в client
             # (теперь поддерживается нативно в client.py)
-            
+            if ask_request.aspect_ratio:
+                kwargs["aspect_ratio"] = ask_request.aspect_ratio
+
             response = await gemini_client.generate_content(
                 prompt=ask_request.prompt,
-                aspect_ratio=ask_request.aspect_ratio,
                 **kwargs
             )
             

@@ -243,7 +243,6 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
-        aspect_ratio: str | None = None,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -345,74 +344,28 @@ class GeminiClient(GemMixin):
             None,
             chat and chat.metadata,
         ]
-        
-        # Add Gem ID if present
+
         if gem_id:
             payload += [None] * 16 + [gem_id]
             
-        # Add Aspect Ratio if present (Imagen 4 specific structure)
-        # Based on user input: [..., [1, null, "16:9", "1K"]]
-        # It seems this block is appended at the end or in a specific slot.
-        # Let's try appending it as a new element if aspect_ratio is set.
+        # Imagen 4 Aspect Ratio Support
+        # Structure: [..., [1, null, "16:9", "1K"]]
         if aspect_ratio:
-            # The user showed: ["models/...", "Prompt...", ..., [1, null, "16:9", "1K"]]
-            # Our current payload is [PromptStruct, None, Metadata, ...]
-            # It's likely this config block is a separate argument in the top-level list or appended to the prompt structure.
-            # However, without exact index, I will try appending it to the main list.
-            # Wait, the user showed: ["models/imagen...", "Prompt...", ..., [1,null,"16:9","1K"]]
-            # This looks like the `f.req` inner list.
-            # Let's try adding it to the payload list we are building.
-            # We might need to pad with Nones if it expects a specific index.
-            # For now, let's try appending it.
-            pass 
-            # Actually, looking at the user's snippet:
-            # ["models/imagen...", "Prompt...", ..., [1,null,"16:9","1K"]]
-            # This looks like the entire RPC payload.
-            # Our current code builds: [PromptStruct, None, Metadata]
-            # PromptStruct is [Prompt, 0, None, Files]
-            # The user's snippet seems to be a different RPC or a different structure for Imagen models.
-            # BUT, we are using the standard Chat RPC.
-            # Let's try to inject it into the `tool_code` or `image_generation_config` slot.
-            # Usually, these configs are passed as a JSON string or a specific list item.
-            
-            # Let's try to append it to the payload.
-            # If we look at `client.py` line 337: `+ (gem_id and [None] * 16 + [gem_id] or [])`
-            # This suggests there are many slots.
-            # Let's try to put it in a specific slot or just append.
-            # Given the user's snippet `[1,null,"16:9","1K"]`, this looks like a configuration object.
-            
-            # Let's try this:
-            # If aspect_ratio is present, we assume it's for Imagen and we add this specific block.
-            # We might need to experiment.
-            # But wait, the user said "The request field looks like this: [..., [1,null,'16:9','1K']]".
-            # This implies it's an element of the main list.
-            
-            # Let's try adding it as the 4th element (index 3) or similar.
-            # Current: [Prompt, None, Metadata] -> len 3.
-            # Maybe it's the 4th element?
-            
-            # Let's try:
-            # payload.append([1, None, aspect_ratio, "1K"])
-            pass
+            # Если есть gem_id, мы уже добавили кучу None.
+            # Если нет, payload имеет длину 3.
+            # Нам нужно добавить конфигурацию.
+            # Попробуем добавить её в конец списка.
+            payload.append([1, None, aspect_ratio, "1K"])
 
-        # Re-implementing the data construction with the new parameter
-        req_list = [
-            None,
-            json.dumps(payload).decode() # We need to inject into this JSON
-        ]
-        
-        # ... wait, I need to modify the list construction logic directly.
-
-        except ReadTimeout:
-            raise TimeoutError(
-                "Generate content request timed out, please try again. If the problem persists, "
-                "consider setting a higher `timeout` value when initializing GeminiClient."
-            )
-
-        if response.status_code != 200:
-            await self.close()
-            raise APIError(
-                f"Failed to generate contents. Request failed with status code {response.status_code}"
+        try:
+            response = await self.client.post(
+                Endpoint.GENERATE.value,
+                headers=model.model_header,
+                data={
+                    "at": self.access_token,
+                    "f.req": json.dumps([None, json.dumps(payload).decode()]).decode(),
+                },
+                **kwargs,
             )
         else:
             response_json: list[Any] = []
