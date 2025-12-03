@@ -247,46 +247,54 @@ def run_api():
                 **kwargs
             )
             
-            # Сохранение и обработка изображений
-            image_urls = []
+            # Обработка изображений: скачивание и конвертация в Base64
+            image_data_list = []
             if response.images:
                 print(f"🎨 Сгенерировано изображений: {len(response.images)}")
                 
-                # Создаем директорию для статики если нет
-                static_dir = Path("static/images")
-                static_dir.mkdir(parents=True, exist_ok=True)
+                import base64
+                from httpx import AsyncClient
                 
                 for i, img in enumerate(response.images):
                     try:
-                        # Сохраняем изображение локально
-                        # Используем save() который под капотом использует куки клиента
-                        saved_path = await img.save(
-                            path="static/images",
-                            skip_invalid_filename=False,
-                            verbose=True
-                        )
+                        # Получаем куки для скачивания (если это GeneratedImage)
+                        cookies = getattr(img, "cookies", None)
                         
-                        if saved_path:
-                            # Формируем публичный URL
-                            filename = Path(saved_path).name
-                            # Используем базовый URL из запроса или относительный путь
-                            # В продакшене лучше использовать полный URL
-                            public_url = f"{request.base_url}static/images/{filename}"
-                            image_urls.append(public_url)
-                            print(f"   🖼️ Image {i+1} saved: {public_url}")
-                        else:
-                            # Fallback на оригинальный URL если не удалось сохранить
-                            image_urls.append(img.url)
+                        # Скачиваем байты изображения
+                        async with AsyncClient(
+                            http2=True, 
+                            follow_redirects=True, 
+                            cookies=cookies, 
+                            proxy=gemini_client.proxy
+                        ) as client:
+                            # Для GeneratedImage нужно добавить параметр размера
+                            url = img.url
+                            if hasattr(img, "validate_cookies"): # Check if GeneratedImage
+                                url += "=s2048" # Full size
+                                
+                            img_resp = await client.get(url)
+                            img_resp.raise_for_status()
+                            img_bytes = img_resp.content
                             
+                            # Конвертируем в Base64
+                            b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                            mime_type = "image/png" # Generated images are usually PNG
+                            
+                            # Формируем Data URI
+                            data_uri = f"data:{mime_type};base64,{b64_data}"
+                            image_data_list.append(data_uri)
+                            print(f"   🖼️ Image {i+1} converted to Base64 ({len(b64_data)} chars)")
+
                     except Exception as img_err:
-                        print(f"⚠️ Ошибка при сохранении изображения {i}: {img_err}")
-                        image_urls.append(img.url)
+                        print(f"⚠️ Ошибка при скачивании изображения {i}: {img_err}")
+                        # В случае ошибки возвращаем оригинальный URL
+                        image_data_list.append(img.url)
             
             # Формирование ответа
             return AskResponse(
                 text=response.text,
                 thoughts=response.thoughts,
-                images=image_urls,
+                images=image_data_list,
                 metadata=response.metadata
             )
             
