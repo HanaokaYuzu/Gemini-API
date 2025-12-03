@@ -243,6 +243,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        aspect_ratio: str | None = None,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -305,25 +306,6 @@ class GeminiClient(GemMixin):
 
         if self.auto_close:
             await self.reset_close_task()
-
-        try:
-    async def generate_content(
-        self,
-        prompt: str,
-        files: list[str | Path] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
-        gem: Gem | str | None = None,
-        chat: Optional["ChatSession"] = None,
-        aspect_ratio: str | None = None,
-        **kwargs,
-    ) -> ModelOutput:
-        """
-        Generates contents with prompt.
-        ...
-        aspect_ratio: `str`, optional
-            Aspect ratio for image generation (e.g., "16:9", "4:3", "1:1").
-        """
-        # ... (assertions and model handling) ...
 
         # Construct payload
         payload = [
