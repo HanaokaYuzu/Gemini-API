@@ -104,9 +104,6 @@ def run_api():
     from gemini_webapi import GeminiClient, set_log_level
     from contextlib import asynccontextmanager
     
-    # Глобальный клиент
-    gemini_client: Optional[GeminiClient] = None
-    
     # Модели запросов/ответов
     class AskRequest(BaseModel):
         prompt: str = Field(..., min_length=1, description="Текст запроса к Gemini")
@@ -122,12 +119,17 @@ def run_api():
         status: str
         message: str
     
+    # Создание FastAPI приложения (перенесено до lifespan)
+    app = FastAPI(
+        title="Gemini API Proxy",
+        description="HTTP API для взаимодействия с Google Gemini",
+        version="1.0.0"
+    )
+    
     # Lifecycle management
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Инициализация и закрытие клиента"""
-        global gemini_client
-        
         # Startup
         log_level = os.getenv("LOG_LEVEL", "INFO")
         set_log_level(log_level)
@@ -139,7 +141,8 @@ def run_api():
         if not psid:
             raise RuntimeError("GEMINI_PSID не установлен в переменных окружения!")
         
-        gemini_client = GeminiClient(
+        # Используем app.state вместо глобальной переменной
+        app.state.gemini_client = GeminiClient(
             secure_1psid=psid,
             secure_1psidts=psidts,
             proxy=proxy
@@ -149,7 +152,7 @@ def run_api():
         auto_refresh = os.getenv("GEMINI_AUTO_REFRESH", "true").lower() == "true"
         refresh_interval = int(os.getenv("GEMINI_REFRESH_INTERVAL", "540"))
         
-        await gemini_client.init(
+        await app.state.gemini_client.init(
             timeout=timeout,
             auto_close=False,
             auto_refresh=auto_refresh,
@@ -162,17 +165,12 @@ def run_api():
         yield
         
         # Shutdown
-        if gemini_client:
-            await gemini_client.close()
+        if hasattr(app.state, 'gemini_client') and app.state.gemini_client:
+            await app.state.gemini_client.close()
             print("✅ Gemini клиент закрыт")
     
-    # Создание FastAPI приложения
-    app = FastAPI(
-        title="Gemini API Proxy",
-        description="HTTP API для взаимодействия с Google Gemini",
-        version="1.0.0",
-        lifespan=lifespan
-    )
+    # Установка lifespan ПОСЛЕ создания app
+    app.router.lifespan_context = lifespan
     
     # ============================================
     # Request Logging Middleware
@@ -205,8 +203,9 @@ def run_api():
         
         return response
     
+    
     @app.post("/ask", response_model=AskResponse)
-    async def ask_gemini(request: AskRequest):
+    async def ask_gemini(request: Request, ask_request: AskRequest):
         """
         Отправка запроса в Gemini и получение ответа
         
@@ -218,6 +217,9 @@ def run_api():
         }
         ```
         """
+        # Используем app.state вместо global
+        gemini_client = request.app.state.gemini_client
+        
         # Детальная проверка состояния клиента
         print(f"🔍 Проверка клиента:")
         print(f"   gemini_client is None: {gemini_client is None}")
@@ -233,15 +235,15 @@ def run_api():
             raise HTTPException(status_code=503, detail="Gemini клиент не активен")
         
         try:
-            print(f"📤 Отправка запроса в Gemini: {request.prompt[:50]}...")
+            print(f"📤 Отправка запроса в Gemini: {ask_request.prompt[:50]}...")
             
             # Отправка запроса
             kwargs = {}
-            if request.model:
-                kwargs["model"] = request.model
+            if ask_request.model:
+                kwargs["model"] = ask_request.model
             
             response = await gemini_client.generate_content(
-                prompt=request.prompt,
+                prompt=ask_request.prompt,
                 **kwargs
             )
             
@@ -260,8 +262,10 @@ def run_api():
             raise HTTPException(status_code=500, detail=f"Ошибка при обработке запроса: {str(e)}")
     
     @app.get("/health", response_model=HealthResponse)
-    async def health_check():
+    async def health_check(request: Request):
         """Проверка статуса сервиса"""
+        gemini_client = request.app.state.gemini_client
+        
         if gemini_client and gemini_client._running:
             return HealthResponse(
                 status="healthy",
