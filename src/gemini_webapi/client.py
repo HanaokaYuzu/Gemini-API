@@ -360,53 +360,53 @@ class GeminiClient(GemMixin):
             raise APIError(
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
-        else:
-            response_json: list[Any] = []
-            body: list[Any] = []
-            body_index = 0
+        
+        response_json: list[Any] = []
+        body: list[Any] = []
+        body_index = 0
 
-            try:
-                response_json = extract_json_from_response(response.text)
+        try:
+            response_json = extract_json_from_response(response.text)
 
-                for part_index, part in enumerate(response_json):
-                    try:
-                        part_body = get_nested_value(part, [2])
-                        if not part_body:
-                            continue
-
-                        part_json = json.loads(part_body)
-                        if get_nested_value(part_json, [4]):
-                            body_index, body = part_index, part_json
-                            break
-                    except json.JSONDecodeError:
+            for part_index, part in enumerate(response_json):
+                try:
+                    part_body = get_nested_value(part, [2])
+                    if not part_body:
                         continue
 
-                if not body:
-                    raise Exception
-            except Exception:
-                await self.close()
+                    part_json = json.loads(part_body)
+                    if get_nested_value(part_json, [4]):
+                        body_index, body = part_index, part_json
+                        break
+                except json.JSONDecodeError:
+                    continue
 
-                try:
-                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
-                    match ErrorCode(error_code):
-                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                            raise UsageLimitExceeded(
-                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                            )
-                        case ErrorCode.MODEL_INCONSISTENT:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                "`model` parameter when starting a chat session with previous metadata."
-                            )
-                        case ErrorCode.MODEL_HEADER_INVALID:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
-                            )
-                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                            raise TemporarilyBlocked(
-                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                            )
+            if not body:
+                raise Exception
+        except Exception:
+            await self.close()
+
+            try:
+                error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
+                match ErrorCode(error_code):
+                    case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                        raise UsageLimitExceeded(
+                            f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                        )
+                    case ErrorCode.MODEL_INCONSISTENT:
+                        raise ModelInvalid(
+                            "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                            "`model` parameter when starting a chat session with previous metadata."
+                        )
+                    case ErrorCode.MODEL_HEADER_INVALID:
+                        raise ModelInvalid(
+                            "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                            "If the error persists and is caused by the package, please report it on GitHub."
+                        )
+                    case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                        raise TemporarilyBlocked(
+                            "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                        )
                         case _:
                             raise Exception
                 except GeminiError:
