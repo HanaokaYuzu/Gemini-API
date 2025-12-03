@@ -407,17 +407,17 @@ class GeminiClient(GemMixin):
                         raise TemporarilyBlocked(
                             "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
                         )
-                        case _:
-                            raise Exception
-                except GeminiError:
-                    raise
-                except Exception:
-                    logger.debug(f"Invalid response: {response.text}")
-                    raise APIError(
-                        "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                    )
+                    case _:
+                        raise Exception
+            except GeminiError:
+                raise
+            except Exception:
+                logger.debug(f"Invalid response: {response.text}")
+                raise APIError(
+                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                )
 
-            try:
+        try:
                 candidate_list: list[Any] = get_nested_value(body, [4], [])
                 output_candidates: list[Candidate] = []
 
