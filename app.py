@@ -235,6 +235,25 @@ def run_api():
             print(f"❌ Клиент не в режиме running")
             raise HTTPException(status_code=503, detail="Gemini клиент не активен")
         
+        # Проверяем, что клиент запущен, если нет - переинициализируем
+        if not gemini_client._running:
+            print("⚠️ Клиент не активен, переинициализация...")
+            try:
+                timeout = int(os.getenv("GEMINI_TIMEOUT", "120"))
+                auto_refresh = os.getenv("GEMINI_AUTO_REFRESH", "true").lower() == "true"
+                refresh_interval = int(os.getenv("GEMINI_REFRESH_INTERVAL", "540"))
+                
+                await gemini_client.init(
+                    timeout=timeout,
+                    auto_refresh=auto_refresh,
+                    refresh_interval=refresh_interval,
+                    verbose=True
+                )
+                print("✅ Клиент успешно переинициализирован")
+            except Exception as reinit_error:
+                print(f"❌ Ошибка реинициализации клиента: {reinit_error}")
+                raise HTTPException(status_code=503, detail="Gemini client unavailable and failed to reinitialize")
+        
         try:
             print(f"📤 Отправка запроса в Gemini: {ask_request.prompt[:50]}...")
             
