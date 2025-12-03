@@ -148,7 +148,7 @@ def run_api():
             proxy=proxy
         )
         
-        timeout = int(os.getenv("GEMINI_TIMEOUT", "30"))
+        timeout = int(os.getenv("GEMINI_TIMEOUT", "120"))
         auto_refresh = os.getenv("GEMINI_AUTO_REFRESH", "true").lower() == "true"
         refresh_interval = int(os.getenv("GEMINI_REFRESH_INTERVAL", "540"))
         
