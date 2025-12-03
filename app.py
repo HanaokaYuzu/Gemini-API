@@ -109,6 +109,7 @@ def run_api():
         prompt: str = Field(..., min_length=1, description="Текст запроса к Gemini")
         model: Optional[str] = Field(None, description="Модель (gemini-2.5-flash, gemini-2.5-pro и т.д.)")
         aspect_ratio: Optional[str] = Field(None, description="Соотношение сторон (16:9, 4:3, 1:1, etc.)")
+        image_base64: Optional[str] = Field(None, description="Изображение в формате Base64 (без data:image prefix)")
         
     class AskResponse(BaseModel):
         text: str = Field(..., description="Текстовый ответ от Gemini")
@@ -261,6 +262,26 @@ def run_api():
         try:
             print(f"📤 Отправка запроса в Gemini: {ask_request.prompt[:50]}...")
             
+            # Обработка прикрепленного изображения
+            temp_file_path = None
+            if ask_request.image_base64:
+                import tempfile
+                import base64
+                
+                # Декодируем Base64
+                try:
+                    image_data = base64.b64decode(ask_request.image_base64)
+                    
+                    # Создаем временный файл
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+                        temp_file.write(image_data)
+                        temp_file_path = temp_file.name
+                    
+                    print(f"📎 Прикреплен файл: {temp_file_path}")
+                except Exception as img_err:
+                    print(f"❌ Ошибка декодирования изображения: {img_err}")
+                    raise HTTPException(status_code=400, detail="Invalid base64 image data")
+            
             # Отправка запроса
             kwargs = {}
             if ask_request.model:
@@ -270,11 +291,23 @@ def run_api():
             # (теперь поддерживается нативно в client.py)
             if ask_request.aspect_ratio:
                 kwargs["aspect_ratio"] = ask_request.aspect_ratio
+            
+            # Если есть файл, передаем его
+            if temp_file_path:
+                kwargs["files"] = [temp_file_path]
 
             response = await gemini_client.generate_content(
                 prompt=ask_request.prompt,
                 **kwargs
             )
+            
+            # Удаляем временный файл
+            if temp_file_path:
+                import os
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
             
             # Обработка изображений: скачивание и конвертация в Base64
             image_data_list = []
