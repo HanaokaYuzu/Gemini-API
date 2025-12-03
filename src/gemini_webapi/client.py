@@ -407,8 +407,8 @@ class GeminiClient(GemMixin):
                         raise TemporarilyBlocked(
                             "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
                         )
-                        case _:
-                            raise Exception
+                    case _:
+                        raise Exception
                 except GeminiError:
                     raise
                 except Exception:
