@@ -47,7 +47,7 @@ tests/
 
 # Cookies (будут в volume)
 cookies/
-*.txt
+.cached_*.txt
 temp/
 
 # OS
