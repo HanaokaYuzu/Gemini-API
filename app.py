@@ -108,6 +108,7 @@ def run_api():
     class AskRequest(BaseModel):
         prompt: str = Field(..., min_length=1, description="Текст запроса к Gemini")
         model: Optional[str] = Field(None, description="Модель (gemini-2.5-flash, gemini-2.5-pro и т.д.)")
+        aspect_ratio: Optional[str] = Field(None, description="Соотношение сторон (16:9, 4:3, 1:1, etc.)")
         
     class AskResponse(BaseModel):
         text: str = Field(..., description="Текстовый ответ от Gemini")
@@ -242,8 +243,14 @@ def run_api():
             if ask_request.model:
                 kwargs["model"] = ask_request.model
             
+            # Если указан aspect_ratio, добавляем его в промпт
+            final_prompt = ask_request.prompt
+            if ask_request.aspect_ratio:
+                # Imagen обычно понимает оба варианта, но естественный язык надежнее для чат-моделей
+                final_prompt += f". Please generate image with aspect ratio {ask_request.aspect_ratio}."
+
             response = await gemini_client.generate_content(
-                prompt=ask_request.prompt,
+                prompt=final_prompt,
                 **kwargs
             )
             
