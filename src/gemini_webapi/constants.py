@@ -64,6 +64,29 @@ class Model(Enum):
         },
         False,
     )
+    
+    # Imagen Models (Mapped to Gemini 3.0 Pro / Advanced tier as they are usually part of it)
+    IMAGEN_3 = (
+        "imagen-3.0-generate-001",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
+        },
+        False,
+    )
+    IMAGEN_4 = (
+        "models/imagen-4.0-generate-001",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
+        },
+        False,
+    )
+    IMAGEN_4_ULTRA = (
+        "models/imagen-4.0-ultra-generate-001",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
+        },
+        False,
+    )
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name
