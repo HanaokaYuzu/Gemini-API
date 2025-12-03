@@ -247,30 +247,53 @@ def run_api():
                 **kwargs
             )
             
-            print(f"✅ Получен ответ от Gemini")
-            print(f"🔍 Response details:")
-            print(f"   text: {response.text[:100]}...")
-            print(f"   thoughts: {response.thoughts}")
-            print(f"   images count: {len(response.images)}")
-            print(f"   metadata: {response.metadata}")
-            print(f"   candidates count: {len(response.candidates)}")
-            
-            # Детальное логирование изображений
-            for i, img in enumerate(response.images):
-                print(f"   image[{i}]: type={type(img).__name__}, url={img.url[:80] if len(img.url) > 80 else img.url}")
+            # Сохранение и обработка изображений
+            image_urls = []
+            if response.images:
+                print(f"🎨 Сгенерировано изображений: {len(response.images)}")
+                
+                # Создаем директорию для статики если нет
+                static_dir = Path("static/images")
+                static_dir.mkdir(parents=True, exist_ok=True)
+                
+                for i, img in enumerate(response.images):
+                    try:
+                        # Сохраняем изображение локально
+                        # Используем save() который под капотом использует куки клиента
+                        saved_path = await img.save(
+                            path="static/images",
+                            skip_invalid_filename=False,
+                            verbose=True
+                        )
+                        
+                        if saved_path:
+                            # Формируем публичный URL
+                            filename = Path(saved_path).name
+                            # Используем базовый URL из запроса или относительный путь
+                            # В продакшене лучше использовать полный URL
+                            public_url = f"{request.base_url}static/images/{filename}"
+                            image_urls.append(public_url)
+                            print(f"   🖼️ Image {i+1} saved: {public_url}")
+                        else:
+                            # Fallback на оригинальный URL если не удалось сохранить
+                            image_urls.append(img.url)
+                            
+                    except Exception as img_err:
+                        print(f"⚠️ Ошибка при сохранении изображения {i}: {img_err}")
+                        image_urls.append(img.url)
             
             # Формирование ответа
             return AskResponse(
                 text=response.text,
                 thoughts=response.thoughts,
-                images=[img.url for img in response.images],
+                images=image_urls,
                 metadata=response.metadata
             )
             
         except Exception as e:
             print(f"❌ Ошибка: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
+            # import traceback
+            # traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"Ошибка при обработке запроса: {str(e)}")
     
     @app.get("/health", response_model=HealthResponse)
