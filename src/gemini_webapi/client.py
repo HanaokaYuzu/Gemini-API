@@ -349,6 +349,17 @@ class GeminiClient(GemMixin):
                 },
                 **kwargs,
             )
+        except ReadTimeout:
+            raise TimeoutError(
+                "Generate content request timed out, please try again. If the problem persists, "
+                "consider setting a higher `timeout` value when initializing GeminiClient."
+            )
+        
+        if response.status_code != 200:
+            await self.close()
+            raise APIError(
+                f"Failed to generate contents. Request failed with status code {response.status_code}"
+            )
         else:
             response_json: list[Any] = []
             body: list[Any] = []
