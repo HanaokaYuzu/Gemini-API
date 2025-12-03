@@ -310,20 +310,18 @@ def run_api():
                                     
                                     # Генерируем имя файла (UUID)
                                     import uuid
-                                    file_uuid = str(uuid.uuid4())
-                                    filename = f"{file_uuid}.png"
-                                    
+                                    filename = f"{uuid.uuid4()}.png"
                                     # Папка в бакете
                                     folder = "gemini-file-generate"
-                                    s3_key = f"{folder}/{filename}"
+                                    key = f"{folder}/{filename}"
                                     
-                                    print(f"   ☁️ Uploading to S3: {s3_key}...")
+                                    print(f"   ☁️ Uploading to S3: {key}...")
                                     s3_client.put_object(
                                         Bucket=s3_bucket,
-                                        Key=s3_key,
+                                        Key=key,
                                         Body=img_bytes,
-                                        ContentType='image/png'
-                                        # ACL='public-read' # Для некоторых S3 нужен ACL, для R2 обычно нет
+                                        ContentType='image/png',
+                                        ACL='public-read' # Делаем файл публичным
                                     )
                                     
                                     # Формируем публичную ссылку
@@ -332,10 +330,14 @@ def run_api():
                                         # Если домен указан без протокола, добавляем https
                                         if not public_domain.startswith("http"):
                                             public_domain = f"https://{public_domain}"
-                                        final_url = f"{public_domain}/{s3_key}"
+                                        # Убираем trailing slash если есть
+                                        public_domain = public_domain.rstrip("/")
+                                        final_url = f"{public_domain}/{key}"
                                     else:
                                         # Fallback на endpoint url
-                                        final_url = f"{s3_endpoint}/{s3_bucket}/{s3_key}"
+                                        # Обычно формат: endpoint/bucket/key
+                                        endpoint = s3_endpoint.rstrip("/")
+                                        final_url = f"{endpoint}/{s3_bucket}/{key}"
                                         
                                     image_data_list.append(final_url)
                                     print(f"   ✅ Image uploaded: {final_url}")
