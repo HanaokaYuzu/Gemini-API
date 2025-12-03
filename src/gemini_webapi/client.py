@@ -417,89 +417,55 @@ class GeminiClient(GemMixin):
                     "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
                 )
 
-        try:
-                candidate_list: list[Any] = get_nested_value(body, [4], [])
-                output_candidates: list[Candidate] = []
+        candidate_list: list[Any] = get_nested_value(body, [4], [])
+        output_candidates: list[Candidate] = []
 
-                for candidate_index, candidate in enumerate(candidate_list):
-                    rcid = get_nested_value(candidate, [0])
-                    if not rcid:
-                        continue  # Skip candidate if it has no rcid
+        for candidate_index, candidate in enumerate(candidate_list):
+            rcid = get_nested_value(candidate, [0])
+            if not rcid:
+                continue  # Skip candidate if it has no rcid
 
-                    # Text output and thoughts
-                    text = get_nested_value(candidate, [1, 0], "")
-                    if re.match(
-                        r"^http://googleusercontent\.com/card_content/\d+", text
-                    ):
-                        text = get_nested_value(candidate, [22, 0]) or text
+            # Text output and thoughts
+            text = get_nested_value(candidate, [1, 0], "")
+            if re.match(
+                r"^http://googleusercontent\.com/card_content/\d+", text
+            ):
+                text = get_nested_value(candidate, [22, 0]) or text
 
-                    thoughts = get_nested_value(candidate, [37, 0, 0])
+            thoughts = get_nested_value(candidate, [37, 0, 0])
 
-                    # Web images
-                    web_images = []
-                    for web_img_data in get_nested_value(candidate, [12, 1], []):
-                        url = get_nested_value(web_img_data, [0, 0, 0])
-                        if not url:
+            # Web images
+            web_images = []
+            for web_img_data in get_nested_value(candidate, [12, 1], []):
+                url = get_nested_value(web_img_data, [0, 0, 0])
+                if not url:
+                    continue
+
+                web_images.append(
+                    WebImage(
+                        url=url,
+                        title=get_nested_value(web_img_data, [7, 0], ""),
+                        alt=get_nested_value(web_img_data, [0, 4], ""),
+                        proxy=self.proxy,
+                    )
+                )
+
+            # Generated images (Imagen)
+            generated_images = []
+            if get_nested_value(candidate, [12, 7, 0]):
+                img_body = None
+                for img_part_index, part in enumerate(response_json):
+                    if img_part_index < body_index:
+                        continue
+                    try:
+                        img_part_body = get_nested_value(part, [2])
+                        if not img_part_body:
                             continue
 
-                        web_images.append(
-                            WebImage(
-                                url=url,
-                                title=get_nested_value(web_img_data, [7, 0], ""),
-                                alt=get_nested_value(web_img_data, [0, 4], ""),
-                                proxy=self.proxy,
-                            )
-                        )
-
-                    # Generated images
-                    generated_images = []
-                    if get_nested_value(candidate, [12, 7, 0]):
-                        img_body = None
-                        for img_part_index, part in enumerate(response_json):
-                            if img_part_index < body_index:
-                                continue
-                            try:
-                                img_part_body = get_nested_value(part, [2])
-                                if not img_part_body:
-                                    continue
-
-                                img_part_json = json.loads(img_part_body)
-                                if get_nested_value(
-                                    img_part_json, [4, candidate_index, 12, 7, 0]
-                                ):
-                                    img_body = img_part_json
-                                    break
-                            except json.JSONDecodeError:
-                                continue
-
-                        if not img_body:
-                            raise ImageGenerationError(
-                                "Failed to parse generated images. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
-                            )
-
-                        img_candidate = get_nested_value(
-                            img_body, [4, candidate_index], []
-                        )
-
-                        if finished_text := get_nested_value(
-                            img_candidate, [1, 0]
-                        ):  # Only overwrite if new text is returned after image generation
-                            text = re.sub(
-                                r"http://googleusercontent\.com/image_generation_content/\d+",
-                                "",
-                                finished_text,
-                            ).rstrip()
-
-                        for img_index, gen_img_data in enumerate(
-                            get_nested_value(img_candidate, [12, 7, 0], [])
+                        img_part_json = json.loads(img_part_body)
+                        if get_nested_value(
+                            img_part_json, [4, candidate_index, 12, 7, 0]
                         ):
-                            url = get_nested_value(gen_img_data, [0, 3, 3])
-                            if not url:
-                                continue
-
-                            img_num = get_nested_value(gen_img_data, [3, 6])
-                            title = (
                                 f"[Generated Image {img_num}]"
                                 if img_num
                                 else "[Generated Image]"
