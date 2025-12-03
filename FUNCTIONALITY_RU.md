@@ -601,16 +601,18 @@ MODE=api python app.py
 **Параметры (JSON):**
 *   `prompt` (str, required): Текст запроса.
 *   `model` (str, optional): Модель для генерации.
-    *   Доступные значения: `gemini-3.0-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`.
-    *   По умолчанию: `gemini-2.5-flash` (или последняя активная).
+    *   Доступные значения: `gemini-3.0-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`, `models/imagen-4.0-generate-001`.
+*   `aspect_ratio` (str, optional): Соотношение сторон изображения.
+    *   Примеры: `16:9`, `4:3`, `1:1`, `9:16`.
 
 **Пример запроса (cURL):**
 ```bash
 curl -X POST "http://localhost:8000/ask" \
      -H "Content-Type: application/json" \
      -d '{
-           "prompt": "Напиши код на Python",
-           "model": "gemini-2.5-pro"
+           "prompt": "Нарисуй футуристический город",
+           "model": "models/imagen-4.0-generate-001",
+           "aspect_ratio": "16:9"
          }'
 ```
 
