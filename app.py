@@ -248,6 +248,16 @@ def run_api():
             )
             
             print(f"✅ Получен ответ от Gemini")
+            print(f"🔍 Response details:")
+            print(f"   text: {response.text[:100]}...")
+            print(f"   thoughts: {response.thoughts}")
+            print(f"   images count: {len(response.images)}")
+            print(f"   metadata: {response.metadata}")
+            print(f"   candidates count: {len(response.candidates)}")
+            
+            # Детальное логирование изображений
+            for i, img in enumerate(response.images):
+                print(f"   image[{i}]: type={type(img).__name__}, url={img.url[:80] if len(img.url) > 80 else img.url}")
             
             # Формирование ответа
             return AskResponse(
@@ -259,6 +269,8 @@ def run_api():
             
         except Exception as e:
             print(f"❌ Ошибка: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"Ошибка при обработке запроса: {str(e)}")
     
     @app.get("/health", response_model=HealthResponse)
