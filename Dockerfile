@@ -13,8 +13,10 @@ COPY pyproject.toml ./
 COPY src/ ./src/
 
 # Установка зависимостей
+# Используем SETUPTOOLS_SCM_PRETEND_VERSION для обхода проблемы с .git в .dockerignore
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -e .
+    pip install --no-cache-dir .
 
 # ============================================
 # Production stage
