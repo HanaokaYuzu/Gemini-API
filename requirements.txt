@@ -1,0 +1,14 @@
+# Core dependencies (библиотека устанавливается из локального pyproject.toml)
+# gemini-webapi установится через pip install -e . в Dockerfile
+
+# API режим
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# Environment variables
+python-dotenv==1.0.1
+
+# HTTP client для health checks
+httpx==0.28.1

@@ -1,0 +1,6 @@
+# Добавить .env в .gitignore для безопасности
+.env
+.env.local
+
+# Docker-специфичные игноры
+cookies/

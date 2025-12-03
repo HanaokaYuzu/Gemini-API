@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  gemini-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gemini-api
+    restart: unless-stopped
+
+    # Переменные окружения из .env файла
+    env_file:
+      - .env
+
+    environment:
+      # Путь для сохранения cookies
+      GEMINI_COOKIE_PATH: /app/cookies
+      # Режим работы: cli или api
+      MODE: ${MODE:-cli}
+
+    # Volume для персистентности cookies между перезапусками
+    volumes:
+      - ./cookies:/app/cookies
+      - ./app.py:/app/app.py # Опционально: hot-reload для разработки
+
+    # Открытие порта только в API режиме
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+    # Health check для API режима
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

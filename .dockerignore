@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+dist
+build
+*.egg
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Virtual environments
+venv
+.venv
+env
+ENV
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+!README_DOCKER.md
+docs/
+assets/
+
+# Tests
+tests/
+*.test.py
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Cookies (будут в volume)
+cookies/
+*.txt
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
