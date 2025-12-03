@@ -532,27 +532,27 @@ class GeminiClient(GemMixin):
                         )
                     )
 
-                if not output_candidates:
-                    raise GeminiError(
-                        "Failed to generate contents. No output data found in response."
-                    )
-
-                output = ModelOutput(
-                    metadata=get_nested_value(body, [1], []),
-                    candidates=output_candidates,
-                )
-            except (TypeError, IndexError) as e:
-                logger.debug(
-                    f"{type(e).__name__}: {e}; Invalid response structure: {response.text}"
-                )
-                raise APIError(
-                    "Failed to parse response body. Data structure is invalid."
+            if not output_candidates:
+                raise GeminiError(
+                    "Failed to generate contents. No output data found in response."
                 )
 
-            if isinstance(chat, ChatSession):
-                chat.last_output = output
+            output = ModelOutput(
+                metadata=get_nested_value(body, [1], []),
+                candidates=output_candidates,
+            )
+        except (TypeError, IndexError) as e:
+            logger.debug(
+                f"{type(e).__name__}: {e}; Invalid response structure: {response.text}"
+            )
+            raise APIError(
+                "Failed to parse response body. Data structure is invalid."
+            )
 
-            return output
+        if isinstance(chat, ChatSession):
+            chat.last_output = output
+
+        return output
 
     def start_chat(self, **kwargs) -> "ChatSession":
         """
