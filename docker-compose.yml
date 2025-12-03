@@ -20,8 +20,11 @@ services:
 
     # Volume для персистентности cookies между перезапусками
     volumes:
-      - ./cookies:/app/cookies
-      - ./app.py:/app/app.py # Опционально: hot-reload для разработки
+      - gemini_cookies:/app/cookies
+      # - ./app.py:/app/app.py # Отключено для production
+
+volumes:
+  gemini_cookies:
 
     # Открытие порта только в API режиме
     ports:
