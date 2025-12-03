@@ -8,15 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование файлов проекта
-COPY pyproject.toml ./
-COPY src/ ./src/
-
-# Установка зависимостей
-# Используем SETUPTOOLS_SCM_PRETEND_VERSION для обхода проблемы с .git в .dockerignore
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir .
+# Установка зависимостей gemini-webapi вручную (из pyproject.toml)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    'httpx[http2]~=0.28.1' \
+    'loguru~=0.7.3' \
+    'orjson~=3.11.1' \
+    'pydantic~=2.12.2'
 
 # ============================================
 # Production stage
@@ -25,17 +23,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка runtime dependencies (если нужны)
+# Установка runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование установленных зависимостей из builder (без самого пакета gemini_webapi)
+# Копирование установленных зависимостей из builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Копирование исходников библиотеки ПОЛНОСТЬЮ (важно для всех подмодулей)
-COPY src/gemini_webapi /usr/local/lib/python3.11/site-packages/gemini_webapi
+# Копирование исходников gemini_webapi НАПРЯМУЮ в site-packages
+COPY src/gemini_webapi /usr/local/lib/python3.11/site-packages/gemini_webapi/
 
 # Установка дополнительных зависимостей для app.py
 COPY requirements.txt ./
