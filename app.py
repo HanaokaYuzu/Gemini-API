@@ -286,19 +286,76 @@ def run_api():
                             img_resp.raise_for_status()
                             img_bytes = img_resp.content
                             
-                            # Конвертируем в Base64
-                            b64_data = base64.b64encode(img_bytes).decode('utf-8')
-                            mime_type = "image/png" # Generated images are usually PNG
+                            # Проверяем настройки S3
+                            s3_endpoint = os.getenv("S3_ENDPOINT_URL")
+                            s3_key = os.getenv("S3_ACCESS_KEY_ID")
+                            s3_secret = os.getenv("S3_SECRET_ACCESS_KEY")
+                            s3_bucket = os.getenv("S3_BUCKET_NAME")
                             
-                            # Формируем Data URI
-                            data_uri = f"data:{mime_type};base64,{b64_data}"
-                            image_data_list.append(data_uri)
-                            print(f"   🖼️ Image {i+1} converted to Base64 ({len(b64_data)} chars)")
+                            if s3_endpoint and s3_key and s3_secret and s3_bucket:
+                                # Загрузка в S3
+                                try:
+                                    import boto3
+                                    from botocore.client import Config
+                                    
+                                    session = boto3.session.Session()
+                                    s3_client = session.client(
+                                        's3',
+                                        endpoint_url=s3_endpoint,
+                                        aws_access_key_id=s3_key,
+                                        aws_secret_access_key=s3_secret,
+                                        config=Config(signature_version='s3v4'),
+                                        region_name=os.getenv("S3_REGION_NAME", "auto")
+                                    )
+                                    
+                                    # Генерируем имя файла
+                                    from datetime import datetime
+                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                    # Берем хэш от URL для уникальности
+                                    import hashlib
+                                    url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+                                    filename = f"gemini_{timestamp}_{url_hash}.png"
+                                    
+                                    print(f"   ☁️ Uploading to S3: {filename}...")
+                                    s3_client.put_object(
+                                        Bucket=s3_bucket,
+                                        Key=filename,
+                                        Body=img_bytes,
+                                        ContentType='image/png'
+                                        # ACL='public-read' # Для некоторых S3 нужен ACL, для R2 обычно нет
+                                    )
+                                    
+                                    # Формируем публичную ссылку
+                                    public_domain = os.getenv("S3_PUBLIC_DOMAIN")
+                                    if public_domain:
+                                        # Если домен указан без протокола, добавляем https
+                                        if not public_domain.startswith("http"):
+                                            public_domain = f"https://{public_domain}"
+                                        final_url = f"{public_domain}/{filename}"
+                                    else:
+                                        # Fallback на endpoint url
+                                        final_url = f"{s3_endpoint}/{s3_bucket}/{filename}"
+                                        
+                                    image_data_list.append(final_url)
+                                    print(f"   ✅ Image uploaded: {final_url}")
+                                    
+                                except Exception as s3_err:
+                                    print(f"⚠️ S3 Upload Error: {s3_err}")
+                                    # Fallback to Base64 on error
+                                    b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                                    data_uri = f"data:image/png;base64,{b64_data}"
+                                    image_data_list.append(data_uri)
+                            else:
+                                # Fallback to Base64 if S3 not configured
+                                b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                                mime_type = "image/png"
+                                data_uri = f"data:{mime_type};base64,{b64_data}"
+                                image_data_list.append(data_uri)
+                                print(f"   🖼️ Image {i+1} converted to Base64 ({len(b64_data)} chars)")
 
                     except Exception as img_err:
                         error_msg = f"⚠️ Error downloading image {i}: {str(img_err)}"
                         print(error_msg)
-                        # Возвращаем текст ошибки в ответе, чтобы пользователь мог сообщить нам детали
                         image_data_list.append(f"ERROR: {str(img_err)} | URL: {img.url}")
             
             # Формирование ответа
