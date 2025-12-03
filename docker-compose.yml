@@ -23,10 +23,7 @@ services:
       - gemini_cookies:/app/cookies
       # - ./app.py:/app/app.py # Отключено для production
 
-volumes:
-  gemini_cookies:
-
-    # Открытие порта только в API режиме
+      # Открытие порта только в API режиме
     ports:
       - "${API_PORT:-8000}:8000"
 
@@ -44,3 +41,6 @@ volumes:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  gemini_cookies:
