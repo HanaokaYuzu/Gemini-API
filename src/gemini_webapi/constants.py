@@ -87,6 +87,14 @@ class Model(Enum):
         },
         False,
     )
+    
+    GEMINI_3_PRO_IMAGE_PREVIEW = (
+        "models/gemini-3-pro-image-preview",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
+        },
+        False,
+    )
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name
