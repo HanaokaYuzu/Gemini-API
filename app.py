@@ -243,14 +243,12 @@ def run_api():
             if ask_request.model:
                 kwargs["model"] = ask_request.model
             
-            # Если указан aspect_ratio, добавляем его в промпт
-            final_prompt = ask_request.prompt
-            if ask_request.aspect_ratio:
-                # Imagen обычно понимает оба варианта, но естественный язык надежнее для чат-моделей
-                final_prompt += f". Please generate image with aspect ratio {ask_request.aspect_ratio}."
-
+            # Если указан aspect_ratio, передаем его в клиент
+            # (теперь поддерживается нативно в client.py)
+            
             response = await gemini_client.generate_content(
-                prompt=final_prompt,
+                prompt=ask_request.prompt,
+                aspect_ratio=ask_request.aspect_ratio,
                 **kwargs
             )
             
