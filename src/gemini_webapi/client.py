@@ -307,7 +307,7 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
-        # Construct payload
+        # Build payload
         payload = [
             files
             and [
@@ -326,17 +326,11 @@ class GeminiClient(GemMixin):
             None,
             chat and chat.metadata,
         ]
-
+        
         if gem_id:
             payload += [None] * 16 + [gem_id]
-            
-        # Imagen 4 Aspect Ratio Support
-        # Structure: [..., [1, null, "16:9", "1K"]]
+        
         if aspect_ratio:
-            # Если есть gem_id, мы уже добавили кучу None.
-            # Если нет, payload имеет длину 3.
-            # Нам нужно добавить конфигурацию.
-            # Попробуем добавить её в конец списка.
             payload.append([1, None, aspect_ratio, "1K"])
 
         try:
@@ -345,7 +339,12 @@ class GeminiClient(GemMixin):
                 headers=model.model_header,
                 data={
                     "at": self.access_token,
-                    "f.req": json.dumps([None, json.dumps(payload).decode()]).decode(),
+                    "f.req": json.dumps(
+                        [
+                            None,
+                            json.dumps(payload).decode(),
+                        ]
+                    ).decode(),
                 },
                 **kwargs,
             )
@@ -354,68 +353,68 @@ class GeminiClient(GemMixin):
                 "Generate content request timed out, please try again. If the problem persists, "
                 "consider setting a higher `timeout` value when initializing GeminiClient."
             )
-        
+
         if response.status_code != 200:
             await self.close()
             raise APIError(
                 f"Failed to generate contents. Request failed with status code {response.status_code}"
             )
-        
-        response_json: list[Any] = []
-        body: list[Any] = []
-        body_index = 0
-
-        try:
-            response_json = extract_json_from_response(response.text)
-
-            for part_index, part in enumerate(response_json):
-                try:
-                    part_body = get_nested_value(part, [2])
-                    if not part_body:
-                        continue
-
-                    part_json = json.loads(part_body)
-                    if get_nested_value(part_json, [4]):
-                        body_index, body = part_index, part_json
-                        break
-                except json.JSONDecodeError:
-                    continue
-
-            if not body:
-                raise Exception
-        except Exception:
-            await self.close()
+        else:
+            response_json: list[Any] = []
+            body: list[Any] = []
+            body_index = 0
 
             try:
-                error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
-                match ErrorCode(error_code):
-                    case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                        raise UsageLimitExceeded(
-                            f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                        )
-                    case ErrorCode.MODEL_INCONSISTENT:
-                        raise ModelInvalid(
-                            "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                            "`model` parameter when starting a chat session with previous metadata."
-                        )
-                    case ErrorCode.MODEL_HEADER_INVALID:
-                        raise ModelInvalid(
-                            "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                            "If the error persists and is caused by the package, please report it on GitHub."
-                        )
-                    case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                        raise TemporarilyBlocked(
-                            "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                        )
-                    case _:
-                        raise Exception
-            except GeminiError:
-                raise
+                response_json = extract_json_from_response(response.text)
+
+                for part_index, part in enumerate(response_json):
+                    try:
+                        part_body = get_nested_value(part, [2])
+                        if not part_body:
+                            continue
+
+                        part_json = json.loads(part_body)
+                        if get_nested_value(part_json, [4]):
+                            body_index, body = part_index, part_json
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+                if not body:
+                    raise Exception
             except Exception:
-                logger.debug(f"Invalid response: {response.text}")
-                raise APIError(
-                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                )
+                await self.close()
+
+                try:
+                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
+                    match ErrorCode(error_code):
+                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                            raise UsageLimitExceeded(
+                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                            )
+                        case ErrorCode.MODEL_INCONSISTENT:
+                            raise ModelInvalid(
+                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                "`model` parameter when starting a chat session with previous metadata."
+                            )
+                        case ErrorCode.MODEL_HEADER_INVALID:
+                            raise ModelInvalid(
+                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                "If the error persists and is caused by the package, please report it on GitHub."
+                            )
+                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                            raise TemporarilyBlocked(
+                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                            )
+                        case _:
+                            raise Exception
+                except GeminiError:
+                    raise
+                except Exception:
+                    logger.debug(f"Invalid response: {response.text}")
+                    raise APIError(
+                        "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                    )
 
             try:
                 candidate_list: list[Any] = get_nested_value(body, [4], [])
@@ -434,6 +433,23 @@ class GeminiClient(GemMixin):
                         text = get_nested_value(candidate, [22, 0]) or text
 
                     thoughts = get_nested_value(candidate, [37, 0, 0])
+
+                    # DEBUG: Check for image generation signature
+                    if "image_generation_content" in text:
+                        logger.warning(f"🎨 Image generation detected in text: {text}")
+                        logger.warning(f"🔍 Candidate structure keys: {len(candidate)}")
+                        # Log specific paths where images usually reside
+                        logger.warning(f"   candidate[12][7][0]: {get_nested_value(candidate, [12, 7, 0])}")
+                        
+                        # Log raw response parts to find where images are hiding
+                        logger.warning("🔍 Inspecting response_json parts for image data:")
+                        for idx, part in enumerate(response_json):
+                            part_body = get_nested_value(part, [2])
+                            if part_body and isinstance(part_body, str) and len(part_body) > 100:
+                                # Check if this part looks like it has image data
+                                if "http://googleusercontent.com/image_generation_content" in part_body or "generated_image" in part_body:
+                                    logger.warning(f"   Part {idx} contains suspicious data (len={len(part_body)})")
+                                    logger.warning(f"   Snippet: {part_body[:200]}...")
 
                     # Web images
                     web_images = []
