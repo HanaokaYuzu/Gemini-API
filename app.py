@@ -379,6 +379,8 @@ def run_api():
                         print(error_msg)
                         image_data_list.append(f"ERROR: {str(img_err)} | URL: {img.url}")
             
+            print(f"   📊 Final image_data_list ({len(image_data_list)} items): {image_data_list}")
+
             # Формирование ответа
             return AskResponse(
                 text=response.text,
