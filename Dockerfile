@@ -30,13 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование установленных пакетов из builder
+# Копирование установленных зависимостей из builder (без самого пакета gemini_webapi)
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Копирование исходников библиотеки
-COPY src/ ./src/
-COPY pyproject.toml ./
+# Копирование исходников библиотеки ПОЛНОСТЬЮ (важно для всех подмодулей)
+COPY src/gemini_webapi /usr/local/lib/python3.11/site-packages/gemini_webapi
 
 # Установка дополнительных зависимостей для app.py
 COPY requirements.txt ./
