@@ -46,6 +46,7 @@ COPY app.py ./
 # Создание non-root пользователя для безопасности
 RUN useradd -m -u 1000 appuser && \
     mkdir -p /app/cookies && \
+    chmod 777 /app/cookies && \
     chown -R appuser:appuser /app
 
 USER appuser
