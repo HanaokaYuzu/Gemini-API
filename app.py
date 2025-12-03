@@ -305,74 +305,74 @@ def run_api():
                             raise last_error or Exception("Failed to download image after retries")
 
                         # Проверяем настройки S3
-                            s3_endpoint = os.getenv("S3_ENDPOINT_URL")
-                            s3_key = os.getenv("S3_ACCESS_KEY_ID")
-                            s3_secret = os.getenv("S3_SECRET_ACCESS_KEY")
-                            s3_bucket = os.getenv("S3_BUCKET_NAME")
-                            
-                            if s3_endpoint and s3_key and s3_secret and s3_bucket:
-                                # Загрузка в S3
-                                try:
-                                    import boto3
-                                    from botocore.client import Config
+                        s3_endpoint = os.getenv("S3_ENDPOINT_URL")
+                        s3_key = os.getenv("S3_ACCESS_KEY_ID")
+                        s3_secret = os.getenv("S3_SECRET_ACCESS_KEY")
+                        s3_bucket = os.getenv("S3_BUCKET_NAME")
+                        
+                        if s3_endpoint and s3_key and s3_secret and s3_bucket:
+                            # Загрузка в S3
+                            try:
+                                import boto3
+                                from botocore.client import Config
+                                
+                                session = boto3.session.Session()
+                                s3_client = session.client(
+                                    's3',
+                                    endpoint_url=s3_endpoint,
+                                    aws_access_key_id=s3_key,
+                                    aws_secret_access_key=s3_secret,
+                                    config=Config(signature_version='s3v4'),
+                                    region_name=os.getenv("S3_REGION_NAME", "auto")
+                                )
+                                
+                                # Генерируем имя файла (UUID)
+                                import uuid
+                                filename = f"{uuid.uuid4()}.png"
+                                # Папка в бакете
+                                folder = "gemini-file-generate"
+                                key = f"{folder}/{filename}"
+                                
+                                print(f"   ☁️ Uploading to S3: {key}...")
+                                s3_client.put_object(
+                                    Bucket=s3_bucket,
+                                    Key=key,
+                                    Body=img_bytes,
+                                    ContentType='image/png',
+                                    ACL='public-read' # Делаем файл публичным
+                                )
+                                
+                                # Формируем публичную ссылку
+                                public_domain = os.getenv("S3_PUBLIC_DOMAIN")
+                                if public_domain:
+                                    # Если домен указан без протокола, добавляем https
+                                    if not public_domain.startswith("http"):
+                                        public_domain = f"https://{public_domain}"
+                                    # Убираем trailing slash если есть
+                                    public_domain = public_domain.rstrip("/")
+                                    final_url = f"{public_domain}/{key}"
+                                else:
+                                    # Fallback на endpoint url
+                                    # Обычно формат: endpoint/bucket/key
+                                    endpoint = s3_endpoint.rstrip("/")
+                                    final_url = f"{endpoint}/{s3_bucket}/{key}"
                                     
-                                    session = boto3.session.Session()
-                                    s3_client = session.client(
-                                        's3',
-                                        endpoint_url=s3_endpoint,
-                                        aws_access_key_id=s3_key,
-                                        aws_secret_access_key=s3_secret,
-                                        config=Config(signature_version='s3v4'),
-                                        region_name=os.getenv("S3_REGION_NAME", "auto")
-                                    )
-                                    
-                                    # Генерируем имя файла (UUID)
-                                    import uuid
-                                    filename = f"{uuid.uuid4()}.png"
-                                    # Папка в бакете
-                                    folder = "gemini-file-generate"
-                                    key = f"{folder}/{filename}"
-                                    
-                                    print(f"   ☁️ Uploading to S3: {key}...")
-                                    s3_client.put_object(
-                                        Bucket=s3_bucket,
-                                        Key=key,
-                                        Body=img_bytes,
-                                        ContentType='image/png',
-                                        ACL='public-read' # Делаем файл публичным
-                                    )
-                                    
-                                    # Формируем публичную ссылку
-                                    public_domain = os.getenv("S3_PUBLIC_DOMAIN")
-                                    if public_domain:
-                                        # Если домен указан без протокола, добавляем https
-                                        if not public_domain.startswith("http"):
-                                            public_domain = f"https://{public_domain}"
-                                        # Убираем trailing slash если есть
-                                        public_domain = public_domain.rstrip("/")
-                                        final_url = f"{public_domain}/{key}"
-                                    else:
-                                        # Fallback на endpoint url
-                                        # Обычно формат: endpoint/bucket/key
-                                        endpoint = s3_endpoint.rstrip("/")
-                                        final_url = f"{endpoint}/{s3_bucket}/{key}"
-                                        
-                                    image_data_list.append(final_url)
-                                    print(f"   ✅ Image uploaded: {final_url}")
-                                    
-                                except Exception as s3_err:
-                                    print(f"⚠️ S3 Upload Error: {s3_err}")
-                                    # Fallback to Base64 on error
-                                    b64_data = base64.b64encode(img_bytes).decode('utf-8')
-                                    data_uri = f"data:image/png;base64,{b64_data}"
-                                    image_data_list.append(data_uri)
-                            else:
-                                # Fallback to Base64 if S3 not configured
+                                image_data_list.append(final_url)
+                                print(f"   ✅ Image uploaded: {final_url}")
+                                
+                            except Exception as s3_err:
+                                print(f"⚠️ S3 Upload Error: {s3_err}")
+                                # Fallback to Base64 on error
                                 b64_data = base64.b64encode(img_bytes).decode('utf-8')
-                                mime_type = "image/png"
-                                data_uri = f"data:{mime_type};base64,{b64_data}"
+                                data_uri = f"data:image/png;base64,{b64_data}"
                                 image_data_list.append(data_uri)
-                                print(f"   🖼️ Image {i+1} converted to Base64 ({len(b64_data)} chars)")
+                        else:
+                            # Fallback to Base64 if S3 not configured
+                            b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                            mime_type = "image/png"
+                            data_uri = f"data:{mime_type};base64,{b64_data}"
+                            image_data_list.append(data_uri)
+                            print(f"   🖼️ Image {i+1} converted to Base64 ({len(b64_data)} chars)")
 
                     except Exception as img_err:
                         error_msg = f"⚠️ Error downloading image {i}: {str(img_err)}"
