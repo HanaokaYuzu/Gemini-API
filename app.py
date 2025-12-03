@@ -109,7 +109,7 @@ def run_api():
         prompt: str = Field(..., min_length=1, description="Текст запроса к Gemini")
         model: Optional[str] = Field(None, description="Модель (gemini-2.5-flash, gemini-2.5-pro и т.д.)")
         aspect_ratio: Optional[str] = Field(None, description="Соотношение сторон (16:9, 4:3, 1:1, etc.)")
-        image_base64: Optional[str] = Field(None, description="Изображение в формате Base64 (без data:image prefix)")
+        image_url: Optional[str] = Field(None, description="URL изображения для обработки (будет скачано и отправлено в Gemini)")
         
     class AskResponse(BaseModel):
         text: str = Field(..., description="Текстовый ответ от Gemini")
@@ -262,25 +262,40 @@ def run_api():
         try:
             print(f"📤 Отправка запроса в Gemini: {ask_request.prompt[:50]}...")
             
-            # Обработка прикрепленного изображения
-            temp_file_path = None
-            if ask_request.image_base64:
-                import tempfile
-                import base64
-                
-                # Декодируем Base64
+            # Скачивание изображения если указан image_url
+            temp_image_path = None
+            if ask_request.image_url:
+                print(f"📥 Скачивание изображения: {ask_request.image_url[:50]}...")
                 try:
-                    image_data = base64.b64decode(ask_request.image_base64)
+                    from httpx import AsyncClient as HttpxAsyncClient
+                    import tempfile
+                    import os
                     
-                    # Создаем временный файл
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
-                        temp_file.write(image_data)
-                        temp_file_path = temp_file.name
-                    
-                    print(f"📎 Прикреплен файл: {temp_file_path}")
-                except Exception as img_err:
-                    print(f"❌ Ошибка декодирования изображения: {img_err}")
-                    raise HTTPException(status_code=400, detail="Invalid base64 image data")
+                    async with HttpxAsyncClient(timeout=30.0) as http_client:
+                        img_response = await http_client.get(ask_request.image_url)
+                        img_response.raise_for_status()
+                        
+                        # Определяем расширение из Content-Type или URL
+                        content_type = img_response.headers.get("content-type", "")
+                        if "jpeg" in content_type or "jpg" in content_type:
+                            ext = ".jpg"
+                        elif "png" in content_type:
+                            ext = ".png"
+                        elif "webp" in content_type:
+                            ext = ".webp"
+                        else:
+                            # Попробуем из URL
+                            ext = os.path.splitext(ask_request.image_url)[1] or ".jpg"
+                        
+                        # Сохраняем во временный файл
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+                            tmp_file.write(img_response.content)
+                            temp_image_path = tmp_file.name
+                        
+                        print(f"✅ Изображение сохранено: {temp_image_path}")
+                except Exception as download_error:
+                    print(f"⚠️ Ошибка скачивания изображения: {download_error}")
+                    raise HTTPException(status_code=400, detail=f"Failed to download image: {str(download_error)}")
             
             # Отправка запроса
             kwargs = {}
@@ -292,9 +307,9 @@ def run_api():
             if ask_request.aspect_ratio:
                 kwargs["aspect_ratio"] = ask_request.aspect_ratio
             
-            # Если есть файл, передаем его
-            if temp_file_path:
-                kwargs["files"] = [temp_file_path]
+            # Если есть изображение, передаем его как файл
+            if temp_image_path:
+                kwargs["files"] = [temp_image_path]
 
             response = await gemini_client.generate_content(
                 prompt=ask_request.prompt,
@@ -302,12 +317,12 @@ def run_api():
             )
             
             # Удаляем временный файл
-            if temp_file_path:
-                import os
+            if temp_image_path and os.path.exists(temp_image_path):
                 try:
-                    os.unlink(temp_file_path)
-                except:
-                    pass
+                    os.unlink(temp_image_path)
+                    print(f"🗑️ Временный файл удален: {temp_image_path}")
+                except Exception as del_error:
+                    print(f"⚠️ Не удалось удалить временный файл: {del_error}")
             
             # Обработка изображений: скачивание и конвертация в Base64
             image_data_list = []
