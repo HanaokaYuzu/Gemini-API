@@ -261,17 +261,27 @@ def run_api():
                         cookies = getattr(img, "cookies", None)
                         
                         # Скачиваем байты изображения
+                        # Используем HTTP/1.1 и стандартные заголовки для надежности
+                        headers = {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+                        }
+                        
                         async with AsyncClient(
-                            http2=True, 
+                            http2=False,  # Отключаем HTTP/2 так как он может вызывать проблемы через прокси
                             follow_redirects=True, 
                             cookies=cookies, 
-                            proxy=gemini_client.proxy
+                            proxy=gemini_client.proxy,
+                            headers=headers,
+                            timeout=30.0
                         ) as client:
                             # Для GeneratedImage нужно добавить параметр размера
                             url = img.url
                             if hasattr(img, "validate_cookies"): # Check if GeneratedImage
-                                url += "=s2048" # Full size
+                                if "=s" not in url:
+                                    url += "=s2048" # Full size
                                 
+                            print(f"   ⬇️ Downloading image: {url[:50]}...")
                             img_resp = await client.get(url)
                             img_resp.raise_for_status()
                             img_bytes = img_resp.content
@@ -286,9 +296,10 @@ def run_api():
                             print(f"   🖼️ Image {i+1} converted to Base64 ({len(b64_data)} chars)")
 
                     except Exception as img_err:
-                        print(f"⚠️ Ошибка при скачивании изображения {i}: {img_err}")
-                        # В случае ошибки возвращаем оригинальный URL
-                        image_data_list.append(img.url)
+                        error_msg = f"⚠️ Error downloading image {i}: {str(img_err)}"
+                        print(error_msg)
+                        # Возвращаем текст ошибки в ответе, чтобы пользователь мог сообщить нам детали
+                        image_data_list.append(f"ERROR: {str(img_err)} | URL: {img.url}")
             
             # Формирование ответа
             return AskResponse(
