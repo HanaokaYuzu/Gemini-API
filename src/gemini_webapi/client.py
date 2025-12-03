@@ -409,13 +409,13 @@ class GeminiClient(GemMixin):
                         )
                     case _:
                         raise Exception
-                except GeminiError:
-                    raise
-                except Exception:
-                    logger.debug(f"Invalid response: {response.text}")
-                    raise APIError(
-                        "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                    )
+            except GeminiError:
+                raise
+            except Exception:
+                logger.debug(f"Invalid response: {response.text}")
+                raise APIError(
+                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                )
 
             try:
                 candidate_list: list[Any] = get_nested_value(body, [4], [])
