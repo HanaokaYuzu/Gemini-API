@@ -308,18 +308,19 @@ def run_api():
                                         region_name=os.getenv("S3_REGION_NAME", "auto")
                                     )
                                     
-                                    # Генерируем имя файла
-                                    from datetime import datetime
-                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                                    # Берем хэш от URL для уникальности
-                                    import hashlib
-                                    url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-                                    filename = f"gemini_{timestamp}_{url_hash}.png"
+                                    # Генерируем имя файла (UUID)
+                                    import uuid
+                                    file_uuid = str(uuid.uuid4())
+                                    filename = f"{file_uuid}.png"
                                     
-                                    print(f"   ☁️ Uploading to S3: {filename}...")
+                                    # Папка в бакете
+                                    folder = "gemini-file-generate"
+                                    s3_key = f"{folder}/{filename}"
+                                    
+                                    print(f"   ☁️ Uploading to S3: {s3_key}...")
                                     s3_client.put_object(
                                         Bucket=s3_bucket,
-                                        Key=filename,
+                                        Key=s3_key,
                                         Body=img_bytes,
                                         ContentType='image/png'
                                         # ACL='public-read' # Для некоторых S3 нужен ACL, для R2 обычно нет
@@ -331,10 +332,10 @@ def run_api():
                                         # Если домен указан без протокола, добавляем https
                                         if not public_domain.startswith("http"):
                                             public_domain = f"https://{public_domain}"
-                                        final_url = f"{public_domain}/{filename}"
+                                        final_url = f"{public_domain}/{s3_key}"
                                     else:
                                         # Fallback на endpoint url
-                                        final_url = f"{s3_endpoint}/{s3_bucket}/{filename}"
+                                        final_url = f"{s3_endpoint}/{s3_bucket}/{s3_key}"
                                         
                                     image_data_list.append(final_url)
                                     print(f"   ✅ Image uploaded: {final_url}")
