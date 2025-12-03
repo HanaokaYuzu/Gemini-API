@@ -182,6 +182,10 @@ def run_api():
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
         """Логирование всех входящих запросов"""
+        # Пропускаем логирование health-проверок
+        if request.url.path == "/health":
+            return await call_next(request)
+            
         start_time = time.time()
         
         # Логируем до обработки
