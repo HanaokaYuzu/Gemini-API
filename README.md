@@ -159,18 +159,40 @@ asyncio.run(main())
 
 ### Generate contents with files
 
-Gemini supports file input, including images and documents. Optionally, you can pass files as a list of paths in `str` or `pathlib.Path` to `GeminiClient.generate_content` together with text prompt.
+Gemini supports file input, including images, audio, video and documents. Optionally, you can pass files as a list of `File` objects, dictionaries, or file paths to `GeminiClient.generate_content` together with text prompt.
 
 ```python
+from gemini_webapi import File
+
 async def main():
+    # You can pass files path (MIME type will be guessed automatically)
+    file1 = "assets/sample.txt"
+
+    # Or as dictionaries (follows File structure)
+    file2 = {"path": "assets/sample.pdf", "mime_type": "application/pdf"}
+
     response = await client.generate_content(
-            "Introduce the contents of these two files. Is there any connection between them?",
-            files=["assets/sample.pdf", Path("assets/banner.png")],
+            "Introduce the contents of these files. Is there any connection between them?",
+            files=[file1, file2],
         )
     print(response.text)
 
 asyncio.run(main())
 ```
+
+### Generate contents stream
+
+You can also stream the response by calling `GeminiClient.generate_content_stream`. This method yields `gemini_webapi.ModelOutput` objects as they are received from the server.
+
+```python
+async def main():
+    async for response in client.generate_content_stream("Hello World!"):
+        print(response.text, end="")
+
+asyncio.run(main())
+```
+
+> `generate_content_stream` also supports `files` argument, similar to `generate_content`.
 
 ### Conversations across multiple turns
 
@@ -181,7 +203,10 @@ async def main():
     chat = client.start_chat()
     response1 = await chat.send_message(
         "Introduce the contents of these two files. Is there any connection between them?",
-        files=["assets/sample.pdf", Path("assets/banner.png")],
+        files=[
+            "assets/sample.pdf",
+            "assets/banner.png",
+        ],
     )
     print(response1.text)
     response2 = await chat.send_message(
