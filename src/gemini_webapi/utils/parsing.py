@@ -24,15 +24,16 @@ def get_nested_value(data: list, path: list[int], default: Any = None) -> Any:
     for i, key in enumerate(path):
         try:
             current = current[key]
-        except (IndexError, TypeError, KeyError) as e:
+        except (IndexError, TypeError, KeyError):
             current_repr = repr(current)
             if len(current_repr) > 200:
                 current_repr = f"{current_repr[:197]}..."
 
             logger.debug(
                 f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
-                f"returning default. <Debug: {type(e).__name__}; Context: {current_repr}>"
+                f"returning default. Context: {current_repr}"
             )
+
             return default
 
     if current is None and default is not None:

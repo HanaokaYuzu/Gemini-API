@@ -43,7 +43,7 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
     if not (path.is_file() and time.time() - os.path.getmtime(path) <= 60):
-        async with AsyncClient(http2=True, proxy=proxy) as client:
+        async with AsyncClient(proxy=proxy) as client:
             response = await client.post(
                 url=Endpoint.ROTATE_COOKIES.value,
                 headers=Headers.ROTATE_COOKIES.value,

@@ -81,7 +81,7 @@ class Image(BaseModel):
                 return None
 
         async with AsyncClient(
-            http2=True, follow_redirects=True, cookies=cookies, proxy=self.proxy
+            follow_redirects=True, cookies=cookies, proxy=self.proxy
         ) as client:
             response = await client.get(self.url)
             if response.status_code == 200:

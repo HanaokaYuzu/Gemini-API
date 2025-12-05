@@ -103,6 +103,7 @@ class ErrorCode(IntEnum):
     Known error codes returned from server.
     """
 
+    TEMPORARY_ERROR_1013 = 1013  # Randomly raised when generating with certain models, but disappears soon after
     USAGE_LIMIT_EXCEEDED = 1037
     MODEL_INCONSISTENT = 1050
     MODEL_HEADER_INVALID = 1052
