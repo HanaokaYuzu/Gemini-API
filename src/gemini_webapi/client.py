@@ -3,6 +3,7 @@ import re
 from asyncio import Task
 from pathlib import Path
 from typing import Any, Optional
+from collections.abc import AsyncIterator
 
 import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
@@ -544,6 +545,254 @@ class GeminiClient(GemMixin):
                 chat.last_output = output
 
             return output
+
+    async def generate_content_stream(
+        self,
+        prompt: str,
+        files: list[str | Path] | None = None,
+        model: Model | str | dict = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
+        chat: "ChatSession | None" = None,
+        **kwargs,
+    ) -> AsyncIterator[ModelOutput]:
+        """
+        Asynchronous generator that yields `ModelOutput` objects as they are received from the server.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Prompt provided by user.
+        files: `list[str | Path]`, optional
+            List of file paths to be attached.
+        model: `Model | str | dict`, optional
+            Specify the model to use for generation.
+            Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
+            Pass a dictionary to use custom model header strings ("model_name" and "model_header" keys must be provided).
+        gem: `Gem | str`, optional
+            Specify a gem to use as system prompt for the chat session.
+            Pass either a `gemini_webapi.types.Gem` object or a gem id string.
+        chat: `ChatSession`, optional
+            Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+        kwargs: `dict`, optional
+            Additional arguments which will be passed to the post request.
+            Refer to `httpx.AsyncClient.request` for more information.
+
+        Yields
+        ------
+        :class:`ModelOutput`
+            Output data from gemini.google.com as it is received.
+
+        Raises
+        ------
+        `AssertionError`
+            If prompt is empty.
+        `gemini_webapi.TimeoutError`
+            If request timed out.
+        `gemini_webapi.GeminiError`
+            If no reply candidate found in response.
+        `gemini_webapi.APIError`
+            - If request failed with status code other than 200.
+            - If response structure is invalid and failed to parse.
+        """
+
+        assert self.client, "Client is not initialized. Please call `init()` before making requests."
+        assert prompt, "Prompt cannot be empty."
+
+        if isinstance(model, str):
+            model = Model.from_name(model)
+        elif isinstance(model, dict):
+            model = Model.from_dict(model)
+        elif not isinstance(model, Model):
+            raise TypeError(
+                f"'model' must be a `gemini_webapi.constants.Model` instance, "
+                f"string, or dictionary; got `{type(model).__name__}`"
+            )
+
+        if isinstance(gem, Gem):
+            gem_id = gem.id
+        else:
+            gem_id = gem
+
+        if self.auto_close:
+            await self.reset_close_task()
+
+        inner_req_list: list[Any] = [None] * 101
+        inner_req_list[0] = [
+            prompt,
+            0,
+            None,
+            # Upload files and prepare file metadata for the request
+            [[[await upload_file(f, self.proxy)], parse_file_name(f)] for f in files]
+            if files
+            else None,
+            None,
+            None,
+            0,
+        ]
+        inner_req_list[2] = chat and chat.metadata
+        inner_req_list[7] = 1 # Enable Snapshot Streaming
+        if gem_id:
+            inner_req_list[19] = gem_id
+        inner_json = json.dumps(inner_req_list).decode()
+        payload = json.dumps([None, inner_json]).decode()
+        try:
+            async with self.client.stream(
+                "POST",
+                Endpoint.GENERATE.value,
+                params={
+                    "rt": "c", # Enable chunked response
+                },
+                headers=model.model_header,
+                data={
+                    "at": self.access_token,
+                    "f.req": payload,
+                },
+                **kwargs,
+            ) as response:
+                
+                if response.status_code != 200:
+                    logger.warning(f"Response status code: {response.status_code}")
+                    await self.close()
+                    raise APIError(
+                        f"Failed to generate contents. Request failed with status code {response.status_code}"
+                    )
+                # using aiter_lines to handle chunked response
+                first_response_json: list[list[Any]] = []
+                response_json: list[list[Any]] = []
+                body: list[Any] = []
+                is_valid_response = False
+                last_output_candidates: list[Candidate] = []
+                final_output: ModelOutput | None = None
+                async for line in response.aiter_lines():
+                    if not line.strip().startswith('[["wrb.fr"'):
+                        continue
+                    try:
+                        response_json = json.loads(line.strip())
+                    except json.JSONDecodeError:
+                        continue
+                    if not first_response_json:
+                        first_response_json = response_json
+                    try:
+                        part_body = get_nested_value(response_json[0], [2])
+                        if not part_body:
+                            continue
+
+                        part_json = json.loads(part_body)
+                        if get_nested_value(part_json, [4]):
+                            body = part_json
+                    except json.JSONDecodeError:
+                        continue
+                    if not body:
+                        continue
+                    is_valid_response = True
+                    try:
+                        candidate_list: list[Any] = get_nested_value(body, [4], [])
+                        output_candidates: list[Candidate] = []
+
+                        for candidate_index, candidate in enumerate(candidate_list):
+                            rcid = get_nested_value(candidate, [0])
+                            if not rcid:
+                                continue  # Skip candidate if it has no rcid
+
+                            # Text output and thoughts
+                            text = get_nested_value(candidate, [1, 0], "")
+                            if re.match(
+                                r"^http://googleusercontent\.com/card_content/\d+", text
+                            ):
+                                text = get_nested_value(candidate, [22, 0]) or text
+
+                            thoughts = get_nested_value(candidate, [37, 0, 0])
+
+                            # Web images
+                            web_images = []
+                            for web_img_data in get_nested_value(candidate, [12, 1], []):
+                                url = get_nested_value(web_img_data, [0, 0, 0])
+                                if not url:
+                                    continue
+
+                                web_images.append(
+                                    WebImage(
+                                        url=url,
+                                        title=get_nested_value(web_img_data, [7, 0], ""),
+                                        alt=get_nested_value(web_img_data, [0, 4], ""),
+                                        proxy=self.proxy,
+                                    )
+                                )
+
+                            # Generated images
+                            generated_images = []
+                            # TODO: Implement generated images parsing in streaming response.
+
+                            output_candidates.append(
+                                Candidate(
+                                    rcid=rcid,
+                                    text=text,
+                                    thoughts=thoughts,
+                                    web_images=web_images,
+                                    generated_images=generated_images,
+                                    delta_text=text[len(last_output_candidates[candidate_index].text):] if (last_output_candidates and candidate_index < len(last_output_candidates)) else text,
+                                    delta_thoughts=thoughts[len(last_output_candidates[candidate_index].thoughts or ""):] if (thoughts and last_output_candidates and candidate_index < len(last_output_candidates)) else thoughts,
+                                )
+                            )
+
+                        if not output_candidates:
+                            raise GeminiError(
+                                "Failed to generate contents. No output data found in response."
+                            )
+                        last_output_candidates = output_candidates
+                        output = ModelOutput(
+                            metadata=get_nested_value(body, [1], []),
+                            candidates=output_candidates,
+                        )
+                    except (TypeError, IndexError) as e:
+                        logger.debug(
+                            f"{type(e).__name__}: {e}; Invalid response structure for line: {line}"
+                        )
+                        raise APIError(
+                            "Failed to parse response body. Data structure is invalid."
+                        )
+                    final_output = output
+                    yield output
+                if not is_valid_response:
+                    await self.close()
+                    try:
+                        error_code = get_nested_value(first_response_json, [0, 5, 2, 0, 1, 0], -1)
+                        match ErrorCode(error_code):
+                            case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                raise UsageLimitExceeded(
+                                    f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                                )
+                            case ErrorCode.MODEL_INCONSISTENT:
+                                raise ModelInvalid(
+                                    "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                    "`model` parameter when starting a chat session with previous metadata."
+                                )
+                            case ErrorCode.MODEL_HEADER_INVALID:
+                                raise ModelInvalid(
+                                    "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                    "If the error persists and is caused by the package, please report it on GitHub."
+                                )
+                            case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                                raise TemporarilyBlocked(
+                                    "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                                )
+                            case _:
+                                raise Exception
+                    except GeminiError:
+                        raise
+                    except Exception:
+                        logger.debug(f"Invalid response: {first_response_json}")
+                        raise APIError(
+                            "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                        )
+                if isinstance(chat, ChatSession):
+                    chat.last_output = final_output
+        except ReadTimeout:
+            raise TimeoutError(
+                "Generate content request timed out, please try again. If the problem persists, "
+                "consider setting a higher `timeout` value when initializing GeminiClient."
+            )
+
 
     def start_chat(self, **kwargs) -> "ChatSession":
         """
