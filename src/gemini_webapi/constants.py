@@ -26,6 +26,12 @@ class GRPC(StrEnum):
     DELETE_GEM = "UXcSJb"
 
 
+    # Delete methods
+    DELETE_CHAT1 = "GzXR5e"
+    DELETE_CHAT2 = "qWymEb"
+    DELETE_CHAT3 = "ESY5D"
+
+
 class Headers(Enum):
     GEMINI = {
         "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
