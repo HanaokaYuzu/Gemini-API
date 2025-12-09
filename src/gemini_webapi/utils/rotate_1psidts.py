@@ -8,7 +8,9 @@ from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 
 
-async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
+async def rotate_1psidts(
+    cookies: dict, proxy: str | None = None, cookie_path: Path | None = None
+) -> str:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
@@ -18,6 +20,8 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
         Cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
+    cookie_path: `Path`, optional
+        Path to cache directory for cookies.
 
     Returns
     -------
@@ -31,12 +35,15 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
     `httpx.HTTPStatusError`
         If request failed with other status codes.
     """
+    if cookie_path is None:
+        path = (
+            (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
+            and Path(GEMINI_COOKIE_PATH)
+            or (Path(__file__).parent / "temp")
+        )
+    else:
+        path = cookie_path
 
-    path = (
-        (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
-        and Path(GEMINI_COOKIE_PATH)
-        or (Path(__file__).parent / "temp")
-    )
     path.mkdir(parents=True, exist_ok=True)
     filename = f".cached_1psidts_{cookies['__Secure-1PSID']}.txt"
     path = path / filename
