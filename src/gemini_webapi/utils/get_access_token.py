@@ -24,7 +24,6 @@ async def send_request(
         headers=Headers.GEMINI.value,
         cookies=cookies,
         follow_redirects=True,
-        verify=False,
     ) as client:
         response = await client.get(Endpoint.INIT.value)
         response.raise_for_status()
@@ -65,7 +64,7 @@ async def get_access_token(
         If all requests failed.
     """
 
-    async with AsyncClient(proxy=proxy, follow_redirects=True, verify=False) as client:
+    async with AsyncClient(proxy=proxy, follow_redirects=True) as client:
         response = await client.get(Endpoint.GOOGLE.value)
 
     extra_cookies = {}
