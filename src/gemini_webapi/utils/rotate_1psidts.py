@@ -56,4 +56,5 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
 
             if new_1psidts := response.cookies.get("__Secure-1PSIDTS"):
                 path.write_text(new_1psidts)
+                path.chmod(0o600)  # Restrict to owner read/write only
                 return new_1psidts
