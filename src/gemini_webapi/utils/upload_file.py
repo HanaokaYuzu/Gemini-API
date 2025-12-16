@@ -1,3 +1,4 @@
+import mimetypes
 from pathlib import Path
 
 from httpx import AsyncClient
@@ -30,14 +31,23 @@ async def upload_file(file: str | Path, proxy: str | None = None) -> str:
         If the upload request failed.
     """
 
-    with open(file, "rb") as f:
-        file = f.read()
+    file_path = Path(file)
+    if not file_path.is_file():
+        raise ValueError(f"{file_path} is not a valid file.")
+
+    filename = file_path.name
+    mime_type, _ = mimetypes.guess_type(filename)
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+
+    with open(file_path, "rb") as f:
+        file_content = f.read()
 
     async with AsyncClient(proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.UPLOAD.value,
             headers=Headers.UPLOAD.value,
-            files={"file": file},
+            files={"file": (filename, file_content, mime_type)},
             follow_redirects=True,
         )
         response.raise_for_status()
