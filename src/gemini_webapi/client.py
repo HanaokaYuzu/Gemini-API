@@ -144,7 +144,6 @@ class GeminiClient(GemMixin):
             )
 
             self.client = AsyncClient(
-                http2=True,
                 timeout=timeout,
                 proxy=self.proxy,
                 follow_redirects=True,
@@ -389,7 +388,7 @@ class GeminiClient(GemMixin):
 
                 try:
                     error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
-                    match ErrorCode(error_code):
+                    match error_code:
                         case ErrorCode.USAGE_LIMIT_EXCEEDED:
                             raise UsageLimitExceeded(
                                 f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."

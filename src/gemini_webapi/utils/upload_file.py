@@ -53,7 +53,7 @@ async def upload_file(file: File, proxy: str | None = None) -> list[Any]:
 
     data = f"File name: {filename}"
 
-    async with AsyncClient(http2=True, proxy=proxy) as client:
+    async with AsyncClient(proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.UPLOAD.value,
             headers=dict(
