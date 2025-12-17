@@ -53,6 +53,13 @@ class Model(Enum):
         },
         False,
     )
+    G_3_0_FLASH = (
+       "gemini-3.0-flash",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4]]'
+        },
+        False
+    )
     G_2_5_PRO = (
         "gemini-2.5-pro",
         {
