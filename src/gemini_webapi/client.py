@@ -5,6 +5,7 @@ from typing import Any, Optional
 from pathlib import Path
 from collections.abc import AsyncIterator
 
+import aiohttp
 import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
 
@@ -317,242 +318,252 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
+        # Build request payload
+        inner_data = [
+            files
+            and [
+                prompt,
+                0,
+                None,
+                [await upload_file(file, self.proxy) for file in files],
+            ]
+            or [prompt],
+            None,
+            chat and chat.metadata,
+        ] + (gem_id and [None] * 16 + [gem_id] or [])
+
+        payload_data = {
+            "at": self.access_token,
+            "f.req": json.dumps([None, json.dumps(inner_data).decode()]).decode(),
+        }
+
+        # Use aiohttp instead of httpx.
+        # httpx can freeze or raise ReadError on large responses (>1MB).
+        headers = dict(Headers.GEMINI.value)
+        headers.update(model.model_header)
+        headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+
+        connector = aiohttp.TCPConnector(force_close=True)
+        aiohttp_timeout = aiohttp.ClientTimeout(total=self.timeout, sock_read=None)
+
         try:
-            response = await self.client.post(
-                Endpoint.GENERATE.value,
-                headers=model.model_header,
-                data={
-                    "at": self.access_token,
-                    "f.req": json.dumps(
-                        [
-                            None,
-                            json.dumps(
-                                [
-                                    files
-                                    and [
-                                        prompt,
-                                        0,
-                                        None,
-                                        [
-                                            await upload_file(file, self.proxy)
-                                            for file in files
-                                        ],
-                                    ]
-                                    or [prompt],
-                                    None,
-                                    chat and chat.metadata,
-                                ]
-                                + (gem_id and [None] * 16 + [gem_id] or [])
-                            ).decode(),
-                        ]
-                    ).decode(),
-                },
-                **kwargs,
+            async with aiohttp.ClientSession(
+                connector=connector, timeout=aiohttp_timeout
+            ) as session:
+                async with session.post(
+                    Endpoint.GENERATE.value,
+                    headers=headers,
+                    data=payload_data,
+                ) as response:
+                    if response.status != 200:
+                        await self.close()
+                        raise APIError(
+                            f"Failed to generate contents. Request failed with status code {response.status}"
+                        )
+
+                    response_text = await response.text()
+        except aiohttp.ClientError as e:
+            raise APIError(
+                f"Connection error while fetching response: {e}. Please try again."
             )
-        except ReadTimeout:
+        except asyncio.TimeoutError:
             raise TimeoutError(
                 "Generate content request timed out, please try again. If the problem persists, "
                 "consider setting a higher `timeout` value when initializing GeminiClient."
             )
 
-        if response.status_code != 200:
-            await self.close()
-            raise APIError(
-                f"Failed to generate contents. Request failed with status code {response.status_code}"
-            )
-        else:
-            response_json: list[Any] = []
-            body: list[Any] = []
-            body_index = 0
+        response_json: list[Any] = []
+        body: list[Any] = []
+        body_index = 0
 
-            try:
-                response_json = extract_json_from_response(response.text)
+        try:
+            response_json = extract_json_from_response(response_text)
 
-                for part_index, part in enumerate(response_json):
-                    try:
-                        part_body = get_nested_value(part, [2])
-                        if not part_body:
-                            continue
-
-                        part_json = json.loads(part_body)
-                        if get_nested_value(part_json, [4]):
-                            body_index, body = part_index, part_json
-                            break
-                    except json.JSONDecodeError:
+            for part_index, part in enumerate(response_json):
+                try:
+                    part_body = get_nested_value(part, [2])
+                    if not part_body:
                         continue
 
-                if not body:
-                    raise Exception
-            except Exception:
-                await self.close()
+                    part_json = json.loads(part_body)
+                    if get_nested_value(part_json, [4]):
+                        body_index, body = part_index, part_json
+                        break
+                except json.JSONDecodeError:
+                    continue
 
-                try:
-                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
-                    match error_code:
-                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                            raise UsageLimitExceeded(
-                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                            )
-                        case ErrorCode.MODEL_INCONSISTENT:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                "`model` parameter when starting a chat session with previous metadata."
-                            )
-                        case ErrorCode.MODEL_HEADER_INVALID:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
-                            )
-                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                            raise TemporarilyBlocked(
-                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                            )
-                        case _:
-                            raise Exception
-                except GeminiError:
-                    raise
-                except Exception:
-                    logger.debug(f"Invalid response: {response.text}")
-                    raise APIError(
-                        "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                    )
+            if not body:
+                raise Exception
+        except Exception:
+            await self.close()
 
             try:
-                candidate_list: list[Any] = get_nested_value(body, [4], [])
-                output_candidates: list[Candidate] = []
+                error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
+                match error_code:
+                    case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                        raise UsageLimitExceeded(
+                            f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                        )
+                    case ErrorCode.MODEL_INCONSISTENT:
+                        raise ModelInvalid(
+                            "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                            "`model` parameter when starting a chat session with previous metadata."
+                        )
+                    case ErrorCode.MODEL_HEADER_INVALID:
+                        raise ModelInvalid(
+                            "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                            "If the error persists and is caused by the package, please report it on GitHub."
+                        )
+                    case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                        raise TemporarilyBlocked(
+                            "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                        )
+                    case _:
+                        raise Exception
+            except GeminiError:
+                raise
+            except Exception:
+                logger.debug(f"Invalid response: {response_text}")
+                raise APIError(
+                    "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
+                )
 
-                for candidate_index, candidate in enumerate(candidate_list):
-                    rcid = get_nested_value(candidate, [0])
-                    if not rcid:
-                        continue  # Skip candidate if it has no rcid
+        try:
+            candidate_list: list[Any] = get_nested_value(body, [4], [])
+            output_candidates: list[Candidate] = []
 
-                    # Text output and thoughts
-                    text = get_nested_value(candidate, [1, 0], "")
-                    if re.match(
-                        r"^http://googleusercontent\.com/card_content/\d+", text
+            for candidate_index, candidate in enumerate(candidate_list):
+                rcid = get_nested_value(candidate, [0])
+                if not rcid:
+                    continue  # Skip candidate if it has no rcid
+
+                # Text output and thoughts
+                text = get_nested_value(candidate, [1, 0], "")
+                if re.match(
+                    r"^http://googleusercontent\.com/card_content/\d+", text
+                ):
+                    text = get_nested_value(candidate, [22, 0]) or text
+
+                thoughts = get_nested_value(candidate, [37, 0, 0])
+
+                # Web images
+                web_images = []
+                for web_img_data in get_nested_value(candidate, [12, 1], []):
+                    url = get_nested_value(web_img_data, [0, 0, 0])
+                    if not url:
+                        continue
+
+                    web_images.append(
+                        WebImage(
+                            url=url,
+                            title=get_nested_value(web_img_data, [7, 0], ""),
+                            alt=get_nested_value(web_img_data, [0, 4], ""),
+                            proxy=self.proxy,
+                        )
+                    )
+
+                # Generated images
+                generated_images = []
+                if get_nested_value(candidate, [12, 7, 0]):
+                    img_body = None
+                    for img_part_index, part in enumerate(response_json):
+                        if img_part_index < body_index:
+                            continue
+                        try:
+                            img_part_body = get_nested_value(part, [2])
+                            if not img_part_body:
+                                continue
+
+                            img_part_json = json.loads(img_part_body)
+                            if get_nested_value(
+                                img_part_json, [4, candidate_index, 12, 7, 0]
+                            ):
+                                img_body = img_part_json
+                                break
+                        except json.JSONDecodeError:
+                            continue
+
+                    if not img_body:
+                        raise ImageGenerationError(
+                            "Failed to parse generated images. Please update gemini_webapi to the latest version. "
+                            "If the error persists and is caused by the package, please report it on GitHub."
+                        )
+
+                    img_candidate = get_nested_value(
+                        img_body, [4, candidate_index], []
+                    )
+
+                    if finished_text := get_nested_value(
+                        img_candidate, [1, 0]
+                    ):  # Only overwrite if new text is returned after image generation
+                        text = re.sub(
+                            r"http://googleusercontent\.com/image_generation_content/\d+",
+                            "",
+                            finished_text,
+                        ).rstrip()
+
+                    for img_index, gen_img_data in enumerate(
+                        get_nested_value(img_candidate, [12, 7, 0], [])
                     ):
-                        text = get_nested_value(candidate, [22, 0]) or text
-
-                    thoughts = get_nested_value(candidate, [37, 0, 0])
-
-                    # Web images
-                    web_images = []
-                    for web_img_data in get_nested_value(candidate, [12, 1], []):
-                        url = get_nested_value(web_img_data, [0, 0, 0])
+                        url = get_nested_value(gen_img_data, [0, 3, 3])
                         if not url:
                             continue
 
-                        web_images.append(
-                            WebImage(
+                        img_num = get_nested_value(gen_img_data, [3, 6])
+                        title = (
+                            f"[Generated Image {img_num}]"
+                            if img_num
+                            else "[Generated Image]"
+                        )
+
+                        alt_list = get_nested_value(gen_img_data, [3, 5], [])
+                        alt = (
+                            get_nested_value(alt_list, [img_index])
+                            or get_nested_value(alt_list, [0])
+                            or ""
+                        )
+
+                        generated_images.append(
+                            GeneratedImage(
                                 url=url,
-                                title=get_nested_value(web_img_data, [7, 0], ""),
-                                alt=get_nested_value(web_img_data, [0, 4], ""),
+                                title=title,
+                                alt=alt,
                                 proxy=self.proxy,
+                                cookies=self.cookies,
                             )
                         )
 
-                    # Generated images
-                    generated_images = []
-                    if get_nested_value(candidate, [12, 7, 0]):
-                        img_body = None
-                        for img_part_index, part in enumerate(response_json):
-                            if img_part_index < body_index:
-                                continue
-                            try:
-                                img_part_body = get_nested_value(part, [2])
-                                if not img_part_body:
-                                    continue
-
-                                img_part_json = json.loads(img_part_body)
-                                if get_nested_value(
-                                    img_part_json, [4, candidate_index, 12, 7, 0]
-                                ):
-                                    img_body = img_part_json
-                                    break
-                            except json.JSONDecodeError:
-                                continue
-
-                        if not img_body:
-                            raise ImageGenerationError(
-                                "Failed to parse generated images. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
-                            )
-
-                        img_candidate = get_nested_value(
-                            img_body, [4, candidate_index], []
-                        )
-
-                        if finished_text := get_nested_value(
-                            img_candidate, [1, 0]
-                        ):  # Only overwrite if new text is returned after image generation
-                            text = re.sub(
-                                r"http://googleusercontent\.com/image_generation_content/\d+",
-                                "",
-                                finished_text,
-                            ).rstrip()
-
-                        for img_index, gen_img_data in enumerate(
-                            get_nested_value(img_candidate, [12, 7, 0], [])
-                        ):
-                            url = get_nested_value(gen_img_data, [0, 3, 3])
-                            if not url:
-                                continue
-
-                            img_num = get_nested_value(gen_img_data, [3, 6])
-                            title = (
-                                f"[Generated Image {img_num}]"
-                                if img_num
-                                else "[Generated Image]"
-                            )
-
-                            alt_list = get_nested_value(gen_img_data, [3, 5], [])
-                            alt = (
-                                get_nested_value(alt_list, [img_index])
-                                or get_nested_value(alt_list, [0])
-                                or ""
-                            )
-
-                            generated_images.append(
-                                GeneratedImage(
-                                    url=url,
-                                    title=title,
-                                    alt=alt,
-                                    proxy=self.proxy,
-                                    cookies=self.cookies,
-                                )
-                            )
-
-                    output_candidates.append(
-                        Candidate(
-                            rcid=rcid,
-                            text=text,
-                            thoughts=thoughts,
-                            web_images=web_images,
-                            generated_images=generated_images,
-                        )
+                output_candidates.append(
+                    Candidate(
+                        rcid=rcid,
+                        text=text,
+                        thoughts=thoughts,
+                        web_images=web_images,
+                        generated_images=generated_images,
                     )
-
-                if not output_candidates:
-                    raise GeminiError(
-                        "Failed to generate contents. No output data found in response."
-                    )
-
-                output = ModelOutput(
-                    metadata=get_nested_value(body, [1], []),
-                    candidates=output_candidates,
-                )
-            except (TypeError, IndexError) as e:
-                logger.debug(
-                    f"{type(e).__name__}: {e}; Invalid response structure: {response.text}"
-                )
-                raise APIError(
-                    "Failed to parse response body. Data structure is invalid."
                 )
 
-            if isinstance(chat, ChatSession):
-                chat.last_output = output
+            if not output_candidates:
+                raise GeminiError(
+                    "Failed to generate contents. No output data found in response."
+                )
 
-            return output
+            output = ModelOutput(
+                metadata=get_nested_value(body, [1], []),
+                candidates=output_candidates,
+            )
+        except (TypeError, IndexError) as e:
+            logger.debug(
+                f"{type(e).__name__}: {e}; Invalid response structure: {response_text}"
+            )
+            raise APIError(
+                "Failed to parse response body. Data structure is invalid."
+            )
+
+        if isinstance(chat, ChatSession):
+            chat.last_output = output
+
+        return output
 
     async def generate_content_stream(
         self,
@@ -646,217 +657,240 @@ class GeminiClient(GemMixin):
             or [prompt]
         )
         inner_req_list[2] = chat and chat.metadata
-        inner_req_list[7] = 1 # Enable Snapshot Streaming
+        inner_req_list[7] = 1  # Enable Snapshot Streaming
         if gem_id:
             inner_req_list[19] = gem_id
         inner_json = json.dumps(inner_req_list).decode()
-        payload = json.dumps([None, inner_json]).decode()
+        payload_data = {
+            "at": self.access_token,
+            "f.req": json.dumps([None, inner_json]).decode(),
+        }
+
+        # Use aiohttp for streaming instead of httpx.
+        # httpx's aiter_lines()/aiter_bytes() can freeze or raise ReadError
+        # on large chunked responses (>1MB). aiohttp handles this reliably.
+        headers = dict(Headers.GEMINI.value)
+        headers.update(model.model_header)
+        headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+
+        connector = aiohttp.TCPConnector(force_close=True)
+        aiohttp_timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
+
         try:
-            async with self.client.stream(
-                "POST",
-                Endpoint.GENERATE.value,
-                params={
-                    "rt": "c", # Enable chunked response
-                },
-                headers=model.model_header,
-                data={
-                    "at": self.access_token,
-                    "f.req": payload,
-                },
-                **kwargs,
-            ) as response:
-                
-                if response.status_code != 200:
-                    logger.warning(f"Response status code: {response.status_code}")
-                    await self.close()
-                    raise APIError(
-                        f"Failed to generate contents. Request failed with status code {response.status_code}"
-                    )
-                # using aiter_lines to handle chunked response
-                first_response_json: list[list[Any]] = []
-                response_json: list[list[Any]] = []
-                body: list[Any] = []
-                is_valid_response = False
-                last_output_candidates: list[Candidate] = []
-                final_output: ModelOutput | None = None
-                async for line in response.aiter_lines():
-                    if not line.strip().startswith('[["wrb.fr"'):
-                        continue
-                    try:
-                        response_json = json.loads(line.strip())
-                    except json.JSONDecodeError:
-                        continue
-                    if not first_response_json:
-                        first_response_json = response_json
-                    try:
-                        part_body = get_nested_value(response_json[0], [2])
-                        if not part_body:
-                            continue
+            async with aiohttp.ClientSession(
+                connector=connector, timeout=aiohttp_timeout
+            ) as session:
+                async with session.post(
+                    Endpoint.GENERATE.value,
+                    params={"rt": "c"},
+                    headers=headers,
+                    data=payload_data,
+                ) as response:
+                    if response.status != 200:
+                        logger.warning(f"Response status code: {response.status}")
+                        await self.close()
+                        raise APIError(
+                            f"Failed to generate contents. Request failed with status code {response.status}"
+                        )
 
-                        part_json = json.loads(part_body)
-                        if get_nested_value(part_json, [4]):
-                            body = part_json
-                    except json.JSONDecodeError:
-                        continue
-                    if not body:
-                        continue
-                    is_valid_response = True
-                    try:
-                        candidate_list: list[Any] = get_nested_value(body, [4], [])
-                        output_candidates: list[Candidate] = []
+                    first_response_json: list[list[Any]] = []
+                    response_json: list[list[Any]] = []
+                    body: list[Any] = []
+                    is_valid_response = False
+                    last_output_candidates: list[Candidate] = []
+                    final_output: ModelOutput | None = None
+                    buffer = b""
 
-                        for candidate_index, candidate in enumerate(candidate_list):
-                            rcid = get_nested_value(candidate, [0])
-                            if not rcid:
-                                continue  # Skip candidate if it has no rcid
-
-                            # Text output and thoughts
-                            text = get_nested_value(candidate, [1, 0], "")
-                            if re.match(
-                                r"^http://googleusercontent\.com/card_content/\d+", text
-                            ):
-                                text = get_nested_value(candidate, [22, 0]) or text
-
-                            thoughts = get_nested_value(candidate, [37, 0, 0])
-
-                            # Web images
-                            web_images = []
-                            for web_img_data in get_nested_value(candidate, [12, 1], []):
-                                url = get_nested_value(web_img_data, [0, 0, 0])
-                                if not url:
+                    async for chunk in response.content.iter_any():
+                        buffer += chunk
+                        while b"\n" in buffer:
+                            line_bytes, buffer = buffer.split(b"\n", 1)
+                            try:
+                                line = line_bytes.decode("utf-8")
+                            except UnicodeDecodeError:
+                                continue
+                            if not line.strip().startswith('[["wrb.fr"'):
+                                continue
+                            try:
+                                response_json = json.loads(line.strip())
+                            except json.JSONDecodeError:
+                                continue
+                            if not first_response_json:
+                                first_response_json = response_json
+                            try:
+                                part_body = get_nested_value(response_json[0], [2])
+                                if not part_body:
                                     continue
 
-                                web_images.append(
-                                    WebImage(
-                                        url=url,
-                                        title=get_nested_value(web_img_data, [7, 0], ""),
-                                        alt=get_nested_value(web_img_data, [0, 4], ""),
-                                        proxy=self.proxy,
-                                    )
-                                )
+                                part_json = json.loads(part_body)
+                                if get_nested_value(part_json, [4]):
+                                    body = part_json
+                            except json.JSONDecodeError:
+                                continue
+                            if not body:
+                                continue
+                            is_valid_response = True
+                            try:
+                                candidate_list: list[Any] = get_nested_value(body, [4], [])
+                                output_candidates: list[Candidate] = []
 
-                            # Generated images
-                            generated_images = []
-                            if get_nested_value(candidate, [12, 7, 0]):
-                                img_candidate = candidate
-                                if finished_text := get_nested_value(
-                                    img_candidate, [1, 0]
-                                ):  # Only overwrite if new text is returned after image generation
-                                    text = re.sub(
-                                        r"http://googleusercontent\.com/image_generation_content/\d+",
-                                        "",
-                                        finished_text,
-                                    ).rstrip()
+                                for candidate_index, candidate in enumerate(candidate_list):
+                                    rcid = get_nested_value(candidate, [0])
+                                    if not rcid:
+                                        continue  # Skip candidate if it has no rcid
 
-                                for img_index, gen_img_data in enumerate(
-                                    get_nested_value(img_candidate, [12, 7, 0], [])
-                                ):
-                                    url = get_nested_value(gen_img_data, [0, 3, 3])
-                                    if not url:
-                                        continue
+                                    # Text output and thoughts
+                                    text = get_nested_value(candidate, [1, 0], "")
+                                    if re.match(
+                                        r"^http://googleusercontent\.com/card_content/\d+", text
+                                    ):
+                                        text = get_nested_value(candidate, [22, 0]) or text
 
-                                    img_num = get_nested_value(gen_img_data, [3, 6])
-                                    title = (
-                                        f"[Generated Image {img_num}]"
-                                        if img_num
-                                        else "[Generated Image]"
-                                    )
+                                    thoughts = get_nested_value(candidate, [37, 0, 0])
 
-                                    alt_list = get_nested_value(gen_img_data, [3, 5], [])
-                                    alt = (
-                                        get_nested_value(alt_list, [img_index])
-                                        or get_nested_value(alt_list, [0])
-                                        or ""
-                                    )
+                                    # Web images
+                                    web_images = []
+                                    for web_img_data in get_nested_value(candidate, [12, 1], []):
+                                        url = get_nested_value(web_img_data, [0, 0, 0])
+                                        if not url:
+                                            continue
 
-                                    generated_images.append(
-                                        GeneratedImage(
-                                            url=url,
-                                            title=title,
-                                            alt=alt,
-                                            proxy=self.proxy,
-                                            cookies=self.cookies,
+                                        web_images.append(
+                                            WebImage(
+                                                url=url,
+                                                title=get_nested_value(web_img_data, [7, 0], ""),
+                                                alt=get_nested_value(web_img_data, [0, 4], ""),
+                                                proxy=self.proxy,
+                                            )
+                                        )
+
+                                    # Generated images
+                                    generated_images = []
+                                    if get_nested_value(candidate, [12, 7, 0]):
+                                        img_candidate = candidate
+                                        if finished_text := get_nested_value(
+                                            img_candidate, [1, 0]
+                                        ):  # Only overwrite if new text is returned after image generation
+                                            text = re.sub(
+                                                r"http://googleusercontent\.com/image_generation_content/\d+",
+                                                "",
+                                                finished_text,
+                                            ).rstrip()
+
+                                        for img_index, gen_img_data in enumerate(
+                                            get_nested_value(img_candidate, [12, 7, 0], [])
+                                        ):
+                                            url = get_nested_value(gen_img_data, [0, 3, 3])
+                                            if not url:
+                                                continue
+
+                                            img_num = get_nested_value(gen_img_data, [3, 6])
+                                            title = (
+                                                f"[Generated Image {img_num}]"
+                                                if img_num
+                                                else "[Generated Image]"
+                                            )
+
+                                            alt_list = get_nested_value(gen_img_data, [3, 5], [])
+                                            alt = (
+                                                get_nested_value(alt_list, [img_index])
+                                                or get_nested_value(alt_list, [0])
+                                                or ""
+                                            )
+
+                                            generated_images.append(
+                                                GeneratedImage(
+                                                    url=url,
+                                                    title=title,
+                                                    alt=alt,
+                                                    proxy=self.proxy,
+                                                    cookies=self.cookies,
+                                                )
+                                            )
+
+                                    last_candidate = None
+                                    if last_output_candidates and candidate_index < len(last_output_candidates):
+                                        last_candidate = last_output_candidates[candidate_index]
+
+                                    delta_text = text
+                                    if last_candidate:
+                                        delta_text = text[len(last_candidate.text) :]
+
+                                    delta_thoughts = thoughts
+                                    if thoughts and last_candidate:
+                                        last_thoughts = last_candidate.thoughts or ""
+                                        delta_thoughts = thoughts[len(last_thoughts) :]
+
+                                    output_candidates.append(
+                                        Candidate(
+                                            rcid=rcid,
+                                            text=text,
+                                            thoughts=thoughts,
+                                            web_images=web_images,
+                                            generated_images=generated_images,
+                                            delta_text=delta_text,
+                                            delta_thoughts=delta_thoughts,
                                         )
                                     )
 
-                            last_candidate = None
-                            if last_output_candidates and candidate_index < len(last_output_candidates):
-                                last_candidate = last_output_candidates[candidate_index]
-
-                            delta_text = text
-                            if last_candidate:
-                                delta_text = text[len(last_candidate.text) :]
-
-                            delta_thoughts = thoughts
-                            if thoughts and last_candidate:
-                                last_thoughts = last_candidate.thoughts or ""
-                                delta_thoughts = thoughts[len(last_thoughts) :]
-
-                            output_candidates.append(
-                                Candidate(
-                                    rcid=rcid,
-                                    text=text,
-                                    thoughts=thoughts,
-                                    web_images=web_images,
-                                    generated_images=generated_images,
-                                    delta_text=delta_text,
-                                    delta_thoughts=delta_thoughts,
+                                if not output_candidates:
+                                    raise GeminiError(
+                                        "Failed to generate contents. No output data found in response."
+                                    )
+                                last_output_candidates = output_candidates
+                                output = ModelOutput(
+                                    metadata=get_nested_value(body, [1], []),
+                                    candidates=output_candidates,
                                 )
+                            except (TypeError, IndexError) as e:
+                                logger.debug(
+                                    f"{type(e).__name__}: {e}; Invalid response structure for line: {line}"
+                                )
+                                raise APIError(
+                                    "Failed to parse response body. Data structure is invalid."
+                                )
+                            final_output = output
+                            yield output
+                    
+                    if not is_valid_response:
+                        await self.close()
+                        try:
+                            error_code = get_nested_value(first_response_json, [0, 5, 2, 0, 1, 0], -1)
+                            match ErrorCode(error_code):
+                                case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                    raise UsageLimitExceeded(
+                                        f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                                    )
+                                case ErrorCode.MODEL_INCONSISTENT:
+                                    raise ModelInvalid(
+                                        "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                        "`model` parameter when starting a chat session with previous metadata."
+                                    )
+                                case ErrorCode.MODEL_HEADER_INVALID:
+                                    raise ModelInvalid(
+                                        "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                        "If the error persists and is caused by the package, please report it on GitHub."
+                                    )
+                                case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                                    raise TemporarilyBlocked(
+                                        "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                                    )
+                                case _:
+                                    raise Exception
+                        except GeminiError:
+                            raise
+                        except Exception:
+                            logger.debug(f"Invalid response: {first_response_json}")
+                            raise APIError(
+                                "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
                             )
-
-                        if not output_candidates:
-                            raise GeminiError(
-                                "Failed to generate contents. No output data found in response."
-                            )
-                        last_output_candidates = output_candidates
-                        output = ModelOutput(
-                            metadata=get_nested_value(body, [1], []),
-                            candidates=output_candidates,
-                        )
-                    except (TypeError, IndexError) as e:
-                        logger.debug(
-                            f"{type(e).__name__}: {e}; Invalid response structure for line: {line}"
-                        )
-                        raise APIError(
-                            "Failed to parse response body. Data structure is invalid."
-                        )
-                    final_output = output
-                    yield output
-                if not is_valid_response:
-                    await self.close()
-                    try:
-                        error_code = get_nested_value(first_response_json, [0, 5, 2, 0, 1, 0], -1)
-                        match ErrorCode(error_code):
-                            case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                                raise UsageLimitExceeded(
-                                    f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                                )
-                            case ErrorCode.MODEL_INCONSISTENT:
-                                raise ModelInvalid(
-                                    "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                    "`model` parameter when starting a chat session with previous metadata."
-                                )
-                            case ErrorCode.MODEL_HEADER_INVALID:
-                                raise ModelInvalid(
-                                    "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                    "If the error persists and is caused by the package, please report it on GitHub."
-                                )
-                            case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                                raise TemporarilyBlocked(
-                                    "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                                )
-                            case _:
-                                raise Exception
-                    except GeminiError:
-                        raise
-                    except Exception:
-                        logger.debug(f"Invalid response: {first_response_json}")
-                        raise APIError(
-                            "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                        )
-                if isinstance(chat, ChatSession):
-                    chat.last_output = final_output
-        except ReadTimeout:
+                    if isinstance(chat, ChatSession):
+                        chat.last_output = final_output
+        except aiohttp.ClientError as e:
+            raise APIError(
+                f"Connection error while streaming response: {e}. Please try again."
+            )
+        except asyncio.TimeoutError:
             raise TimeoutError(
                 "Generate content request timed out, please try again. If the problem persists, "
                 "consider setting a higher `timeout` value when initializing GeminiClient."
