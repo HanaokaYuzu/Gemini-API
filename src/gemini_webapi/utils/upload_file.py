@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from httpx import AsyncClient
+import aiohttp
 from pydantic import validate_call
 
 from ..constants import Endpoint, Headers
@@ -53,40 +53,48 @@ async def upload_file(file: File, proxy: str | None = None) -> list[Any]:
 
     data = f"File name: {filename}"
 
-    async with AsyncClient(proxy=proxy) as client:
-        response = await client.post(
+    # Use aiohttp instead of httpx to avoid WriteTimeout on large file uploads
+    connector = aiohttp.TCPConnector(force_close=True)
+    timeout = aiohttp.ClientTimeout(total=None)
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        headers_start = dict(
+            **Headers.UPLOAD.value,
+            **{
+                "x-goog-upload-command": "start",
+                "x-goog-upload-header-content-length": str(len(file_content)),
+            },
+        )
+        async with session.post(
             url=Endpoint.UPLOAD.value,
-            headers=dict(
-                **Headers.UPLOAD.value,
-                **{
-                    "x-goog-upload-command": "start",
-                    "x-goog-upload-header-content-length": str(len(file_content)),
-                },
-            ),
-            content=data,
+            headers=headers_start,
+            data=data,
+        ) as response:
+            if response.status >= 400:
+                raise ValueError(f"Upload initiation failed with status {response.status}")
+
+            upload_url = response.headers.get("x-goog-upload-url")
+
+            if not upload_url:
+                raise ValueError("Upload URL not found in the response headers.")
+
+        headers_upload = dict(
+            **Headers.UPLOAD.value,
+            **{
+                "x-goog-upload-command": "upload, finalize",
+                "x-goog-upload-offset": "0",
+            },
         )
-        response.raise_for_status()
-
-        upload_url = response.headers.get("x-goog-upload-url")
-
-        if not upload_url:
-            raise ValueError("Upload URL not found in the response headers.")
-
-        response = await client.post(
+        async with session.post(
             url=upload_url,
-            headers=dict(
-                **Headers.UPLOAD.value,
-                **{
-                    "x-goog-upload-command": "upload, finalize",
-                    "x-goog-upload-offset": "0",
-                },
-            ),
-            content=file_content,
-            follow_redirects=True,
-        )
+            headers=headers_upload,
+            data=file_content,
+        ) as response:
+            if response.status >= 400:
+                raise ValueError(f"Upload failed with status {response.status}")
 
-        response.raise_for_status()
-        return [[response.text, file_code, None, file.mime_type], filename]
+            response_text = await response.text()
+            return [[response_text, file_code, None, file.mime_type], filename]
 
 
 def parse_file_name(file: str | Path) -> str:
