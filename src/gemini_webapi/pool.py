@@ -309,6 +309,158 @@ class ClientPool:
                 f"All accounts exhausted. Last error: {last_error}"
             )
     
+    async def reload_account(
+        self,
+        account_id: str,
+        new_psid: Optional[str] = None,
+        new_psidts: Optional[str] = None,
+        timeout: float = 120,
+        auto_refresh: bool = True,
+        refresh_interval: float = 540,
+    ) -> bool:
+        """
+        Горячая перезагрузка одного аккаунта без остановки сервиса.
+        
+        Args:
+            account_id: ID аккаунта для перезагрузки
+            new_psid: Новый PSID (если None — перечитать из конфига)
+            new_psidts: Новый PSIDTS
+            
+        Returns:
+            True если успешно, False если ошибка
+        """
+        async with self._lock:
+            state = self.accounts.get(account_id)
+            if not state:
+                logger.error(f"Account '{account_id}' not found for reload")
+                return False
+            
+            # Закрыть старый клиент
+            if state.client:
+                try:
+                    await state.client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing old client for '{account_id}': {e}")
+            
+            # Обновить креды если переданы
+            if new_psid:
+                state.config.psid = new_psid
+            if new_psidts:
+                state.config.psidts = new_psidts
+            
+            # Создать новый клиент
+            try:
+                new_client = GeminiClient(
+                    secure_1psid=state.config.psid,
+                    secure_1psidts=state.config.psidts,
+                    proxy=state.config.proxy,
+                )
+                await new_client.init(
+                    timeout=timeout,
+                    auto_close=False,
+                    auto_refresh=auto_refresh,
+                    refresh_interval=refresh_interval,
+                    verbose=False,
+                )
+                
+                state.client = new_client
+                state.healthy = True
+                state.consecutive_failures = 0
+                state.unhealthy_until = None
+                state.last_error = None
+                
+                logger.success(f"Account '{account_id}' reloaded successfully")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to reload account '{account_id}': {e}")
+                state.healthy = False
+                state.last_error = f"Reload failed: {e}"
+                return False
+    
+    async def reload_all_from_config(
+        self,
+        config_path: str | Path,
+        timeout: float = 120,
+        auto_refresh: bool = True,
+        refresh_interval: float = 540,
+    ) -> dict[str, bool]:
+        """
+        Полная перезагрузка всех аккаунтов из конфига.
+        Добавляет новые, обновляет существующие, НЕ удаляет отсутствующие.
+        
+        Returns:
+            dict с результатами: {account_id: success}
+        """
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config not found: {path}")
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        results = {}
+        
+        for acc_data in data.get("accounts", []):
+            acc_id = acc_data["id"]
+            new_psid = acc_data["psid"]
+            new_psidts = acc_data.get("psidts")
+            new_proxy = acc_data.get("proxy")
+            
+            if acc_id in self.accounts:
+                # Обновить существующий
+                state = self.accounts[acc_id]
+                
+                # Проверить, изменились ли креды
+                if (state.config.psid != new_psid or 
+                    state.config.psidts != new_psidts or
+                    state.config.proxy != new_proxy):
+                    
+                    state.config.proxy = new_proxy
+                    results[acc_id] = await self.reload_account(
+                        acc_id, new_psid, new_psidts,
+                        timeout, auto_refresh, refresh_interval
+                    )
+                else:
+                    results[acc_id] = True  # Без изменений
+            else:
+                # Добавить новый аккаунт
+                config = AccountConfig(
+                    id=acc_id,
+                    name=acc_data.get("name", acc_id),
+                    psid=new_psid,
+                    psidts=new_psidts,
+                    proxy=new_proxy,
+                )
+                state = AccountState(config=config)
+                self.accounts[acc_id] = state
+                self._account_order.append(acc_id)
+                
+                # Инициализировать
+                try:
+                    client = GeminiClient(
+                        secure_1psid=new_psid,
+                        secure_1psidts=new_psidts,
+                        proxy=new_proxy,
+                    )
+                    await client.init(
+                        timeout=timeout,
+                        auto_close=False,
+                        auto_refresh=auto_refresh,
+                        refresh_interval=refresh_interval,
+                        verbose=False,
+                    )
+                    state.client = client
+                    results[acc_id] = True
+                    logger.success(f"New account '{acc_id}' added and initialized")
+                except Exception as e:
+                    state.healthy = False
+                    state.last_error = str(e)
+                    results[acc_id] = False
+                    logger.error(f"Failed to add new account '{acc_id}': {e}")
+        
+        return results
+    
     def get_health_status(self) -> dict[str, Any]:
         """Возвращает статус здоровья пула для API."""
         healthy = sum(1 for s in self.accounts.values() if s.is_available)

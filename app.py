@@ -502,6 +502,78 @@ def run_api():
         
         return pool.get_health_status()
     
+    # Модель для reload запроса
+    class ReloadRequest(BaseModel):
+        account_id: Optional[str] = Field(None, description="ID аккаунта для перезагрузки (если пусто — перезагрузить все из конфига)")
+        psid: Optional[str] = Field(None, description="Новый PSID (опционально)")
+        psidts: Optional[str] = Field(None, description="Новый PSIDTS (опционально)")
+    
+    @app.post("/admin/reload")
+    async def reload_accounts(request: Request, reload_request: ReloadRequest):
+        """
+        Горячая перезагрузка аккаунтов без остановки сервиса.
+        
+        **Варианты использования:**
+        
+        1. Перезагрузить все из конфига (если он изменился):
+        ```json
+        {}
+        ```
+        
+        2. Перезагрузить конкретный аккаунт с новыми куками:
+        ```json
+        {"account_id": "main", "psid": "new_psid", "psidts": "new_psidts"}
+        ```
+        """
+        pool: ClientPool = request.app.state.pool
+        
+        if not pool:
+            raise HTTPException(status_code=503, detail="Пул не инициализирован")
+        
+        timeout = int(os.getenv("GEMINI_TIMEOUT", "120"))
+        auto_refresh = os.getenv("GEMINI_AUTO_REFRESH", "true").lower() == "true"
+        refresh_interval = int(os.getenv("GEMINI_REFRESH_INTERVAL", "540"))
+        
+        if reload_request.account_id:
+            # Перезагрузить один аккаунт
+            success = await pool.reload_account(
+                account_id=reload_request.account_id,
+                new_psid=reload_request.psid,
+                new_psidts=reload_request.psidts,
+                timeout=timeout,
+                auto_refresh=auto_refresh,
+                refresh_interval=refresh_interval,
+            )
+            return {
+                "action": "reload_single",
+                "account_id": reload_request.account_id,
+                "success": success,
+            }
+        else:
+            # Перезагрузить все из конфига
+            accounts_file = os.getenv("GEMINI_ACCOUNTS_FILE")
+            if not accounts_file:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="GEMINI_ACCOUNTS_FILE не задан. Укажите account_id для перезагрузки конкретного аккаунта."
+                )
+            
+            results = await pool.reload_all_from_config(
+                config_path=accounts_file,
+                timeout=timeout,
+                auto_refresh=auto_refresh,
+                refresh_interval=refresh_interval,
+            )
+            return {
+                "action": "reload_all",
+                "results": results,
+                "summary": {
+                    "total": len(results),
+                    "success": sum(1 for v in results.values() if v),
+                    "failed": sum(1 for v in results.values() if not v),
+                }
+            }
+
     # Запуск сервера
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8000"))
