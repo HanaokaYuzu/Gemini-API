@@ -588,40 +588,83 @@ MODE=api python app.py
 
 Отправка запроса в Gemini
 
-**Request Body:**
-```json
-{
-  "prompt": "Расскажи анекдот про программистов",
-  "model": "gemini-2.5-flash"
-}
-### 1. Отправка запроса (`/ask`)
-
 **Endpoint:** `POST /ask`
 
 **Параметры (JSON):**
-*   `prompt` (str, required): Текст запроса.
-*   `model` (str, optional): Модель для генерации.
-    *   Доступные значения: `gemini-3.0-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`, `models/imagen-4.0-generate-001`.
-*   `aspect_ratio` (str, optional): Соотношение сторон изображения.
-    *   Примеры: `16:9`, `4:3`, `1:1`, `9:16`.
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `prompt` | string | ✅ | Текст запроса |
+| `model` | string | ❌ | Модель: `gemini-3.0-pro`, `gemini-2.5-pro`, `gemini-2.5-flash` |
+| `image_urls` | array[string] | ❌ | Массив URL изображений для анализа |
+| `image_url` | string | ❌ | [DEPRECATED] Одиночный URL изображения |
+| `aspect_ratio` | string | ❌ | Соотношение сторон для генерации: `16:9`, `4:3`, `1:1`, `9:16` |
 
-**Пример запроса (cURL):**
+---
+
+#### Пример 1: Текстовый запрос
+
 ```bash
 curl -X POST "http://localhost:8000/ask" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "prompt": "Нарисуй футуристический город",
-           "model": "models/imagen-4.0-generate-001",
-           "aspect_ratio": "16:9"
-         }'
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Расскажи анекдот про программистов",
+    "model": "gemini-3.0-pro"
+  }'
 ```
+
+---
+
+#### Пример 2: Анализ одного изображения
+
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Опиши что изображено на картинке",
+    "model": "gemini-3.0-pro",
+    "image_urls": ["https://example.com/photo.jpg"]
+  }'
+```
+
+---
+
+#### Пример 3: Сравнение двух изображений (Gemini 3 Pro)
+
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Сравни эти два изображения. Что на них общего и чем они отличаются?",
+    "model": "gemini-3.0-pro",
+    "image_urls": [
+      "https://example.com/image1.jpg",
+      "https://example.com/image2.png"
+    ]
+  }'
+```
+
+---
+
+#### Пример 4: Генерация изображения с aspect_ratio
+
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Нарисуй футуристический город в стиле киберпанк",
+    "model": "models/imagen-4.0-generate-001",
+    "aspect_ratio": "16:9"
+  }'
+```
+
+---
 
 **Response:**
 ```json
 {
   "text": "Текст ответа от Gemini...",
   "thoughts": null,
-  "images": ["url1", "url2"],
+  "images": ["https://s3.example.com/generated/uuid.png"],
   "metadata": ["cid", "rid", "rcid"]
 }
 ```
@@ -633,14 +676,19 @@ import requests
 response = requests.post(
     "http://localhost:8000/ask",
     json={
-        "prompt": "Расскажи про async/await",
-        "model": "gemini-2.5-pro"
+        "prompt": "Сравни эти картинки",
+        "model": "gemini-3.0-pro",
+        "image_urls": [
+            "https://example.com/cat.jpg",
+            "https://example.com/dog.jpg"
+        ]
     }
 )
 
 data = response.json()
 print(data["text"])
 ```
+
 
 ### `GET /health`
 

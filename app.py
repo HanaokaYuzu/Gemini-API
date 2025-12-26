@@ -109,7 +109,8 @@ def run_api():
         prompt: str = Field(..., min_length=1, description="Текст запроса к Gemini")
         model: Optional[str] = Field(None, description="Модель (gemini-2.5-flash, gemini-2.5-pro и т.д.)")
         aspect_ratio: Optional[str] = Field(None, description="Соотношение сторон (16:9, 4:3, 1:1, etc.)")
-        image_url: Optional[str] = Field(None, description="URL изображения для обработки (будет скачано и отправлено в Gemini)")
+        image_url: Optional[str] = Field(None, description="[DEPRECATED] Одиночный URL изображения. Используйте image_urls.")
+        image_urls: Optional[list[str]] = Field(None, description="Массив URL изображений для обработки (будут скачаны и отправлены в Gemini)")
         
     class AskResponse(BaseModel):
         text: str = Field(..., description="Текстовый ответ от Gemini")
@@ -262,40 +263,55 @@ def run_api():
         try:
             print(f"📤 Отправка запроса в Gemini: {ask_request.prompt[:50]}...")
             
-            # Скачивание изображения если указан image_url
-            temp_image_path = None
-            if ask_request.image_url:
-                print(f"📥 Скачивание изображения: {ask_request.image_url[:50]}...")
-                try:
-                    from httpx import AsyncClient as HttpxAsyncClient
-                    import tempfile
-                    import os
-                    
-                    async with HttpxAsyncClient(timeout=30.0) as http_client:
-                        img_response = await http_client.get(ask_request.image_url)
-                        img_response.raise_for_status()
-                        
-                        # Определяем расширение из Content-Type или URL
-                        content_type = img_response.headers.get("content-type", "")
-                        if "jpeg" in content_type or "jpg" in content_type:
-                            ext = ".jpg"
-                        elif "png" in content_type:
-                            ext = ".png"
-                        elif "webp" in content_type:
-                            ext = ".webp"
-                        else:
-                            # Попробуем из URL
-                            ext = os.path.splitext(ask_request.image_url)[1] or ".jpg"
-                        
-                        # Сохраняем во временный файл
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
-                            tmp_file.write(img_response.content)
-                            temp_image_path = tmp_file.name
-                        
-                        print(f"✅ Изображение сохранено: {temp_image_path}")
-                except Exception as download_error:
-                    print(f"⚠️ Ошибка скачивания изображения: {download_error}")
-                    raise HTTPException(status_code=400, detail=f"Failed to download image: {str(download_error)}")
+            # Сбор всех URL изображений (поддержка как image_url, так и image_urls)
+            all_image_urls: list[str] = []
+            if ask_request.image_urls:
+                all_image_urls.extend(ask_request.image_urls)
+            if ask_request.image_url and ask_request.image_url not in all_image_urls:
+                all_image_urls.append(ask_request.image_url)
+            
+            # Скачивание всех изображений
+            temp_image_paths: list[str] = []
+            if all_image_urls:
+                print(f"📥 Скачивание {len(all_image_urls)} изображений...")
+                from httpx import AsyncClient as HttpxAsyncClient
+                import tempfile
+                
+                async with HttpxAsyncClient(timeout=30.0) as http_client:
+                    for idx, img_url in enumerate(all_image_urls):
+                        try:
+                            print(f"   [{idx+1}/{len(all_image_urls)}] {img_url[:60]}...")
+                            img_response = await http_client.get(img_url)
+                            img_response.raise_for_status()
+                            
+                            # Определяем расширение из Content-Type или URL
+                            content_type = img_response.headers.get("content-type", "")
+                            if "jpeg" in content_type or "jpg" in content_type:
+                                ext = ".jpg"
+                            elif "png" in content_type:
+                                ext = ".png"
+                            elif "webp" in content_type:
+                                ext = ".webp"
+                            elif "gif" in content_type:
+                                ext = ".gif"
+                            else:
+                                ext = os.path.splitext(img_url.split("?")[0])[1] or ".jpg"
+                            
+                            # Сохраняем во временный файл
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+                                tmp_file.write(img_response.content)
+                                temp_image_paths.append(tmp_file.name)
+                            
+                            print(f"   ✅ Сохранено: {tmp_file.name}")
+                        except Exception as download_error:
+                            print(f"   ⚠️ Ошибка скачивания [{idx+1}]: {download_error}")
+                            # Очистка уже скачанных файлов
+                            for path in temp_image_paths:
+                                try:
+                                    os.unlink(path)
+                                except:
+                                    pass
+                            raise HTTPException(status_code=400, detail=f"Failed to download image {idx+1}: {str(download_error)}")
             
             # Отправка запроса
             kwargs = {}
@@ -303,26 +319,26 @@ def run_api():
                 kwargs["model"] = ask_request.model
             
             # Если указан aspect_ratio, передаем его в client
-            # (теперь поддерживается нативно в client.py)
             if ask_request.aspect_ratio:
                 kwargs["aspect_ratio"] = ask_request.aspect_ratio
             
-            # Если есть изображение, передаем его как файл
-            if temp_image_path:
-                kwargs["files"] = [temp_image_path]
+            # Если есть изображения, передаем их как файлы
+            if temp_image_paths:
+                kwargs["files"] = temp_image_paths
 
             response = await gemini_client.generate_content(
                 prompt=ask_request.prompt,
                 **kwargs
             )
             
-            # Удаляем временный файл
-            if temp_image_path and os.path.exists(temp_image_path):
-                try:
-                    os.unlink(temp_image_path)
-                    print(f"🗑️ Временный файл удален: {temp_image_path}")
-                except Exception as del_error:
-                    print(f"⚠️ Не удалось удалить временный файл: {del_error}")
+            # Удаляем временные файлы
+            for temp_path in temp_image_paths:
+                if os.path.exists(temp_path):
+                    try:
+                        os.unlink(temp_path)
+                        print(f"🗑️ Временный файл удален: {temp_path}")
+                    except Exception as del_error:
+                        print(f"⚠️ Не удалось удалить временный файл: {del_error}")
             
             # Обработка изображений: скачивание и конвертация в Base64
             image_data_list = []
