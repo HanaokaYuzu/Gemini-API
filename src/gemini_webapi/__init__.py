@@ -4,3 +4,4 @@ from .client import GeminiClient, ChatSession
 from .exceptions import *
 from .types import *
 from .utils import set_log_level, logger
+from .pool import ClientPool, AccountConfig, PoolSettings

@@ -1,0 +1,22 @@
+{
+    "accounts": [
+        {
+            "id": "main",
+            "name": "Primary Account",
+            "psid": "YOUR_SECURE_1PSID_HERE",
+            "psidts": "YOUR_SECURE_1PSIDTS_HERE",
+            "proxy": null
+        },
+        {
+            "id": "backup",
+            "name": "Backup Account",
+            "psid": "ANOTHER_SECURE_1PSID",
+            "psidts": "ANOTHER_SECURE_1PSIDTS",
+            "proxy": "http://user:pass@proxy:8080"
+        }
+    ],
+    "settings": {
+        "unhealthy_cooldown_seconds": 300,
+        "max_consecutive_failures": 3
+    }
+}

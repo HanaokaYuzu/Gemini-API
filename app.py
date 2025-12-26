@@ -101,7 +101,8 @@ def run_api():
     from fastapi import FastAPI, HTTPException
     from pydantic import BaseModel, Field
     import uvicorn
-    from gemini_webapi import GeminiClient, set_log_level
+    from gemini_webapi import set_log_level
+    from gemini_webapi.pool import ClientPool
     from contextlib import asynccontextmanager
     
     # Модели запросов/ответов
@@ -110,7 +111,8 @@ def run_api():
         model: Optional[str] = Field(None, description="Модель (gemini-2.5-flash, gemini-2.5-pro и т.д.)")
         aspect_ratio: Optional[str] = Field(None, description="Соотношение сторон (16:9, 4:3, 1:1, etc.)")
         image_url: Optional[str] = Field(None, description="[DEPRECATED] Одиночный URL изображения. Используйте image_urls.")
-        image_urls: Optional[list[str]] = Field(None, description="Массив URL изображений для обработки (будут скачаны и отправлены в Gemini)")
+        image_urls: Optional[list[str]] = Field(None, description="Массив URL изображений для обработки")
+        account_id: Optional[str] = Field(None, description="Явный выбор аккаунта (опционально, по умолчанию Round-Robin)")
         
     class AskResponse(BaseModel):
         text: str = Field(..., description="Текстовый ответ от Gemini")
@@ -132,45 +134,56 @@ def run_api():
     # Lifecycle management
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        """Инициализация и закрытие клиента"""
+        """Инициализация и закрытие пула клиентов"""
         # Startup
         log_level = os.getenv("LOG_LEVEL", "INFO")
         set_log_level(log_level)
         
-        psid = os.getenv("GEMINI_PSID")
-        psidts = os.getenv("GEMINI_PSIDTS")
-        proxy = os.getenv("GEMINI_PROXY")
+        # Создаём пул
+        pool = ClientPool()
         
-        if not psid:
-            raise RuntimeError("GEMINI_PSID не установлен в переменных окружения!")
+        # Загрузка конфигурации
+        accounts_file = os.getenv("GEMINI_ACCOUNTS_FILE")
+        if accounts_file and os.path.exists(accounts_file):
+            # Новый режим: загрузка из JSON
+            pool.load_config(accounts_file)
+            print(f"📂 Загружена конфигурация из {accounts_file}")
+        else:
+            # Обратная совместимость: ENV переменные
+            psid = os.getenv("GEMINI_PSID")
+            psidts = os.getenv("GEMINI_PSIDTS")
+            proxy = os.getenv("GEMINI_PROXY")
+            
+            if not psid:
+                raise RuntimeError(
+                    "Укажите GEMINI_ACCOUNTS_FILE или GEMINI_PSID в переменных окружения!"
+                )
+            
+            pool.add_account_from_env(psid=psid, psidts=psidts, proxy=proxy)
+            print("📋 Используется аккаунт из ENV переменных")
         
-        # Используем app.state вместо глобальной переменной
-        app.state.gemini_client = GeminiClient(
-            secure_1psid=psid,
-            secure_1psidts=psidts,
-            proxy=proxy
-        )
-        
+        # Инициализация всех клиентов
         timeout = int(os.getenv("GEMINI_TIMEOUT", "120"))
         auto_refresh = os.getenv("GEMINI_AUTO_REFRESH", "true").lower() == "true"
         refresh_interval = int(os.getenv("GEMINI_REFRESH_INTERVAL", "540"))
         
-        await app.state.gemini_client.init(
+        await pool.init_all(
             timeout=timeout,
-            auto_close=False,
             auto_refresh=auto_refresh,
             refresh_interval=refresh_interval,
-            verbose=True
         )
         
-        print("✅ FastAPI сервер запущен, Gemini клиент инициализирован")
+        app.state.pool = pool
+        
+        health = pool.get_health_status()
+        print(f"✅ FastAPI сервер запущен. Пул: {health['healthy']}/{health['total']} аккаунтов активно")
         
         yield
         
         # Shutdown
-        if hasattr(app.state, 'gemini_client') and app.state.gemini_client:
-            await app.state.gemini_client.close()
-            print("✅ Gemini клиент закрыт")
+        if hasattr(app.state, 'pool') and app.state.pool:
+            await app.state.pool.close_all()
+            print("✅ Все клиенты закрыты")
     
     # Установка lifespan ПОСЛЕ создания app
     app.router.lifespan_context = lifespan
@@ -224,41 +237,14 @@ def run_api():
         }
         ```
         """
-        # Используем app.state вместо global
-        gemini_client = request.app.state.gemini_client
+        pool: ClientPool = request.app.state.pool
         
-        # Детальная проверка состояния клиента
-        print(f"🔍 Проверка клиента:")
-        print(f"   gemini_client is None: {gemini_client is None}")
-        if gemini_client:
-            print(f"   gemini_client._running: {gemini_client._running}")
+        if not pool or not pool.accounts:
+            raise HTTPException(status_code=503, detail="Пул клиентов не инициализирован")
         
-        if not gemini_client:
-            print(f"❌ Клиент = None")
-            raise HTTPException(status_code=503, detail="Gemini клиент не инициализирован")
-        
-        if not gemini_client._running:
-            print(f"❌ Клиент не в режиме running")
-            raise HTTPException(status_code=503, detail="Gemini клиент не активен")
-        
-        # Проверяем, что клиент запущен, если нет - переинициализируем
-        if not gemini_client._running:
-            print("⚠️ Клиент не активен, переинициализация...")
-            try:
-                timeout = int(os.getenv("GEMINI_TIMEOUT", "120"))
-                auto_refresh = os.getenv("GEMINI_AUTO_REFRESH", "true").lower() == "true"
-                refresh_interval = int(os.getenv("GEMINI_REFRESH_INTERVAL", "540"))
-                
-                await gemini_client.init(
-                    timeout=timeout,
-                    auto_refresh=auto_refresh,
-                    refresh_interval=refresh_interval,
-                    verbose=True
-                )
-                print("✅ Клиент успешно переинициализирован")
-            except Exception as reinit_error:
-                print(f"❌ Ошибка реинициализации клиента: {reinit_error}")
-                raise HTTPException(status_code=503, detail="Gemini client unavailable and failed to reinitialize")
+        health = pool.get_health_status()
+        if health["healthy"] == 0:
+            raise HTTPException(status_code=503, detail="Все аккаунты недоступны")
         
         try:
             print(f"📤 Отправка запроса в Gemini: {ask_request.prompt[:50]}...")
@@ -326,8 +312,9 @@ def run_api():
             if temp_image_paths:
                 kwargs["files"] = temp_image_paths
 
-            response = await gemini_client.generate_content(
+            response = await pool.execute(
                 prompt=ask_request.prompt,
+                account_id=ask_request.account_id,
                 **kwargs
             )
             
@@ -491,17 +478,29 @@ def run_api():
     @app.get("/health", response_model=HealthResponse)
     async def health_check(request: Request):
         """Проверка статуса сервиса"""
-        gemini_client = request.app.state.gemini_client
+        pool: ClientPool = request.app.state.pool
         
-        if gemini_client and gemini_client._running:
-            return HealthResponse(
-                status="healthy",
-                message="Gemini API работает нормально"
-            )
+        if pool:
+            health = pool.get_health_status()
+            if health["healthy"] > 0:
+                return HealthResponse(
+                    status="healthy",
+                    message=f"Gemini API работает: {health['healthy']}/{health['total']} аккаунтов активно"
+                )
         return HealthResponse(
             status="unhealthy",
-            message="Gemini клиент не активен"
+            message="Все аккаунты недоступны"
         )
+    
+    @app.get("/health/accounts")
+    async def health_accounts(request: Request):
+        """Детальный статус всех аккаунтов в пуле"""
+        pool: ClientPool = request.app.state.pool
+        
+        if not pool:
+            raise HTTPException(status_code=503, detail="Пул не инициализирован")
+        
+        return pool.get_health_status()
     
     # Запуск сервера
     host = os.getenv("API_HOST", "0.0.0.0")
