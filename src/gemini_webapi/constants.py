@@ -6,7 +6,7 @@ class Endpoint(StrEnum):
     INIT = "https://gemini.google.com/app"
     GENERATE = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     ROTATE_COOKIES = "https://accounts.google.com/RotateCookies"
-    UPLOAD = "https://content-push.googleapis.com/upload"
+    UPLOAD = "https://push.clients6.google.com/upload"
     BATCH_EXEC = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
 
 
@@ -38,7 +38,10 @@ class Headers(Enum):
     ROTATE_COOKIES = {
         "Content-Type": "application/json",
     }
-    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz"}
+    UPLOAD = {
+        "push-id": "feeds/mcudyrk2a4khkz",
+        "x-goog-upload-protocol": "resumable",
+    }
 
 
 class Model(Enum):
@@ -49,6 +52,13 @@ class Model(Enum):
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
         },
         False,
+    )
+    G_3_0_FLASH = (
+       "gemini-3.0-flash",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4]]'
+        },
+        False
     )
     G_2_5_PRO = (
         "gemini-2.5-pro",
