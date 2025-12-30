@@ -30,14 +30,20 @@ async def upload_file(file: str | Path, proxy: str | None = None) -> str:
         If the upload request failed.
     """
 
-    with open(file, "rb") as f:
-        file = f.read()
+    file_path = Path(file)
+    if not file_path.is_file():
+        raise ValueError(f"{file_path} is not a valid file.")
+
+    filename = file_path.name
+
+    with open(file_path, "rb") as f:
+        file_content = f.read()
 
     async with AsyncClient(proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.UPLOAD.value,
             headers=Headers.UPLOAD.value,
-            files={"file": file},
+            files={"file": (filename, file_content)},
             follow_redirects=True,
         )
         response.raise_for_status()
