@@ -19,14 +19,7 @@ from .exceptions import (
     TimeoutError,
     UsageLimitExceeded,
 )
-from .types import (
-    Candidate,
-    Gem,
-    GeneratedImage,
-    ModelOutput,
-    RPCData,
-    WebImage,
-)
+from .types import Candidate, Gem, GeneratedImage, ModelOutput, RPCData, WebImage
 from .utils import (
     extract_json_from_response,
     get_access_token,
@@ -55,6 +48,8 @@ class GeminiClient(GemMixin):
         __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
     proxy: `str`, optional
         Proxy URL.
+    cookie_path: `str`, optional
+        Path to cache directory for cookies.
     kwargs: `dict`, optional
         Additional arguments which will be passed to the http client.
         Refer to `httpx.AsyncClient` for more information.
@@ -86,6 +81,7 @@ class GeminiClient(GemMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        cookie_path: str | Path | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -101,6 +97,7 @@ class GeminiClient(GemMixin):
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
         self.kwargs = kwargs
+        self.cookie_path = cookie_path
 
         if secure_1psid:
             self.cookies["__Secure-1PSID"] = secure_1psid
@@ -138,7 +135,10 @@ class GeminiClient(GemMixin):
 
         try:
             access_token, valid_cookies = await get_access_token(
-                base_cookies=self.cookies, proxy=self.proxy, verbose=verbose
+                base_cookies=self.cookies,
+                cookie_path=self.cookie_path,
+                proxy=self.proxy,
+                verbose=verbose,
             )
 
             self.client = AsyncClient(
@@ -215,7 +215,9 @@ class GeminiClient(GemMixin):
         while True:
             new_1psidts: str | None = None
             try:
-                new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
+                new_1psidts = await rotate_1psidts(
+                    self.cookies, self.proxy, self.cookie_path
+                )
             except AuthError:
                 if task := rotate_tasks.get(self.cookies.get("__Secure-1PSID", "")):
                     task.cancel()

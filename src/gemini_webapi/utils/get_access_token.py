@@ -1,6 +1,6 @@
+import asyncio
 import os
 import re
-import asyncio
 from asyncio import Task
 from pathlib import Path
 
@@ -32,7 +32,10 @@ async def send_request(
 
 
 async def get_access_token(
-    base_cookies: dict, proxy: str | None = None, verbose: bool = False
+    base_cookies: dict,
+    proxy: str | None = None,
+    cookie_path: Path | None = None,
+    verbose: bool = False,
 ) -> tuple[str, dict]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
@@ -49,6 +52,8 @@ async def get_access_token(
         Base cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
+    cookie_path: `Path`, optional
+        Path to cache directory for cookies.
     verbose: `bool`, optional
         If `True`, will print more infomation in logs.
 
@@ -83,11 +88,14 @@ async def get_access_token(
         )
 
     # Cached cookies in local file
-    cache_dir = (
-        (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
-        and Path(GEMINI_COOKIE_PATH)
-        or (Path(__file__).parent / "temp")
-    )
+    if cookie_path is None:
+        cache_dir = (
+            (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
+            and Path(GEMINI_COOKIE_PATH)
+            or (Path(__file__).parent / "temp")
+        )
+    else:
+        cache_dir = cookie_path
     if "__Secure-1PSID" in base_cookies:
         filename = f".cached_1psidts_{base_cookies['__Secure-1PSID']}.txt"
         cache_file = cache_dir / filename
