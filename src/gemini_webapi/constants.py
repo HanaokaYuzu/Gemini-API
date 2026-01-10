@@ -98,6 +98,18 @@ class Model(Enum):
         return custom_model
 
 
+class ImageMode(StrEnum):
+    """
+    Image generation quality mode.
+
+    PRO: High quality image generation using Nano Banana Pro model (default)
+    FAST: Faster generation with standard quality
+    """
+
+    PRO = "pro"
+    FAST = "fast"
+
+
 class ErrorCode(IntEnum):
     """
     Known error codes returned from server.

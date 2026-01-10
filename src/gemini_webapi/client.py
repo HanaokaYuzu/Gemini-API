@@ -8,7 +8,7 @@ import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
 
 from .components import GemMixin
-from .constants import Endpoint, ErrorCode, Headers, Model
+from .constants import Endpoint, ErrorCode, Headers, ImageMode, Model
 from .exceptions import (
     APIError,
     AuthError,
@@ -242,6 +242,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        image_mode: ImageMode | str = ImageMode.PRO,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -262,6 +263,9 @@ class GeminiClient(GemMixin):
             Pass either a `gemini_webapi.types.Gem` object or a gem id string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+        image_mode: `ImageMode`, optional
+            Image generation mode. ImageMode.PRO for high quality, ImageMode.FAST for faster generation.
+            Defaults to ImageMode.PRO.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
@@ -302,39 +306,75 @@ class GeminiClient(GemMixin):
         else:
             gem_id = gem
 
+        # Handle image_mode parameter
+        if isinstance(image_mode, str):
+            try:
+                image_mode = ImageMode(image_mode.lower())
+            except ValueError:
+                raise ValueError(
+                    f"Invalid image_mode: '{image_mode}'. Must be one of: {', '.join([m.value for m in ImageMode])}"
+                )
+        elif not isinstance(image_mode, ImageMode):
+            raise TypeError(
+                f"'image_mode' must be a `gemini_webapi.constants.ImageMode` instance or string; "
+                f"got `{type(image_mode).__name__}`"
+            )
+
         if self.auto_close:
             await self.reset_close_task()
+
+        # Build base payload
+        base_payload = [
+            files
+            and [
+                prompt,
+                0,
+                None,
+                [
+                    [
+                        [await upload_file(file, self.proxy)],
+                        parse_file_name(file),
+                    ]
+                    for file in files
+                ],
+            ]
+            or [prompt],
+            None,
+            chat and chat.metadata,
+        ]
+
+        inner_payload = base_payload
+        if gem_id:
+            inner_payload = inner_payload + [None] * 16 + [gem_id]
+
+        # Apply Pro mode payload parameters (Nano Banana Pro model)
+        if image_mode == ImageMode.PRO:
+            # Extend payload to include Pro mode markers
+            current_len = len(inner_payload)
+            if current_len < 50:
+                inner_payload = inner_payload + [None] * (17 - current_len)
+                inner_payload.append([[1]])  # idx 17: Pro quality marker
+                inner_payload = inner_payload + [None] * 31  # idx 18-48
+                inner_payload.append(14)  # idx 49: Pro mode flag
+
+        # Build request headers
+        request_headers = dict(model.model_header)
+        if image_mode == ImageMode.PRO:
+            # Pro mode header extension for Nano Banana Pro
+            request_headers["x-goog-ext-525001261-jspb"] = (
+                '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,2]'
+            )
 
         try:
             response = await self.client.post(
                 Endpoint.GENERATE.value,
-                headers=model.model_header,
+                headers=request_headers,
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
                         [
                             None,
-                            json.dumps(
-                                [
-                                    files
-                                    and [
-                                        prompt,
-                                        0,
-                                        None,
-                                        [
-                                            [
-                                                [await upload_file(file, self.proxy)],
-                                                parse_file_name(file),
-                                            ]
-                                            for file in files
-                                        ],
-                                    ]
-                                    or [prompt],
-                                    None,
-                                    chat and chat.metadata,
-                                ]
-                                + (gem_id and [None] * 16 + [gem_id] or [])
-                            ).decode(),
+                            json.dumps(inner_payload).decode(),
                         ]
                     ).decode(),
                 },
