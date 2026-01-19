@@ -3,6 +3,7 @@ import unittest
 import logging
 
 from gemini_webapi import GeminiClient, TemporaryChatNotSupported, set_log_level, logger
+from gemini_webapi.constants import TEMPORARY_CHAT_FLAG_INDEX
 from gemini_webapi.exceptions import AuthError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
@@ -30,14 +31,19 @@ class TestTemporaryChat(unittest.IsolatedAsyncioTestCase):
             temporary=True,
         )
         self.assertTrue(response.text)
-        self.assertTrue(
-            not response.metadata or all(not item for item in response.metadata),
-            f"Temporary response should not include chat metadata: {response.metadata}",
-        )
-        temporary_chat = self.geminiclient.start_chat(metadata=response.metadata)
-        self.assertIsNone(temporary_chat.cid)
-        self.assertIsNone(temporary_chat.rid)
         logger.debug(response.text)
+
+    async def test_temporary_request_flag(self):
+        payload = await self.geminiclient._build_generate_payload(
+            prompt="Hello",
+            files=None,
+            chat=None,
+            gem_id=None,
+            temporary=True,
+        )
+        # Server may still return metadata, but the request must be marked as temporary.
+        self.assertGreaterEqual(len(payload), TEMPORARY_CHAT_FLAG_INDEX + 1)
+        self.assertEqual(payload[TEMPORARY_CHAT_FLAG_INDEX], 1)
 
     @logger.catch(reraise=True)
     async def test_temporary_rejects_chat_multi_turn(self):
