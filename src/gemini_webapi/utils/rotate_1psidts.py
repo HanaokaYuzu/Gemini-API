@@ -8,7 +8,7 @@ from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 
 
-async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
+async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str | None:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
@@ -42,18 +42,21 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str:
     path = path / filename
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
-    if not (path.is_file() and time.time() - os.path.getmtime(path) <= 60):
-        async with AsyncClient(proxy=proxy) as client:
-            response = await client.post(
-                url=Endpoint.ROTATE_COOKIES.value,
-                headers=Headers.ROTATE_COOKIES.value,
-                cookies=cookies,
-                data='[000,"-0000000000000000000"]',
-            )
-            if response.status_code == 401:
-                raise AuthError
-            response.raise_for_status()
+    if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
+        return path.read_text()
 
-            if new_1psidts := response.cookies.get("__Secure-1PSIDTS"):
-                path.write_text(new_1psidts)
-                return new_1psidts
+    async with AsyncClient(proxy=proxy) as client:
+        response = await client.post(
+            url=Endpoint.ROTATE_COOKIES.value,
+            headers=Headers.ROTATE_COOKIES.value,
+            cookies=cookies,
+            data='[000,"-0000000000000000000"]',
+        )
+        if response.status_code == 401:
+            raise AuthError
+        response.raise_for_status()
+
+        if new_1psidts := response.cookies.get("__Secure-1PSIDTS"):
+            path.write_text(new_1psidts)
+            return new_1psidts
+        return None

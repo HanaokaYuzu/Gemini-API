@@ -100,6 +100,7 @@ class GeminiClient(GemMixin):
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
+        self.verbose: bool = True
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -161,6 +162,7 @@ class GeminiClient(GemMixin):
 
             self.auto_refresh = auto_refresh
             self.refresh_interval = refresh_interval
+            self.verbose = verbose
             if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
                 task.cancel()
             if self.auto_refresh:
@@ -168,7 +170,7 @@ class GeminiClient(GemMixin):
                     self.start_auto_refresh()
                 )
 
-            if verbose:
+            if self.verbose:
                 logger.success("Gemini client initialized successfully.")
         except Exception:
             await self.close()
@@ -226,11 +228,24 @@ class GeminiClient(GemMixin):
             except Exception as exc:
                 logger.warning(f"Unexpected error while refreshing cookies: {exc}")
 
-            if new_1psidts:
+            if new_1psidts and new_1psidts != self.cookies.get("__Secure-1PSIDTS"):
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
-                if self._running:
+                if self._running and self.client:
                     self.client.cookies.set("__Secure-1PSIDTS", new_1psidts)
-                logger.debug("Cookies refreshed. New __Secure-1PSIDTS applied.")
+                    try:
+                        access_token, _ = await get_access_token(
+                            base_cookies=self.cookies,
+                            proxy=self.proxy,
+                            verbose=self.verbose,
+                        )
+                        self.access_token = access_token
+                        logger.debug(
+                            "Cookies and access_token refreshed. New __Secure-1PSIDTS applied."
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to refresh access_token after cookie rotation: {e}"
+                        )
 
             await asyncio.sleep(self.refresh_interval)
 
