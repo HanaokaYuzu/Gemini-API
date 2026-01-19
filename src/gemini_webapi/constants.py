@@ -1,5 +1,7 @@
 from enum import Enum, IntEnum, StrEnum
 
+TEMPORARY_CHAT_FLAG_INDEX = 45
+
 
 class Endpoint(StrEnum):
     GOOGLE = "https://www.google.com"
