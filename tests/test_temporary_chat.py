@@ -1,4 +1,12 @@
+import sys
 import unittest
+from pathlib import Path
+
+# Ensure tests import local src instead of installed package.
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if SRC.is_dir():
+    sys.path.insert(0, str(SRC))
 
 from gemini_webapi import ChatSession, GeminiClient, TemporaryChatNotSupported
 from gemini_webapi.constants import TEMPORARY_CHAT_FLAG_INDEX
