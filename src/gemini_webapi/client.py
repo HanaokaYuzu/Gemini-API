@@ -8,13 +8,14 @@ import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
 
 from .components import GemMixin
-from .constants import Endpoint, ErrorCode, Headers, Model
+from .constants import Endpoint, ErrorCode, Headers, Model, TEMPORARY_CHAT_FLAG_INDEX
 from .exceptions import (
     APIError,
     AuthError,
     GeminiError,
     ImageGenerationError,
     ModelInvalid,
+    TemporaryChatNotSupported,
     TemporarilyBlocked,
     TimeoutError,
     UsageLimitExceeded,
@@ -234,6 +235,45 @@ class GeminiClient(GemMixin):
 
             await asyncio.sleep(self.refresh_interval)
 
+    async def _build_generate_payload(
+        self,
+        prompt: str,
+        files: list[str | Path] | None,
+        chat: Optional["ChatSession"],
+        gem_id: str | None,
+        temporary: bool = False,
+    ) -> list[Any]:
+        if files:
+            message_content = [
+                prompt,
+                0,
+                None,
+                [
+                    [
+                        [await upload_file(file, self.proxy)],
+                        parse_file_name(file),
+                    ]
+                    for file in files
+                ],
+            ]
+        else:
+            message_content = [prompt]
+
+        payload: list[Any] = [
+            message_content,
+            None,
+            chat and chat.metadata,
+        ] + (gem_id and [None] * 16 + [gem_id] or [])
+
+        if temporary:
+            if len(payload) <= TEMPORARY_CHAT_FLAG_INDEX:
+                payload.extend(
+                    [None] * (TEMPORARY_CHAT_FLAG_INDEX + 1 - len(payload))
+                )
+            payload[TEMPORARY_CHAT_FLAG_INDEX] = 1
+
+        return payload
+
     @running(retry=2)
     async def generate_content(
         self,
@@ -242,6 +282,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -262,6 +303,8 @@ class GeminiClient(GemMixin):
             Pass either a `gemini_webapi.types.Gem` object or a gem id string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+        temporary: `bool`, optional
+            If True, send a temporary single-call request that will not be saved to history.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
@@ -287,6 +330,11 @@ class GeminiClient(GemMixin):
 
         assert prompt, "Prompt cannot be empty."
 
+        if chat and temporary:
+            raise TemporaryChatNotSupported(
+                "Temporary chat is not supported in chat sessions."
+            )
+
         if isinstance(model, str):
             model = Model.from_name(model)
         elif isinstance(model, dict):
@@ -305,53 +353,46 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
-        try:
-            response = await self.client.post(
-                Endpoint.GENERATE.value,
-                headers=model.model_header,
-                data={
-                    "at": self.access_token,
-                    "f.req": json.dumps(
-                        [
-                            None,
-                            json.dumps(
-                                [
-                                    files
-                                    and [
-                                        prompt,
-                                        0,
-                                        None,
-                                        [
-                                            [
-                                                [await upload_file(file, self.proxy)],
-                                                parse_file_name(file),
-                                            ]
-                                            for file in files
-                                        ],
-                                    ]
-                                    or [prompt],
-                                    None,
-                                    chat and chat.metadata,
-                                ]
-                                + (gem_id and [None] * 16 + [gem_id] or [])
-                            ).decode(),
-                        ]
-                    ).decode(),
-                },
-                **kwargs,
-            )
-        except ReadTimeout:
-            raise TimeoutError(
-                "Generate content request timed out, please try again. If the problem persists, "
-                "consider setting a higher `timeout` value when initializing GeminiClient."
+        async def _attempt_generate(
+            temporary_flag: bool,
+            close_on_error: bool,
+        ) -> ModelOutput:
+            payload = await self._build_generate_payload(
+                prompt=prompt,
+                files=files,
+                chat=chat,
+                gem_id=gem_id,
+                temporary=temporary_flag,
             )
 
-        if response.status_code != 200:
-            await self.close()
-            raise APIError(
-                f"Failed to generate contents. Request failed with status code {response.status_code}"
-            )
-        else:
+            try:
+                response = await self.client.post(
+                    Endpoint.GENERATE.value,
+                    headers=model.model_header,
+                    data={
+                        "at": self.access_token,
+                        "f.req": json.dumps(
+                            [
+                                None,
+                                json.dumps(payload).decode(),
+                            ]
+                        ).decode(),
+                    },
+                    **kwargs,
+                )
+            except ReadTimeout:
+                raise TimeoutError(
+                    "Generate content request timed out, please try again. If the problem persists, "
+                    "consider setting a higher `timeout` value when initializing GeminiClient."
+                )
+
+            if response.status_code != 200:
+                if close_on_error:
+                    await self.close()
+                raise APIError(
+                    f"Failed to generate contents. Request failed with status code {response.status_code}"
+                )
+
             response_json: list[Any] = []
             body: list[Any] = []
             body_index = 0
@@ -375,7 +416,8 @@ class GeminiClient(GemMixin):
                 if not body:
                     raise Exception
             except Exception:
-                await self.close()
+                if close_on_error:
+                    await self.close()
 
                 try:
                     error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
@@ -540,10 +582,33 @@ class GeminiClient(GemMixin):
                     "Failed to parse response body. Data structure is invalid."
                 )
 
-            if isinstance(chat, ChatSession):
-                chat.last_output = output
-
             return output
+
+        if temporary:
+            try:
+                output = await _attempt_generate(
+                    temporary_flag=True,
+                    close_on_error=False,
+                )
+            except (APIError, GeminiError) as exc:
+                logger.warning(
+                    "Temporary mode failed; falling back to normal chat. "
+                    f"Reason: {type(exc).__name__}"
+                )
+                output = await _attempt_generate(
+                    temporary_flag=False,
+                    close_on_error=True,
+                )
+        else:
+            output = await _attempt_generate(
+                temporary_flag=False,
+                close_on_error=True,
+            )
+
+        if isinstance(chat, ChatSession):
+            chat.last_output = output
+
+        return output
 
     def start_chat(self, **kwargs) -> "ChatSession":
         """
@@ -698,6 +763,7 @@ class ChatSession:
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
+            Temporary mode is not supported in chat sessions.
 
         Returns
         -------
@@ -717,6 +783,11 @@ class ChatSession:
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
+
+        if kwargs.get("temporary"):
+            raise TemporaryChatNotSupported(
+                "Temporary chat is not supported in chat sessions."
+            )
 
         return await self.geminiclient.generate_content(
             prompt=prompt,

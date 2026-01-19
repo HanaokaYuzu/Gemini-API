@@ -30,6 +30,14 @@ class GeminiError(Exception):
     pass
 
 
+class TemporaryChatNotSupported(GeminiError):
+    """
+    Exception for temporary chat usage in unsupported modes.
+    """
+
+    pass
+
+
 class TimeoutError(GeminiError):
     """
     Exception for request timeouts.
