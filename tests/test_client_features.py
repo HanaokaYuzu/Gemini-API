@@ -14,7 +14,7 @@ set_log_level("DEBUG")
 class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.geminiclient = GeminiClient(
-            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS"), verify=False
+            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS")
         )
 
         try:
