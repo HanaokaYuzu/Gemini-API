@@ -30,6 +30,13 @@ class TestTemporaryChat(unittest.IsolatedAsyncioTestCase):
             temporary=True,
         )
         self.assertTrue(response.text)
+        self.assertTrue(
+            not response.metadata or all(not item for item in response.metadata),
+            f"Temporary response should not include chat metadata: {response.metadata}",
+        )
+        temporary_chat = self.geminiclient.start_chat(metadata=response.metadata)
+        self.assertIsNone(temporary_chat.cid)
+        self.assertIsNone(temporary_chat.rid)
         logger.debug(response.text)
 
     @logger.catch(reraise=True)
