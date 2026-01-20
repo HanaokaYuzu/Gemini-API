@@ -34,7 +34,6 @@ from .utils import (
     logger,
     parse_file_name,
     rotate_1psidts,
-    rotate_tasks,
     running,
     upload_file,
 )
@@ -77,6 +76,7 @@ class GeminiClient(GemMixin):
         "close_task",
         "auto_refresh",
         "refresh_interval",
+        "refresh_task",
         "_gems",  # From GemMixin
         "kwargs",
     ]
@@ -100,8 +100,12 @@ class GeminiClient(GemMixin):
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
+        self.refresh_task: Task | None = None
         self.verbose: bool = True
         self.kwargs = kwargs
+        self.kwargs.pop(
+            "cookies", None
+        )  # Prevent collision with AsyncClient cookies argument
 
         if secure_1psid:
             self.cookies["__Secure-1PSID"] = secure_1psid
@@ -163,12 +167,13 @@ class GeminiClient(GemMixin):
             self.auto_refresh = auto_refresh
             self.refresh_interval = refresh_interval
             self.verbose = verbose
-            if task := rotate_tasks.get(self.cookies["__Secure-1PSID"]):
-                task.cancel()
+
+            if self.refresh_task:
+                self.refresh_task.cancel()
+                self.refresh_task = None
+
             if self.auto_refresh:
-                rotate_tasks[self.cookies["__Secure-1PSID"]] = asyncio.create_task(
-                    self.start_auto_refresh()
-                )
+                self.refresh_task = asyncio.create_task(self.start_auto_refresh())
 
             if self.verbose:
                 logger.success("Gemini client initialized successfully.")
@@ -195,6 +200,10 @@ class GeminiClient(GemMixin):
             self.close_task.cancel()
             self.close_task = None
 
+        if self.refresh_task:
+            self.refresh_task.cancel()
+            self.refresh_task = None
+
         if self.client:
             await self.client.aclose()
 
@@ -213,41 +222,54 @@ class GeminiClient(GemMixin):
         """
         Start the background task to automatically refresh cookies.
         """
+        if self.refresh_interval < 60:
+            self.refresh_interval = 60
 
-        while True:
+        while self._running:
+            await asyncio.sleep(self.refresh_interval)
+
+            if not self._running:
+                break
+
             new_1psidts: str | None = None
             try:
                 new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
+            except asyncio.CancelledError:
+                raise
             except AuthError:
-                if task := rotate_tasks.get(self.cookies.get("__Secure-1PSID", "")):
-                    task.cancel()
                 logger.warning(
                     "AuthError: Failed to refresh cookies. Auto refresh task canceled."
                 )
                 return
             except Exception as exc:
                 logger.warning(f"Unexpected error while refreshing cookies: {exc}")
+                continue
 
             if new_1psidts and new_1psidts != self.cookies.get("__Secure-1PSIDTS"):
-                self.cookies["__Secure-1PSIDTS"] = new_1psidts
-                if self._running and self.client:
-                    self.client.cookies.set("__Secure-1PSIDTS", new_1psidts)
-                    try:
-                        access_token, _ = await get_access_token(
-                            base_cookies=self.cookies,
-                            proxy=self.proxy,
-                            verbose=self.verbose,
-                        )
-                        self.access_token = access_token
-                        logger.debug(
-                            "Cookies and access_token refreshed. New __Secure-1PSIDTS applied."
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to refresh access_token after cookie rotation: {e}"
-                        )
+                try:
+                    temp_cookies = self.cookies.copy()
+                    temp_cookies["__Secure-1PSIDTS"] = new_1psidts
 
-            await asyncio.sleep(self.refresh_interval)
+                    access_token, valid_cookies = await get_access_token(
+                        base_cookies=temp_cookies,
+                        proxy=self.proxy,
+                        verbose=self.verbose,
+                    )
+
+                    self.access_token = access_token
+                    self.cookies = valid_cookies
+                    if self._running and self.client:
+                        self.client.cookies = valid_cookies
+
+                    logger.debug(
+                        "Cookies and access_token refreshed. New __Secure-1PSIDTS applied."
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to refresh access_token after cookie rotation: {e}"
+                    )
 
     @running(retry=2)
     async def generate_content(
@@ -321,6 +343,23 @@ class GeminiClient(GemMixin):
             await self.reset_close_task()
 
         try:
+            message_content = [prompt]
+            if files:
+                semaphore = asyncio.Semaphore(3)  # Limit concurrent uploads to 3
+
+                async def _upload_bounded(file_path):
+                    async with semaphore:
+                        return await upload_file(file_path, self.proxy)
+
+                uploaded_files = await asyncio.gather(
+                    *(_upload_bounded(file) for file in files)
+                )
+                file_data = [
+                    [[url], parse_file_name(file)]
+                    for url, file in zip(uploaded_files, files)
+                ]
+                message_content = [prompt, 0, None, file_data]
+
             response = await self.client.post(
                 Endpoint.GENERATE.value,
                 headers=model.model_header,
@@ -331,20 +370,7 @@ class GeminiClient(GemMixin):
                             None,
                             json.dumps(
                                 [
-                                    files
-                                    and [
-                                        prompt,
-                                        0,
-                                        None,
-                                        [
-                                            [
-                                                [await upload_file(file, self.proxy)],
-                                                parse_file_name(file),
-                                            ]
-                                            for file in files
-                                        ],
-                                    ]
-                                    or [prompt],
+                                    message_content,
                                     None,
                                     chat and chat.metadata,
                                 ]
