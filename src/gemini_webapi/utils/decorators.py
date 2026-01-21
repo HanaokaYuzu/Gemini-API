@@ -26,7 +26,7 @@ def running(retry: int = 0) -> Callable:
                         close_delay=client.close_delay,
                         auto_refresh=client.auto_refresh,
                         refresh_interval=client.refresh_interval,
-                        verbose=False,
+                        verbose=client.verbose,
                     )
                     if client._running:
                         return await func(client, *args, **kwargs)
