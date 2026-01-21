@@ -155,6 +155,7 @@ class GeminiClient(GemMixin):
                 )
 
                 self.client = AsyncClient(
+                    http2=True,
                     timeout=timeout,
                     proxy=self.proxy,
                     follow_redirects=True,
@@ -440,7 +441,7 @@ class GeminiClient(GemMixin):
                 except GeminiError:
                     raise
                 except Exception:
-                    logger.debug(f"Invalid response: {response.text}")
+                    logger.debug(f"Invalid response data received: {response.text}")
                     raise APIError(
                         "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
                     )

@@ -101,7 +101,7 @@ class GemMixin:
                 raise Exception
         except Exception:
             await self.close()
-            logger.debug(f"Invalid response: {response.text}")
+            logger.debug(f"Invalid response data received: {response.text}")
             raise APIError(
                 "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
             )
@@ -200,7 +200,7 @@ class GemMixin:
                 raise Exception
         except Exception:
             await self.close()
-            logger.debug(f"Invalid response: {response.text}")
+            logger.debug(f"Invalid response data received: {response.text}")
             raise APIError(
                 "Failed to create gem. Invalid response data received. Client will try to re-initialize on next request."
             )
