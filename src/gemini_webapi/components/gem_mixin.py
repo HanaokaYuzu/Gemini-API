@@ -5,7 +5,7 @@ import orjson as json
 from ..constants import GRPC
 from ..exceptions import APIError
 from ..types import Gem, GemJar, RPCData
-from ..utils import running, logger
+from ..utils import running, logger, extract_json_from_response, get_nested_value
 
 
 class GemMixin:
@@ -78,16 +78,24 @@ class GemMixin:
         )
 
         try:
-            response_json = json.loads(response.text.split("\n")[2])
+            response_json = extract_json_from_response(response.text)
 
             predefined_gems, custom_gems = [], []
 
             for part in response_json:
-                if part[-1] == "system":
-                    predefined_gems = json.loads(part[2])[2]
-                elif part[-1] == "custom":
-                    if custom_gems_container := json.loads(part[2]):
-                        custom_gems = custom_gems_container[2]
+                try:
+                    identifier = get_nested_value(part, [-1])
+                    part_body_str = get_nested_value(part, [2])
+                    if not part_body_str:
+                        continue
+
+                    part_body = json.loads(part_body_str)
+                    if identifier == "system":
+                        predefined_gems = get_nested_value(part_body, [2], [])
+                    elif identifier == "custom":
+                        custom_gems = get_nested_value(part_body, [2], [])
+                except json.JSONDecodeError:
+                    continue
 
             if not predefined_gems and not custom_gems:
                 raise Exception
@@ -181,8 +189,15 @@ class GemMixin:
         )
 
         try:
-            response_json = json.loads(response.text.split("\n")[2])
-            gem_id = json.loads(response_json[0][2])[0]
+            response_json = extract_json_from_response(response.text)
+            part_body_str = get_nested_value(response_json, [0, 2])
+            if not part_body_str:
+                raise Exception
+
+            part_body = json.loads(part_body_str)
+            gem_id = get_nested_value(part_body, [0])
+            if not gem_id:
+                raise Exception
         except Exception:
             await self.close()
             logger.debug(f"Invalid response: {response.text}")
