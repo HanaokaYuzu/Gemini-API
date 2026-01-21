@@ -238,41 +238,34 @@ class GeminiClient(GemMixin):
             if not self._running:
                 break
 
-            new_1psidts: str | None = None
             try:
-                new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
+                async with self._lock:
+                    new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
+
+                    temp_cookies = self.cookies.copy()
+                    if new_1psidts:
+                        temp_cookies["__Secure-1PSIDTS"] = new_1psidts
+
+                    access_token, valid_cookies = await get_access_token(
+                        base_cookies=temp_cookies,
+                        proxy=self.proxy,
+                        verbose=self.verbose,
+                    )
+
+                    self.access_token = access_token
+                    self.cookies = valid_cookies
+                    if self._running and self.client:
+                        self.client.cookies = valid_cookies
+
+                    logger.debug("Cookies and access_token refreshed.")
             except asyncio.CancelledError:
                 raise
             except AuthError:
                 logger.warning(
-                    "AuthError: Failed to refresh cookies. Auto refresh task canceled."
+                    "AuthError: Failed to refresh cookies. Retrying in next interval."
                 )
-                return
-            except Exception as exc:
-                logger.warning(f"Unexpected error while refreshing cookies: {exc}")
-                continue
-
-            try:
-                temp_cookies = self.cookies.copy()
-                if new_1psidts:
-                    temp_cookies["__Secure-1PSIDTS"] = new_1psidts
-
-                access_token, valid_cookies = await get_access_token(
-                    base_cookies=temp_cookies,
-                    proxy=self.proxy,
-                    verbose=self.verbose,
-                )
-
-                self.access_token = access_token
-                self.cookies = valid_cookies
-                if self._running and self.client:
-                    self.client.cookies = valid_cookies
-
-                logger.debug("Cookies and access_token refreshed.")
-            except asyncio.CancelledError:
-                raise
             except Exception as e:
-                logger.warning(f"Failed to refresh access_token: {e}")
+                logger.warning(f"Unexpected error while refreshing cookies: {e}")
 
     @running(retry=2)
     async def generate_content(
@@ -607,6 +600,7 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
+    @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
         Execute a batch of requests to Gemini API.
