@@ -345,6 +345,7 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
+        files_to_upload = list(files) if files else []
         temp_file_path = None
         if len(prompt) > 20000:
             try:
@@ -352,9 +353,7 @@ class GeminiClient(GemMixin):
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(prompt)
 
-                if files is None:
-                    files = []
-                files.append(Path(temp_file_path))
+                files_to_upload.append(Path(temp_file_path))
                 prompt = "The prompt is too long and has been attached as a text file. Please process it."
                 logger.debug(
                     f"Large prompt detected. Converted to file attachment: {temp_file_path}"
@@ -368,7 +367,7 @@ class GeminiClient(GemMixin):
         try:
             try:
                 message_content = [prompt]
-                if files:
+                if files_to_upload:
                     semaphore = asyncio.Semaphore(3)  # Limit concurrent uploads to 3
 
                     async def _upload_bounded(file_path):
@@ -376,11 +375,11 @@ class GeminiClient(GemMixin):
                             return await upload_file(file_path, self.proxy)
 
                     uploaded_files = await asyncio.gather(
-                        *(_upload_bounded(file) for file in files)
+                        *(_upload_bounded(file) for file in files_to_upload)
                     )
                     file_data = [
                         [[url], parse_file_name(file)]
-                        for url, file in zip(uploaded_files, files)
+                        for url, file in zip(uploaded_files, files_to_upload)
                     ]
                     message_content = [prompt, 0, None, file_data]
 
