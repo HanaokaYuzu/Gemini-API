@@ -33,7 +33,7 @@ async def send_request(
 
 async def get_access_token(
     base_cookies: dict, proxy: str | None = None, verbose: bool = False
-) -> tuple[str, dict]:
+) -> tuple[str, dict, str | None]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -174,13 +174,14 @@ async def get_access_token(
     for i, future in enumerate(asyncio.as_completed(tasks)):
         try:
             response, request_cookies = await future
-            match = re.search(r'"SNlM0e":"(.*?)"', response.text)
+            match = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
             if match:
+                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
                 if verbose:
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
                     )
-                return match.group(1), request_cookies
+                return match.group(1), request_cookies, cfb2h and cfb2h.group(1)
             elif verbose:
                 logger.debug(
                     f"Init attempt ({i + 1}/{len(tasks)}) failed. Cookies invalid."

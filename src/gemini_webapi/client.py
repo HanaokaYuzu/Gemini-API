@@ -70,6 +70,7 @@ class GeminiClient(GemMixin):
         "_running",
         "client",
         "access_token",
+        "cfb2h",
         "timeout",
         "auto_close",
         "close_delay",
@@ -96,6 +97,7 @@ class GeminiClient(GemMixin):
         self._running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
+        self.cfb2h: str | None = None
         self.timeout: float = 300
         self.auto_close: bool = False
         self.close_delay: float = 300
@@ -150,7 +152,7 @@ class GeminiClient(GemMixin):
 
             try:
                 self.verbose = verbose
-                access_token, valid_cookies = await get_access_token(
+                access_token, valid_cookies, cfb2h = await get_access_token(
                     base_cookies=self.cookies, proxy=self.proxy, verbose=self.verbose
                 )
 
@@ -164,6 +166,7 @@ class GeminiClient(GemMixin):
                     **self.kwargs,
                 )
                 self.access_token = access_token
+                self.cfb2h = cfb2h
                 self.cookies = valid_cookies
                 self._running = True
 
@@ -247,13 +250,14 @@ class GeminiClient(GemMixin):
                     if new_1psidts:
                         temp_cookies["__Secure-1PSIDTS"] = new_1psidts
 
-                    access_token, valid_cookies = await get_access_token(
+                    access_token, valid_cookies, cfb2h = await get_access_token(
                         base_cookies=temp_cookies,
                         proxy=self.proxy,
                         verbose=self.verbose,
                     )
 
                     self.access_token = access_token
+                    self.cfb2h = cfb2h
                     self.cookies = valid_cookies
                     if self._running and self.client:
                         self.client.cookies = valid_cookies
@@ -357,8 +361,11 @@ class GeminiClient(GemMixin):
                 ]
                 message_content = [prompt, 0, None, file_data]
 
+            params = {"bl": self.cfb2h} if self.cfb2h else {}
+
             response = await self.client.post(
                 Endpoint.GENERATE.value,
+                params=params,
                 headers=model.model_header,
                 data={
                     "at": self.access_token,
