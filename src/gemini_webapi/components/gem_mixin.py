@@ -101,9 +101,9 @@ class GemMixin:
                 raise Exception
         except Exception:
             await self.close()
-            logger.debug(f"Invalid response data received: {response.text}")
+            logger.debug(f"Unexpected response data structure: {response.text}")
             raise APIError(
-                "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
+                "Failed to fetch gems. Unexpected response data structure. Client will try to re-initialize on next request."
             )
 
         self._gems = GemJar(
@@ -200,9 +200,9 @@ class GemMixin:
                 raise Exception
         except Exception:
             await self.close()
-            logger.debug(f"Invalid response data received: {response.text}")
+            logger.debug(f"Unexpected response data structure: {response.text}")
             raise APIError(
-                "Failed to create gem. Invalid response data received. Client will try to re-initialize on next request."
+                "Failed to create gem. Unexpected response data structure. Client will try to re-initialize on next request."
             )
 
         return Gem(

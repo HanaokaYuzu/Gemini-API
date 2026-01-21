@@ -347,14 +347,14 @@ class GeminiClient(GemMixin):
 
         files_to_upload = list(files) if files else []
         temp_file_path = None
-        if len(prompt) > 20000:
+        if len(prompt) > 25000:
             try:
                 fd, temp_file_path = tempfile.mkstemp(suffix=".txt", text=True)
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(prompt)
 
                 files_to_upload.append(Path(temp_file_path))
-                prompt = "The prompt is too long and has been attached as a text file. Please process it."
+                prompt = "Please read the attached text file and respond to the request contained within it."
                 logger.debug(
                     f"Large prompt detected. Converted to file attachment: {temp_file_path}"
                 )
@@ -438,45 +438,54 @@ class GeminiClient(GemMixin):
                         part_json = json.loads(part_body)
                         if get_nested_value(part_json, [4]):
                             body_index, body = part_index, part_json
-                            break
+                            # Don't break immediately, we want the LAST part that has candidates
+                            # as it's usually the most complete one
                     except json.JSONDecodeError:
                         continue
 
                 if not body:
-                    raise Exception
-            except Exception:
-                await self.close()
+                    error_code = -1
+                    for part in response_json:
+                        for path in [[0, 5, 2, 0, 1, 0], [0, 0, 5, 2, 0, 1, 0]]:
+                            found_code = get_nested_value(part, path)
+                            if found_code is not None:
+                                error_code = found_code
+                                break
+                        if error_code != -1:
+                            break
 
-                try:
-                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
-                    match error_code:
-                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                            raise UsageLimitExceeded(
-                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                            )
-                        case ErrorCode.MODEL_INCONSISTENT:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                "`model` parameter when starting a chat session with previous metadata."
-                            )
-                        case ErrorCode.MODEL_HEADER_INVALID:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
-                            )
-                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                            raise TemporarilyBlocked(
-                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                            )
-                        case _:
-                            raise Exception
-                except GeminiError:
-                    raise
-                except Exception:
-                    logger.debug(f"Invalid response data received: {response.text}")
-                    raise APIError(
-                        "Failed to generate contents. Invalid response data received. Client will try to re-initialize on next request."
-                    )
+                    if error_code != -1:
+                        match error_code:
+                            case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                raise UsageLimitExceeded(
+                                    f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                                )
+                            case ErrorCode.MODEL_INCONSISTENT:
+                                raise ModelInvalid(
+                                    "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                    "`model` parameter when starting a chat session with previous metadata."
+                                )
+                            case ErrorCode.MODEL_HEADER_INVALID:
+                                raise ModelInvalid(
+                                    "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                    "If the error persists and is caused by the package, please report it on GitHub."
+                                )
+                            case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                                raise TemporarilyBlocked(
+                                    "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                                )
+
+                    raise Exception("No candidate body found in response stream")
+            except GeminiError:
+                raise
+            except Exception as e:
+                await self.close()
+                logger.debug(
+                    f"Unexpected response structure: {e}. Response: {response.text}"
+                )
+                raise APIError(
+                    "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
+                )
 
             try:
                 candidate_list: list[Any] = get_nested_value(body, [4], [])
@@ -604,7 +613,7 @@ class GeminiClient(GemMixin):
                 )
             except (TypeError, IndexError) as e:
                 logger.debug(
-                    f"{type(e).__name__}: {e}; Invalid response structure: {response.text}"
+                    f"{type(e).__name__}: {e}; Unexpected data structure: {response.text}"
                 )
                 raise APIError(
                     "Failed to parse response body. Data structure is invalid."
