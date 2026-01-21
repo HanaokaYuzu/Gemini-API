@@ -1,5 +1,7 @@
 import asyncio
+import os
 import re
+import tempfile
 from asyncio import Task
 from pathlib import Path
 from typing import Any, Optional
@@ -343,48 +345,72 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
-        try:
-            message_content = [prompt]
-            if files:
-                semaphore = asyncio.Semaphore(3)  # Limit concurrent uploads to 3
+        temp_file_path = None
+        if len(prompt) > 20000:
+            try:
+                fd, temp_file_path = tempfile.mkstemp(suffix=".txt", text=True)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(prompt)
 
-                async def _upload_bounded(file_path):
-                    async with semaphore:
-                        return await upload_file(file_path, self.proxy)
-
-                uploaded_files = await asyncio.gather(
-                    *(_upload_bounded(file) for file in files)
+                if files is None:
+                    files = []
+                files.append(Path(temp_file_path))
+                prompt = "The prompt is too long and has been attached as a text file. Please process it."
+                logger.debug(
+                    f"Large prompt detected. Converted to file attachment: {temp_file_path}"
                 )
-                file_data = [
-                    [[url], parse_file_name(file)]
-                    for url, file in zip(uploaded_files, files)
-                ]
-                message_content = [prompt, 0, None, file_data]
+            except Exception as e:
+                logger.warning(f"Failed to convert large prompt to file: {e}")
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                temp_file_path = None
 
-            params = {"bl": self.cfb2h} if self.cfb2h else {}
+        try:
+            try:
+                message_content = [prompt]
+                if files:
+                    semaphore = asyncio.Semaphore(3)  # Limit concurrent uploads to 3
 
-            response = await self.client.post(
-                Endpoint.GENERATE.value,
-                params=params,
-                headers=model.model_header,
-                data={
-                    "at": self.access_token,
-                    "f.req": json.dumps(
-                        [
-                            None,
-                            json.dumps(
-                                [
-                                    message_content,
-                                    None,
-                                    chat and chat.metadata,
-                                ]
-                                + (gem_id and [None] * 16 + [gem_id] or [])
-                            ).decode(),
-                        ]
-                    ).decode(),
-                },
-                **kwargs,
-            )
+                    async def _upload_bounded(file_path):
+                        async with semaphore:
+                            return await upload_file(file_path, self.proxy)
+
+                    uploaded_files = await asyncio.gather(
+                        *(_upload_bounded(file) for file in files)
+                    )
+                    file_data = [
+                        [[url], parse_file_name(file)]
+                        for url, file in zip(uploaded_files, files)
+                    ]
+                    message_content = [prompt, 0, None, file_data]
+
+                params = {"bl": self.cfb2h} if self.cfb2h else {}
+
+                response = await self.client.post(
+                    Endpoint.GENERATE.value,
+                    params=params,
+                    headers=model.model_header,
+                    data={
+                        "at": self.access_token,
+                        "f.req": json.dumps(
+                            [
+                                None,
+                                json.dumps(
+                                    [
+                                        message_content,
+                                        None,
+                                        chat and chat.metadata,
+                                    ]
+                                    + (gem_id and [None] * 16 + [gem_id] or [])
+                                ).decode(),
+                            ]
+                        ).decode(),
+                    },
+                    **kwargs,
+                )
+            finally:
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
         except ReadTimeout:
             raise TimeoutError(
                 "Generate content request timed out, please try again. If the problem persists, "
