@@ -20,6 +20,7 @@ async def send_request(
     """
 
     async with AsyncClient(
+        http2=True,
         proxy=proxy,
         headers=Headers.GEMINI.value,
         cookies=cookies,
@@ -57,6 +58,8 @@ async def get_access_token(
         Access token.
     `dict`
         Cookies of the successful request.
+    `str`, optional
+        Build label (cfb2h).
 
     Raises
     ------
@@ -64,7 +67,7 @@ async def get_access_token(
         If all requests failed.
     """
 
-    async with AsyncClient(proxy=proxy, follow_redirects=True) as client:
+    async with AsyncClient(http2=True, proxy=proxy, follow_redirects=True) as client:
         response = await client.get(Endpoint.GOOGLE.value)
 
     extra_cookies = {}
@@ -173,9 +176,9 @@ async def get_access_token(
     for i, future in enumerate(asyncio.as_completed(tasks)):
         try:
             response, request_cookies = await future
-            match = re.search(r'"SNlM0e":\s*?"(.*?)"', response.text)
+            match = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
             if match:
-                cfb2h = re.search(r'"cfb2h":\s*?"(.*?)"', response.text)
+                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
                 if verbose:
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."

@@ -158,6 +158,7 @@ class GeminiClient(GemMixin):
                 )
 
                 self.client = AsyncClient(
+                    http2=True,
                     timeout=timeout,
                     proxy=self.proxy,
                     follow_redirects=True,

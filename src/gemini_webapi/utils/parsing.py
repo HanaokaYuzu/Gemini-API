@@ -26,8 +26,8 @@ def get_nested_value(data: Any, path: list[int | str], default: Any = None) -> A
             current = current[key]
         except (IndexError, TypeError, KeyError):
             logger.debug(
-                f"Safe navigation stopped at index {i} (key '{key}') in path {path}. "
-                f"Returning default. Context: {reprlib.repr(current)}"
+                f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
+                f"returning default. Context: {reprlib.repr(current)}"
             )
             return default
 
@@ -46,9 +46,7 @@ def _maybe_unwrap(parsed: Any) -> list:
 def _sanitize_json_newlines(text: str) -> str:
     """
     Escape raw newlines inside JSON string tokens to prevent parsing errors.
-
-    Uses regex to identify JSON strings and avoids modifying newlines used for
-    formatting or structure outside of strings.
+    Uses fast regex substitution.
     """
     if "\n" not in text:
         return text
@@ -60,7 +58,9 @@ def _sanitize_json_newlines(text: str) -> str:
 
 
 def _parse_with_length_markers(content: str) -> list | None:
-    """Parse streaming responses using the length-marker format."""
+    """
+    Optimized streaming parser using length markers as hints with smart fast recovery.
+    """
     pos = 0
     total_len = len(content)
     collected_chunks = []
@@ -73,24 +73,74 @@ def _parse_with_length_markers(content: str) -> list | None:
             break
 
         match = _LENGTH_MARKER_PATTERN.match(content, pos=pos)
-        if match:
-            length = int(match.group(1))
-            start_content = match.end()
-            pos = start_content + length
+        if not match:
+            break
 
-            chunk = content[start_content:pos]
-            sanitized = _sanitize_json_newlines(chunk)
+        length = int(match.group(1))
+        start_content = match.end()
+        end_hint = start_content + length
+
+        opener = None
+        for i in range(start_content, min(start_content + 10, total_len)):
+            if not content[i].isspace():
+                opener = content[i]
+                break
+
+        closer = "]" if opener == "[" else "}" if opener == "{" else None
+
+        chunk = content[start_content:end_hint]
+        try:
+            parsed = json.loads(_sanitize_json_newlines(chunk))
+            collected_chunks.extend(_maybe_unwrap(parsed))
+            pos = end_hint
+            continue
+        except json.JSONDecodeError:
+            pass
+
+        if not closer:
+            pos = start_content
+            continue
+
+        last_idx = chunk.rfind(closer)
+        if last_idx != -1:
+            sub_chunk = chunk[: last_idx + 1]
             try:
-                parsed = json.loads(sanitized)
+                parsed = json.loads(_sanitize_json_newlines(sub_chunk))
                 collected_chunks.extend(_maybe_unwrap(parsed))
+                pos = start_content + last_idx + 1
                 continue
             except json.JSONDecodeError:
-                logger.warning(
-                    f"Failed to parse chunk of length {length}. "
-                    f"Snippet: {reprlib.repr(sanitized)}"
-                )
-                continue
-        break
+                pass
+
+        search_limit = 1000
+        search_area = content[end_hint : end_hint + search_limit]
+        found_undershoot = False
+
+        current_search_pos = 0
+        while True:
+            idx = search_area.find(closer, current_search_pos)
+            if idx == -1:
+                break
+
+            test_end = end_hint + idx + 1
+            test_chunk = content[start_content:test_end]
+            try:
+                parsed = json.loads(_sanitize_json_newlines(test_chunk))
+                collected_chunks.extend(_maybe_unwrap(parsed))
+                pos = test_end
+                found_undershoot = True
+                break
+            except json.JSONDecodeError:
+                current_search_pos = idx + 1
+
+        if found_undershoot:
+            continue
+
+        logger.warning(
+            f"Failed to parse chunk at pos {pos} with length {length}. "
+            f"Snippet: {reprlib.repr(chunk)}"
+        )
+        pos = start_content
 
     return collected_chunks if collected_chunks else None
 
