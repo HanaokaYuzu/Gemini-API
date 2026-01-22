@@ -181,7 +181,11 @@ async def get_access_token(
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
                     )
-                return match.group(1), request_cookies, cfb2h and cfb2h.group(1)
+                return (
+                    match.group(1),
+                    request_cookies,
+                    cfb2h.group(1) if cfb2h else None,
+                )
             elif verbose:
                 logger.debug(
                     f"Init attempt ({i + 1}/{len(tasks)}) failed. Cookies invalid."
