@@ -34,20 +34,8 @@ def get_nested_value(data: Any, path: list[int | str], default: Any = None) -> A
     return current if current is not None else default
 
 
-def _maybe_unwrap(parsed: Any) -> list:
-    """Ensure the output is a list and unwrap single-element nested lists."""
-    if isinstance(parsed, list):
-        if len(parsed) == 1 and isinstance(parsed[0], list):
-            return parsed[0]
-        return parsed
-    return [parsed]
-
-
 def _sanitize_json_newlines(text: str) -> str:
-    """
-    Escape raw newlines inside JSON string tokens to prevent parsing errors.
-    Uses fast regex substitution.
-    """
+    """Escape raw newlines inside JSON string tokens to prevent parsing errors."""
     if "\n" not in text:
         return text
 
@@ -59,7 +47,9 @@ def _sanitize_json_newlines(text: str) -> str:
 
 def _parse_with_length_markers(content: str) -> list | None:
     """
-    Optimized streaming parser using length markers as hints with smart fast recovery.
+    Parse streaming responses using length markers as hints with fast recovery logic.
+    Uses O(1) slicing based on length markers for performance, with O(M) backward
+    and bounded forward search to recover from unreliable markers.
     """
     pos = 0
     total_len = len(content)
@@ -91,7 +81,10 @@ def _parse_with_length_markers(content: str) -> list | None:
         chunk = content[start_content:end_hint]
         try:
             parsed = json.loads(_sanitize_json_newlines(chunk))
-            collected_chunks.extend(_maybe_unwrap(parsed))
+            if isinstance(parsed, list):
+                collected_chunks.extend(parsed)
+            else:
+                collected_chunks.append(parsed)
             pos = end_hint
             continue
         except json.JSONDecodeError:
@@ -106,7 +99,10 @@ def _parse_with_length_markers(content: str) -> list | None:
             sub_chunk = chunk[: last_idx + 1]
             try:
                 parsed = json.loads(_sanitize_json_newlines(sub_chunk))
-                collected_chunks.extend(_maybe_unwrap(parsed))
+                if isinstance(parsed, list):
+                    collected_chunks.extend(parsed)
+                else:
+                    collected_chunks.append(parsed)
                 pos = start_content + last_idx + 1
                 continue
             except json.JSONDecodeError:
@@ -126,7 +122,10 @@ def _parse_with_length_markers(content: str) -> list | None:
             test_chunk = content[start_content:test_end]
             try:
                 parsed = json.loads(_sanitize_json_newlines(test_chunk))
-                collected_chunks.extend(_maybe_unwrap(parsed))
+                if isinstance(parsed, list):
+                    collected_chunks.extend(parsed)
+                else:
+                    collected_chunks.append(parsed)
                 pos = test_end
                 found_undershoot = True
                 break
@@ -146,11 +145,7 @@ def _parse_with_length_markers(content: str) -> list | None:
 
 
 def extract_json_from_response(text: str) -> list:
-    """
-    Extract and normalize JSON content from a Google API response.
-
-    Supports XSSI headers, length-marker streaming formats, and NDJSON fallbacks.
-    """
+    """Extract and normalize JSON content from a Google API response."""
     if not isinstance(text, str):
         raise TypeError(
             f"Input text is expected to be a string, got {type(text).__name__} instead."
@@ -160,20 +155,17 @@ def extract_json_from_response(text: str) -> list:
     if content.startswith(")]}'"):
         content = content[4:].lstrip()
 
-    # 1. Try length-marker parsing (Stream format)
     result = _parse_with_length_markers(content)
     if result is not None:
         return result
 
-    # 2. Try parsing the whole body (Standard JSON)
     try:
         sanitized = _sanitize_json_newlines(content)
         parsed = json.loads(sanitized)
-        return _maybe_unwrap(parsed)
+        return parsed if isinstance(parsed, list) else [parsed]
     except json.JSONDecodeError:
         pass
 
-    # 3. Fallback to line-by-line (NDJSON)
     collected_lines = []
     for line in content.splitlines():
         line = line.strip()
@@ -187,8 +179,10 @@ def extract_json_from_response(text: str) -> list:
             except json.JSONDecodeError:
                 continue
 
-        if isinstance(parsed, (dict, list)):
-            collected_lines.extend(_maybe_unwrap(parsed))
+        if isinstance(parsed, list):
+            collected_lines.extend(parsed)
+        elif isinstance(parsed, dict):
+            collected_lines.append(parsed)
 
     if collected_lines:
         return collected_lines
