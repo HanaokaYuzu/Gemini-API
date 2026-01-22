@@ -45,7 +45,7 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str | None:
     if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
         return path.read_text()
 
-    async with AsyncClient(http2=True, proxy=proxy) as client:
+    async with AsyncClient(proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.ROTATE_COOKIES.value,
             headers=Headers.ROTATE_COOKIES.value,

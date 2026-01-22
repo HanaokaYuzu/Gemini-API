@@ -158,7 +158,6 @@ class GeminiClient(GemMixin):
                 )
 
                 self.client = AsyncClient(
-                    http2=True,
                     timeout=timeout,
                     proxy=self.proxy,
                     follow_redirects=True,
@@ -405,7 +404,7 @@ class GeminiClient(GemMixin):
             body_index = 0
 
             try:
-                response_json = extract_json_from_response(response.content)
+                response_json = extract_json_from_response(response.text)
 
                 for part_index, part in enumerate(response_json):
                     try:
