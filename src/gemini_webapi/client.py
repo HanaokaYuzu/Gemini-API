@@ -421,48 +421,44 @@ class GeminiClient(GemMixin):
                         continue
 
                 if not body:
-                    error_code = -1
-                    for part in response_json:
-                        for path in [[0, 5, 2, 0, 1, 0], [0, 0, 5, 2, 0, 1, 0]]:
-                            found_code = get_nested_value(part, path)
-                            if found_code is not None:
-                                error_code = found_code
-                                break
-                        if error_code != -1:
-                            break
-
-                    if error_code != -1:
-                        match error_code:
-                            case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                                raise UsageLimitExceeded(
-                                    f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                                )
-                            case ErrorCode.MODEL_INCONSISTENT:
-                                raise ModelInvalid(
-                                    "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                    "`model` parameter when starting a chat session with previous metadata."
-                                )
-                            case ErrorCode.MODEL_HEADER_INVALID:
-                                raise ModelInvalid(
-                                    "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                    "If the error persists and is caused by the package, please report it on GitHub."
-                                )
-                            case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                                raise TemporarilyBlocked(
-                                    "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                                )
-
-                    raise Exception("No candidate body found in response stream")
-            except GeminiError:
-                raise
-            except Exception as e:
+                    raise Exception
+            except Exception:
                 await self.close()
-                logger.debug(
-                    f"Unexpected response structure: {e}. Response: {response.text}"
-                )
-                raise APIError(
-                    "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
-                )
+
+                try:
+                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
+                    match error_code:
+                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                            raise UsageLimitExceeded(
+                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                            )
+                        case ErrorCode.MODEL_INCONSISTENT:
+                            raise ModelInvalid(
+                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                "`model` parameter when starting a chat session with previous metadata."
+                            )
+                        case ErrorCode.MODEL_HEADER_INVALID:
+                            raise ModelInvalid(
+                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                "If the error persists and is caused by the package, please report it on GitHub."
+                            )
+                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                            raise TemporarilyBlocked(
+                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                            )
+                        case _:
+                            raise Exception(
+                                "No candidate body found in response stream"
+                            )
+                except GeminiError:
+                    raise
+                except Exception as e:
+                    logger.debug(
+                        f"Unexpected response structure: {e}. Response: {response.text}"
+                    )
+                    raise APIError(
+                        "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
+                    )
 
             try:
                 candidate_list: list[Any] = get_nested_value(body, [4], [])

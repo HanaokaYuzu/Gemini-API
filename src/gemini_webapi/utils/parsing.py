@@ -87,7 +87,7 @@ def _parse_with_length_markers(content: str) -> list | None:
             except json.JSONDecodeError:
                 logger.warning(
                     f"Failed to parse chunk of length {length}. "
-                    f"Snippet: {chunk[:50]}..."
+                    f"Snippet: {reprlib.repr(sanitized)}"
                 )
                 continue
         break
