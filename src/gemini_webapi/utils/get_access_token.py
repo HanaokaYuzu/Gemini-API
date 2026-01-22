@@ -174,9 +174,9 @@ async def get_access_token(
     for i, future in enumerate(asyncio.as_completed(tasks)):
         try:
             response, request_cookies = await future
-            match = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
+            match = re.search(r'"SNlM0e":\s*?"(.*?)"', response.text)
             if match:
-                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
+                cfb2h = re.search(r'"cfb2h":\s*?"(.*?)"', response.text)
                 if verbose:
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."

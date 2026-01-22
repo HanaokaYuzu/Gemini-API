@@ -416,8 +416,7 @@ class GeminiClient(GemMixin):
                         part_json = json.loads(part_body)
                         if get_nested_value(part_json, [4]):
                             body_index, body = part_index, part_json
-                            # Don't break immediately, we want the LAST part that has candidates
-                            # as it's usually the most complete one
+                            break
                     except json.JSONDecodeError:
                         continue
 
