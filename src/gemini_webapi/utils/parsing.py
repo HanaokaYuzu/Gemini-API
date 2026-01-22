@@ -9,6 +9,10 @@ from .logger import logger
 _JSON_STRING_PATTERN = re.compile(r'("(?:[^"\\]|\\.)*")')
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 
+# Byte versions for stream parsing
+_JSON_STRING_PATTERN_BYTES = re.compile(rb'("(?:[^"\\]|\\.)*")')
+_LENGTH_MARKER_PATTERN_BYTES = re.compile(rb"(\d+)\n")
+
 
 def get_nested_value(data: Any, path: list[int | str], default: Any = None) -> Any:
     """
@@ -59,27 +63,41 @@ def _sanitize_json_newlines(text: str) -> str:
     return _JSON_STRING_PATTERN.sub(replacer, text)
 
 
+def _sanitize_json_newlines_bytes(text: bytes) -> bytes:
+    """Byte version of _sanitize_json_newlines."""
+    if b"\n" not in text:
+        return text
+
+    def replacer(match):
+        return match.group(0).replace(b"\n", b"\\n")
+
+    return _JSON_STRING_PATTERN_BYTES.sub(replacer, text)
+
+
 def _parse_with_length_markers(content: str) -> list | None:
     """Parse streaming responses using the length-marker format."""
+    # Convert to bytes to safely handle byte-length markers
+    data = content.encode("utf-8")
     pos = 0
-    total_len = len(content)
+    total_len = len(data)
     collected_chunks = []
 
     while pos < total_len:
-        while pos < total_len and content[pos].isspace():
+        # Skip whitespace
+        while pos < total_len and data[pos : pos + 1].isspace():
             pos += 1
 
         if pos >= total_len:
             break
 
-        match = _LENGTH_MARKER_PATTERN.match(content, pos=pos)
+        match = _LENGTH_MARKER_PATTERN_BYTES.match(data, pos=pos)
         if match:
             length = int(match.group(1))
             start_content = match.end()
             pos = start_content + length
 
-            chunk = content[start_content:pos]
-            sanitized = _sanitize_json_newlines(chunk)
+            chunk = data[start_content:pos]
+            sanitized = _sanitize_json_newlines_bytes(chunk)
             try:
                 parsed = json.loads(sanitized)
                 collected_chunks.extend(_maybe_unwrap(parsed))
