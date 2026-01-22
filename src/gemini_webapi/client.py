@@ -273,7 +273,7 @@ class GeminiClient(GemMixin):
             except Exception as e:
                 logger.warning(f"Unexpected error while refreshing cookies: {e}")
 
-    @running(retry=2)
+    @running(retry=3)
     async def generate_content(
         self,
         prompt: str,
@@ -409,11 +409,17 @@ class GeminiClient(GemMixin):
 
                 for part_index, part in enumerate(response_json):
                     try:
-                        part_body = get_nested_value(part, [2])
-                        if not part_body:
+                        part_body_str = get_nested_value(part, [2])
+                        if not part_body_str:
                             continue
 
-                        part_json = json.loads(part_body)
+                        part_json = json.loads(part_body_str)
+
+                        # Update chat metadata if available in any chunk to support follow-up polls
+                        if m_data := get_nested_value(part_json, [1]):
+                            if isinstance(chat, ChatSession) and len(m_data) >= 2:
+                                chat.metadata = m_data
+
                         if get_nested_value(part_json, [4]):
                             body_index, body = part_index, part_json
                             break
@@ -421,44 +427,64 @@ class GeminiClient(GemMixin):
                         continue
 
                 if not body:
-                    raise Exception
-            except Exception:
-                await self.close()
+                    # Detect if model is busy analyzing data or in a waiting state
+                    # Patterns [0] or [2] at index 5 often indicate background processing or queueing.
+                    is_busy = any(
+                        "data_analysis_tool" in str(part)
+                        or get_nested_value(part, [5]) in ([0], [2])
+                        for part in response_json
+                    )
 
-                try:
-                    error_code = get_nested_value(response_json, [0, 5, 2, 0, 1, 0], -1)
-                    match error_code:
-                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                            raise UsageLimitExceeded(
-                                f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
-                            )
-                        case ErrorCode.MODEL_INCONSISTENT:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                "`model` parameter when starting a chat session with previous metadata."
-                            )
-                        case ErrorCode.MODEL_HEADER_INVALID:
-                            raise ModelInvalid(
-                                "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
-                            )
-                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                            raise TemporarilyBlocked(
-                                "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
-                            )
-                        case _:
-                            raise Exception(
-                                "No candidate body found in response stream"
-                            )
-                except GeminiError:
-                    raise
-                except Exception as e:
-                    logger.debug(
-                        f"Unexpected response structure: {e}. Response: {response.text}"
-                    )
-                    raise APIError(
-                        "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
-                    )
+                    if is_busy:
+                        logger.debug(
+                            "Model is busy or queueing. Polling again via decorator retry..."
+                        )
+                        raise APIError("Model is busy. Polling again...")
+
+                    await self.close()
+
+                    try:
+                        error_code = get_nested_value(
+                            response_json, [0, 5, 2, 0, 1, 0], -1
+                        )
+                        match error_code:
+                            case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                raise UsageLimitExceeded(
+                                    f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                                )
+                            case ErrorCode.MODEL_INCONSISTENT:
+                                raise ModelInvalid(
+                                    "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
+                                    "`model` parameter when starting a chat session with previous metadata."
+                                )
+                            case ErrorCode.MODEL_HEADER_INVALID:
+                                raise ModelInvalid(
+                                    "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
+                                    "If the error persists and is caused by the package, please report it on GitHub."
+                                )
+                            case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                                raise TemporarilyBlocked(
+                                    "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                                )
+                            case _:
+                                raise Exception(
+                                    "No candidate body found in response stream"
+                                )
+                    except GeminiError:
+                        raise
+                    except Exception as e:
+                        logger.debug(
+                            f"Unexpected response structure: {e}. Response: {response.text}"
+                        )
+                        raise APIError(
+                            "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
+                        )
+
+            except (GeminiError, APIError):
+                raise
+            except Exception as e:
+                logger.debug(f"Parsing error or busy: {e}. Retrying via decorator...")
+                raise APIError(f"Failed to parse response body: {e}")
 
             try:
                 candidate_list: list[Any] = get_nested_value(body, [4], [])
@@ -502,11 +528,11 @@ class GeminiClient(GemMixin):
                             if img_part_index < body_index:
                                 continue
                             try:
-                                img_part_body = get_nested_value(part, [2])
-                                if not img_part_body:
+                                img_part_body_str = get_nested_value(part, [2])
+                                if not img_part_body_str:
                                     continue
 
-                                img_part_json = json.loads(img_part_body)
+                                img_part_json = json.loads(img_part_body_str)
                                 if get_nested_value(
                                     img_part_json, [4, candidate_index, 12, 7, 0]
                                 ):
@@ -615,7 +641,7 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
-    @running(retry=2)
+    @running(retry=3)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
         Execute a batch of requests to Gemini API.
@@ -831,17 +857,17 @@ class ChatSession:
         self.__metadata[0] = value
 
     @property
-    def rid(self):
-        return self.__metadata[1]
-
-    @rid.setter
-    def rid(self, value: str):
-        self.__metadata[1] = value
-
-    @property
     def rcid(self):
         return self.__metadata[2]
 
     @rcid.setter
     def rcid(self, value: str):
         self.__metadata[2] = value
+
+    @property
+    def rid(self):
+        return self.__metadata[1]
+
+    @rid.setter
+    def rid(self, value: str):
+        self.__metadata[1] = value

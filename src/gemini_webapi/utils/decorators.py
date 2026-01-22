@@ -2,7 +2,7 @@ import asyncio
 import functools
 from collections.abc import Callable
 
-from ..exceptions import APIError, ImageGenerationError
+from ..exceptions import APIError
 
 
 def running(retry: int = 0) -> Callable:
@@ -17,7 +17,10 @@ def running(retry: int = 0) -> Callable:
 
     def decorator(func):
         @functools.wraps(func)
-        async def wrapper(client, *args, retry=retry, **kwargs):
+        async def wrapper(client, *args, current_retry=None, **kwargs):
+            if current_retry is None:
+                current_retry = retry
+
             try:
                 if not client._running:
                     await client.init(
@@ -37,14 +40,16 @@ def running(retry: int = 0) -> Callable:
                     )
                 else:
                     return await func(client, *args, **kwargs)
-            except APIError as e:
-                # Image generation takes too long, only retry once
-                if isinstance(e, ImageGenerationError):
-                    retry = min(1, retry)
+            except APIError:
+                if current_retry > 0:
+                    # Aggressive increasing delay: 5s, 10s, 15s...
+                    # High quality image generation and heavy data analysis need more time.
+                    delay = (retry - current_retry + 1) * 5
+                    await asyncio.sleep(delay)
 
-                if retry > 0:
-                    await asyncio.sleep(1)
-                    return await wrapper(client, *args, retry=retry - 1, **kwargs)
+                    return await wrapper(
+                        client, *args, current_retry=current_retry - 1, **kwargs
+                    )
 
                 raise
 
