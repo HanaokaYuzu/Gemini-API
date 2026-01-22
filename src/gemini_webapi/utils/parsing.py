@@ -10,7 +10,9 @@ _JSON_STRING_PATTERN = re.compile(r'("(?:[^"\\]|\\.)*")')
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 
 
-def get_nested_value(data: Any, path: list[int | str], default: Any = None) -> Any:
+def get_nested_value(
+    data: Any, path: list[int | str], default: Any = None, verbose: bool = False
+) -> Any:
     """
     Safely navigate through a nested structure (list or dict) using a sequence of keys/indices.
 
@@ -18,17 +20,27 @@ def get_nested_value(data: Any, path: list[int | str], default: Any = None) -> A
         data: The nested structure to traverse.
         path: A list of indices or keys representing the path.
         default: Value to return if the path is invalid.
+        verbose: If True, log debug information when the path cannot be fully traversed.
     """
     current = data
 
     for i, key in enumerate(path):
-        try:
-            current = current[key]
-        except (IndexError, TypeError, KeyError):
-            logger.debug(
-                f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
-                f"returning default. Context: {reprlib.repr(current)}"
-            )
+        found = False
+        if isinstance(key, int):
+            if isinstance(current, list) and 0 <= key < len(current):
+                current = current[key]
+                found = True
+        elif isinstance(key, str):
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+                found = True
+
+        if not found:
+            if verbose:
+                logger.debug(
+                    f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
+                    f"returning default. Context: {reprlib.repr(current)}"
+                )
             return default
 
     return current if current is not None else default

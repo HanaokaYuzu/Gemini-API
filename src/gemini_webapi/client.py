@@ -417,7 +417,7 @@ class GeminiClient(GemMixin):
 
                         # Update chat metadata if available in any chunk to support follow-up polls
                         if m_data := get_nested_value(part_json, [1]):
-                            if isinstance(chat, ChatSession) and len(m_data) >= 2:
+                            if isinstance(chat, ChatSession):
                                 chat.metadata = m_data
 
                         if get_nested_value(part_json, [4]):
@@ -450,7 +450,7 @@ class GeminiClient(GemMixin):
 
                     try:
                         error_code = get_nested_value(
-                            response_json, [0, 5, 2, 0, 1, 0], -1
+                            response_json, [0, 5, 2, 0, 1, 0], -1, verbose=True
                         )
                         match error_code:
                             case ErrorCode.USAGE_LIMIT_EXCEEDED:
@@ -492,7 +492,9 @@ class GeminiClient(GemMixin):
                 raise APIError(f"Failed to parse response body: {e}")
 
             try:
-                candidate_list: list[Any] = get_nested_value(body, [4], [])
+                candidate_list: list[Any] = get_nested_value(
+                    body, [4], [], verbose=True
+                )
                 output_candidates: list[Candidate] = []
 
                 for candidate_index, candidate in enumerate(candidate_list):
@@ -553,7 +555,7 @@ class GeminiClient(GemMixin):
                             )
 
                         img_candidate = get_nested_value(
-                            img_body, [4, candidate_index], []
+                            img_body, [4, candidate_index], [], verbose=True
                         )
 
                         if (
@@ -612,7 +614,7 @@ class GeminiClient(GemMixin):
                     )
 
                 output = ModelOutput(
-                    metadata=get_nested_value(body, [1], []),
+                    metadata=get_nested_value(body, [1], [], verbose=True),
                     candidates=output_candidates,
                 )
             except (TypeError, IndexError) as e:

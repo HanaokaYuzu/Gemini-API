@@ -190,12 +190,12 @@ class GemMixin:
 
         try:
             response_json = extract_json_from_response(response.text)
-            part_body_str = get_nested_value(response_json, [0, 2])
+            part_body_str = get_nested_value(response_json, [0, 2], verbose=True)
             if not part_body_str:
                 raise Exception
 
             part_body = json.loads(part_body_str)
-            gem_id = get_nested_value(part_body, [0])
+            gem_id = get_nested_value(part_body, [0], verbose=True)
             if not gem_id:
                 raise Exception
         except Exception:
