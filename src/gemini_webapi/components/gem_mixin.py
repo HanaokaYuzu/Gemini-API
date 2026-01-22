@@ -78,7 +78,7 @@ class GemMixin:
         )
 
         try:
-            response_json = extract_json_from_response(response.text)
+            response_json = extract_json_from_response(response.content)
 
             predefined_gems, custom_gems = [], []
 
@@ -189,7 +189,7 @@ class GemMixin:
         )
 
         try:
-            response_json = extract_json_from_response(response.text)
+            response_json = extract_json_from_response(response.content)
             part_body_str = get_nested_value(response_json, [0, 2])
             if not part_body_str:
                 raise Exception

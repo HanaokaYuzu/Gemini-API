@@ -74,10 +74,14 @@ def _sanitize_json_newlines_bytes(text: bytes) -> bytes:
     return _JSON_STRING_PATTERN_BYTES.sub(replacer, text)
 
 
-def _parse_with_length_markers(content: str) -> list | None:
+def _parse_with_length_markers(content: str | bytes) -> list | None:
     """Parse streaming responses using the length-marker format."""
     # Convert to bytes to safely handle byte-length markers
-    data = content.encode("utf-8")
+    if isinstance(content, str):
+        data = content.encode("utf-8")
+    else:
+        data = content
+
     pos = 0
     total_len = len(data)
     collected_chunks = []
@@ -113,20 +117,25 @@ def _parse_with_length_markers(content: str) -> list | None:
     return collected_chunks if collected_chunks else None
 
 
-def extract_json_from_response(text: str) -> list:
+def extract_json_from_response(text: str | bytes) -> list:
     """
     Extract and normalize JSON content from a Google API response.
 
     Supports XSSI headers, length-marker streaming formats, and NDJSON fallbacks.
     """
-    if not isinstance(text, str):
+    if not isinstance(text, (str, bytes)):
         raise TypeError(
-            f"Input text is expected to be a string, got {type(text).__name__} instead."
+            f"Input text is expected to be a string or bytes, got {type(text).__name__} instead."
         )
 
-    content = text.strip()
-    if content.startswith(")]}'"):
-        content = content[4:].lstrip()
+    if isinstance(text, str):
+        content = text.strip()
+        if content.startswith(")]}'"):
+            content = content[4:].lstrip()
+    else:
+        content = text.strip()
+        if content.startswith(b")]}'"):
+            content = content[4:].lstrip()
 
     # 1. Try length-marker parsing (Stream format)
     result = _parse_with_length_markers(content)
@@ -135,7 +144,10 @@ def extract_json_from_response(text: str) -> list:
 
     # 2. Try parsing the whole body (Standard JSON)
     try:
-        sanitized = _sanitize_json_newlines(content)
+        if isinstance(content, str):
+            sanitized = _sanitize_json_newlines(content)
+        else:
+            sanitized = _sanitize_json_newlines_bytes(content)
         parsed = json.loads(sanitized)
         return _maybe_unwrap(parsed)
     except json.JSONDecodeError:
@@ -143,7 +155,11 @@ def extract_json_from_response(text: str) -> list:
 
     # 3. Fallback to line-by-line (NDJSON)
     collected_lines = []
-    for line in content.splitlines():
+
+    # Handle splitlines for both str and bytes
+    lines = content.splitlines()
+
+    for line in lines:
         line = line.strip()
         if not line:
             continue
@@ -151,7 +167,12 @@ def extract_json_from_response(text: str) -> list:
             parsed = json.loads(line)
         except json.JSONDecodeError:
             try:
-                parsed = json.loads(_sanitize_json_newlines(line))
+                if isinstance(line, str):
+                    parsed = json.loads(_sanitize_json_newlines(line))
+                else:
+                    parsed = json.loads(
+                        _sanitize_json_newlines_bytes(line.encode("utf-8"))
+                    )
             except json.JSONDecodeError:
                 continue
 

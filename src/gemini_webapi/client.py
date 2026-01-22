@@ -405,7 +405,7 @@ class GeminiClient(GemMixin):
             body_index = 0
 
             try:
-                response_json = extract_json_from_response(response.text)
+                response_json = extract_json_from_response(response.content)
 
                 for part_index, part in enumerate(response_json):
                     try:
