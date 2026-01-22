@@ -273,7 +273,7 @@ class GeminiClient(GemMixin):
             except Exception as e:
                 logger.warning(f"Unexpected error while refreshing cookies: {e}")
 
-    @running(retry=3)
+    @running(retry=5)
     async def generate_content(
         self,
         prompt: str,
@@ -428,12 +428,17 @@ class GeminiClient(GemMixin):
 
                 if not body:
                     # Detect if model is busy analyzing data or in a waiting state
-                    # Patterns [0] or [2] at index 5 often indicate background processing or queueing.
-                    is_busy = any(
-                        "data_analysis_tool" in str(part)
-                        or get_nested_value(part, [5]) in ([0], [2])
-                        for part in response_json
-                    )
+                    # Patterns at index 5 often indicate background processing or queueing.
+                    is_busy = False
+                    for part in response_json:
+                        if "data_analysis_tool" in str(part):
+                            is_busy = True
+                            break
+
+                        status = get_nested_value(part, [5])
+                        if isinstance(status, list) and status:
+                            is_busy = True
+                            break
 
                     if is_busy:
                         logger.debug(
@@ -641,7 +646,7 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
-    @running(retry=3)
+    @running(retry=5)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
         Execute a batch of requests to Gemini API.
