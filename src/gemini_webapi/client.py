@@ -110,9 +110,6 @@ class GeminiClient(GemMixin):
         self.verbose: bool = True
         self._lock = asyncio.Lock()
         self.kwargs = kwargs
-        self.kwargs.pop(
-            "cookies", None
-        )  # Prevent collision with AsyncClient cookies argument
 
         if secure_1psid:
             self.cookies["__Secure-1PSID"] = secure_1psid
