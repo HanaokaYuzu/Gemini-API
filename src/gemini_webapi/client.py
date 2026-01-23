@@ -346,38 +346,23 @@ class GeminiClient(GemMixin):
             await self.reset_close_task()
 
         try:
-            upload_list = []
-            if files:
-                for f in files:
-                    upload_list.append((f, parse_file_name(f)))
-
-            if len(prompt) > 15000:
-                p_id = random.randint(1000000, 9999999)
-                prompt_io = io.BytesIO(prompt.encode("utf-8"))
-                upload_list.append((prompt_io, f"prompt_{p_id}.txt"))
-                prompt = (
-                    f"The user's request for this turn is too long and has been attached as 'prompt_{p_id}.txt'. "
-                    f"Please process the instructions in 'prompt_{p_id}.txt' as the current message content."
-                )
-
             message_content = [prompt]
-            if upload_list:
+            if files:
                 semaphore = asyncio.Semaphore(3)  # Limit concurrent uploads to 3
 
                 async def _upload_bounded(item):
-                    file_obj, filename = item
                     async with semaphore:
-                        url = await upload_file(file_obj, self.proxy, filename=filename)
-                        if isinstance(file_obj, io.BytesIO):
-                            file_obj.close()
+                        url = await upload_file(item, self.proxy)
+                        if isinstance(item, io.BytesIO):
+                            item.close()
                         return url
 
                 uploaded_urls = await asyncio.gather(
-                    *(_upload_bounded(item) for item in upload_list)
+                    *(_upload_bounded(file) for file in files)
                 )
                 file_data = [
-                    [[url], filename]
-                    for url, (_, filename) in zip(uploaded_urls, upload_list)
+                    [[url], parse_file_name(file)]
+                    for url, file in zip(uploaded_urls, files)
                 ]
                 message_content = [prompt, 0, None, file_data]
 
