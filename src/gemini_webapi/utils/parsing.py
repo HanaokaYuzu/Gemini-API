@@ -6,7 +6,6 @@ import orjson as json
 
 from .logger import logger
 
-_JSON_STRING_PATTERN = re.compile(r'("(?:[^"\\]|\\.)*")')
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 
 
@@ -46,22 +45,11 @@ def get_nested_value(
     return current if current is not None else default
 
 
-def _sanitize_json_newlines(text: str) -> str:
-    """Escape raw newlines inside JSON string tokens to prevent parsing errors."""
-    if "\n" not in text:
-        return text
-
-    def replacer(match):
-        return match.group(0).replace("\n", "\\n")
-
-    return _JSON_STRING_PATTERN.sub(replacer, text)
-
-
 def _parse_with_length_markers(content: str) -> list | None:
     """
-    Parse streaming responses using length markers as hints with fast recovery logic.
-    Uses O(1) slicing based on length markers for performance, with O(M) backward
-    and bounded forward search to recover from unreliable markers.
+    Parse streaming responses using length markers as hints.
+    Google's format: [length]\n[json_payload]\n
+    The length value includes the newline after the number and the newline after the JSON.
     """
     pos = 0
     total_len = len(content)
@@ -78,80 +66,35 @@ def _parse_with_length_markers(content: str) -> list | None:
         if not match:
             break
 
-        length = int(match.group(1))
-        start_content = match.end()
+        length_val = match.group(1)
+        length = int(length_val)
+
+        # Content starts immediately after the digits
+        start_content = match.start() + len(length_val)
         end_hint = start_content + length
+        pos = end_hint
 
-        opener = None
-        for i in range(start_content, min(start_content + 10, total_len)):
-            if not content[i].isspace():
-                opener = content[i]
-                break
+        if end_hint > total_len:
+            logger.debug(
+                f"Chunk at pos {start_content} is truncated. Expected {length} chars."
+            )
+            break
 
-        closer = "]" if opener == "[" else "}" if opener == "{" else None
+        chunk = content[start_content:end_hint].strip()
+        if not chunk:
+            continue
 
-        chunk = content[start_content:end_hint]
         try:
-            parsed = json.loads(_sanitize_json_newlines(chunk))
+            parsed = json.loads(chunk)
             if isinstance(parsed, list):
                 collected_chunks.extend(parsed)
             else:
                 collected_chunks.append(parsed)
-            pos = end_hint
-            continue
         except json.JSONDecodeError:
-            pass
-
-        if not closer:
-            pos = start_content
-            continue
-
-        last_idx = chunk.rfind(closer)
-        if last_idx != -1:
-            sub_chunk = chunk[: last_idx + 1]
-            try:
-                parsed = json.loads(_sanitize_json_newlines(sub_chunk))
-                if isinstance(parsed, list):
-                    collected_chunks.extend(parsed)
-                else:
-                    collected_chunks.append(parsed)
-                pos = start_content + last_idx + 1
-                continue
-            except json.JSONDecodeError:
-                pass
-
-        search_limit = 1000
-        search_area = content[end_hint : end_hint + search_limit]
-        found_undershoot = False
-
-        current_search_pos = 0
-        while True:
-            idx = search_area.find(closer, current_search_pos)
-            if idx == -1:
-                break
-
-            test_end = end_hint + idx + 1
-            test_chunk = content[start_content:test_end]
-            try:
-                parsed = json.loads(_sanitize_json_newlines(test_chunk))
-                if isinstance(parsed, list):
-                    collected_chunks.extend(parsed)
-                else:
-                    collected_chunks.append(parsed)
-                pos = test_end
-                found_undershoot = True
-                break
-            except json.JSONDecodeError:
-                current_search_pos = idx + 1
-
-        if found_undershoot:
-            continue
-
-        logger.warning(
-            f"Failed to parse chunk at pos {pos} with length {length}. "
-            f"Snippet: {reprlib.repr(chunk)}"
-        )
-        pos = start_content
+            logger.warning(
+                f"Failed to parse chunk at pos {start_content} with length {length}. "
+                f"Snippet: {reprlib.repr(chunk)}"
+            )
 
     return collected_chunks if collected_chunks else None
 
@@ -172,8 +115,7 @@ def extract_json_from_response(text: str) -> list:
         return result
 
     try:
-        sanitized = _sanitize_json_newlines(content)
-        parsed = json.loads(sanitized)
+        parsed = json.loads(content)
         return parsed if isinstance(parsed, list) else [parsed]
     except json.JSONDecodeError:
         pass
@@ -186,10 +128,7 @@ def extract_json_from_response(text: str) -> list:
         try:
             parsed = json.loads(line)
         except json.JSONDecodeError:
-            try:
-                parsed = json.loads(_sanitize_json_newlines(line))
-            except json.JSONDecodeError:
-                continue
+            continue
 
         if isinstance(parsed, list):
             collected_lines.extend(parsed)

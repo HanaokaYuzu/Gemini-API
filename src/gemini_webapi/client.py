@@ -423,7 +423,8 @@ class GeminiClient(GemMixin):
 
                         if get_nested_value(part_json, [4]):
                             body_index, body = part_index, part_json
-                            break
+                            # Don't break immediately, we want the LAST part that has candidates
+                            # as it's usually the most complete one
                     except json.JSONDecodeError:
                         continue
 
@@ -545,7 +546,6 @@ class GeminiClient(GemMixin):
                                     img_part_json, [4, candidate_index, 12, 7, 0]
                                 ):
                                     img_body = img_part_json
-                                    break
                             except json.JSONDecodeError:
                                 continue
 
