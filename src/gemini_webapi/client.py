@@ -370,7 +370,11 @@ class GeminiClient(GemMixin):
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
-            inner_req_list[2] = chat.metadata if chat else ["", "", "", None, None, None, None, None, None, ""]
+            inner_req_list[2] = (
+                chat.metadata
+                if chat
+                else ["", "", "", None, None, None, None, None, None, ""]
+            )
             if gem_id:
                 inner_req_list[19] = gem_id
 
@@ -719,7 +723,11 @@ class GeminiClient(GemMixin):
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
-            inner_req_list[2] = chat.metadata if chat else ["", "", "", None, None, None, None, None, None, ""]
+            inner_req_list[2] = (
+                chat.metadata
+                if chat
+                else ["", "", "", None, None, None, None, None, None, ""]
+            )
             inner_req_list[7] = 1  # Enable Snapshot Streaming
             if gem_id:
                 inner_req_list[19] = gem_id
@@ -819,7 +827,9 @@ class GeminiClient(GemMixin):
 
                             # Update context string from index 26 if available
                             context_str = get_nested_value(part_json, [26])
-                            if isinstance(context_str, str) and isinstance(chat, ChatSession):
+                            if isinstance(context_str, str) and isinstance(
+                                chat, ChatSession
+                            ):
                                 chat.metadata = [None] * 9 + [context_str]
 
                             # Extract data from candidates
@@ -1072,7 +1082,18 @@ class ChatSession:
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
-        self.__metadata: list[str | None] = ["", "", "", None, None, None, None, None, None, ""]
+        self.__metadata: list[str | None] = [
+            "",
+            "",
+            "",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "",
+        ]
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
         self.model: Model | str | dict = model
