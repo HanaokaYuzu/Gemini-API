@@ -4,7 +4,7 @@ import random
 import re
 from asyncio import Task
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
@@ -35,6 +35,7 @@ from .utils import (
     get_nested_value,
     logger,
     parse_file_name,
+    parse_stream_frames,
     rotate_1psidts,
     running,
     upload_file,
@@ -391,8 +392,8 @@ class GeminiClient(GemMixin):
             )
         except ReadTimeout:
             raise TimeoutError(
-                "Generate content request timed out, please try again. If the problem persists, "
-                "consider setting a higher `timeout` value when initializing GeminiClient."
+                "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
+                "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
             )
 
         if response.status_code != 200:
@@ -431,22 +432,19 @@ class GeminiClient(GemMixin):
                 if not body:
                     # Detect if model is busy analyzing data or in a waiting state
                     # Patterns at index 5 often indicate background processing or queueing.
-                    is_busy = False
                     for part in response_json:
                         if "data_analysis_tool" in str(part):
-                            is_busy = True
-                            break
+                            logger.debug(
+                                "Model is busy (thinking/analyzing). Polling again..."
+                            )
+                            raise APIError("Model is busy. Polling again...")
 
                         status = get_nested_value(part, [5])
                         if isinstance(status, list) and status:
-                            is_busy = True
-                            break
-
-                    if is_busy:
-                        logger.debug(
-                            "Model is busy or queueing. Polling again via decorator retry..."
-                        )
-                        raise APIError("Model is busy. Polling again...")
+                            logger.debug(
+                                "Model is in a waiting state (queueing). Polling again..."
+                            )
+                            raise APIError("Model is busy. Polling again...")
 
                     await self.close()
 
@@ -457,25 +455,28 @@ class GeminiClient(GemMixin):
                         match error_code:
                             case ErrorCode.USAGE_LIMIT_EXCEEDED:
                                 raise UsageLimitExceeded(
-                                    f"Failed to generate contents. Usage limit of {model.model_name} model has exceeded. Please try switching to another model."
+                                    f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
+                                    "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
                                 )
                             case ErrorCode.MODEL_INCONSISTENT:
                                 raise ModelInvalid(
-                                    "Failed to generate contents. The specified model is inconsistent with the chat history. Please make sure to pass the same "
-                                    "`model` parameter when starting a chat session with previous metadata."
+                                    "The specified model is inconsistent with the conversation history. "
+                                    "Please ensure you are using the same 'model' parameter throughout the entire ChatSession."
                                 )
                             case ErrorCode.MODEL_HEADER_INVALID:
                                 raise ModelInvalid(
-                                    "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                    "If the error persists and is caused by the package, please report it on GitHub."
+                                    f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "
+                                    "Please update 'gemini_webapi' to the latest version or report this on GitHub if the problem persists."
                                 )
                             case ErrorCode.IP_TEMPORARILY_BLOCKED:
                                 raise TemporarilyBlocked(
-                                    "Failed to generate contents. Your IP address is temporarily blocked by Google. Please try using a proxy or waiting for a while."
+                                    "Your IP address has been temporarily flagged or blocked by Google. "
+                                    "Please try using a proxy, a different network, or wait for a while before retrying."
                                 )
                             case _:
-                                raise Exception(
-                                    "No candidate body found in response stream"
+                                raise APIError(
+                                    f"Failed to generate contents. Unknown API error code: {error_code}. "
+                                    "This might be a temporary Google service issue."
                                 )
                     except GeminiError:
                         raise
@@ -631,6 +632,315 @@ class GeminiClient(GemMixin):
 
             return output
 
+    @running(retry=5)
+    async def generate_content_stream(
+        self,
+        prompt: str,
+        files: list[str | Path | bytes | io.BytesIO] | None = None,
+        model: Model | str | dict = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
+        chat: Optional["ChatSession"] = None,
+        **kwargs,
+    ) -> AsyncGenerator[ModelOutput, None]:
+        """
+        Generates contents with prompt in streaming mode.
+
+        This method sends a request to Gemini and yields partial responses as they arrive.
+        It automatically calculates the text delta (new characters) to provide a smooth
+        streaming experience. It also continuously updates chat metadata and candidate IDs.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Prompt provided by user.
+        files: `list[str | Path | bytes | io.BytesIO]`, optional
+            List of file paths or byte streams to be attached.
+        model: `Model | str | dict`, optional
+            Specify the model to use for generation.
+        gem: `Gem | str`, optional
+            Specify a gem to use as system prompt for the chat session.
+        chat: `ChatSession`, optional
+            Chat data to retrieve conversation history.
+        kwargs: `dict`, optional
+            Additional arguments passed to `httpx.AsyncClient.stream`.
+
+        Yields
+        ------
+        :class:`ModelOutput`
+            Partial output data. The `text` attribute contains only the NEW characters
+            received since the last yield.
+
+        Raises
+        ------
+        `gemini_webapi.APIError`
+            If the request fails or response structure is invalid.
+        `gemini_webapi.TimeoutError`
+            If the stream request times out.
+        """
+        assert prompt, "Prompt cannot be empty."
+
+        if isinstance(model, str):
+            model = Model.from_name(model)
+        elif isinstance(model, dict):
+            model = Model.from_dict(model)
+        elif not isinstance(model, Model):
+            raise TypeError(
+                f"'model' must be a `gemini_webapi.constants.Model` instance, "
+                f"string, or dictionary; got `{type(model).__name__}`"
+            )
+
+        gem_id = gem.id if isinstance(gem, Gem) else gem
+
+        if self.auto_close:
+            await self.reset_close_task()
+
+        message_content = [prompt]
+        if files:
+            uploaded_urls = await asyncio.gather(
+                *(upload_file(file, self.proxy) for file in files)
+            )
+            file_data = [
+                [[url], parse_file_name(file)]
+                for url, file in zip(uploaded_urls, files)
+            ]
+            message_content = [prompt, 0, None, file_data]
+
+        params = {"_reqid": random.randint(1000000, 9999999), "rt": "c"}
+        if self.cfb2h:
+            params["bl"] = self.cfb2h
+
+        request_data = {
+            "at": self.access_token,
+            "f.req": json.dumps(
+                [
+                    None,
+                    json.dumps(
+                        [
+                            message_content,
+                            None,
+                            chat and chat.metadata,
+                        ]
+                        + (gem_id and [None] * 16 + [gem_id] or [])
+                    ).decode(),
+                ]
+            ).decode(),
+        }
+
+        try:
+            async with self.client.stream(
+                "POST",
+                Endpoint.GENERATE.value,
+                params=params,
+                headers=model.model_header,
+                data=request_data,
+                **kwargs,
+            ) as response:
+                if response.status_code != 200:
+                    raise APIError(
+                        f"Failed to generate contents. Status: {response.status_code}"
+                    )
+
+                buffer = ""
+                # Track last seen content for each candidate by rcid
+                last_texts: dict[str, str] = {}
+                last_thoughts: dict[str, str] = {}
+                all_parsed_parts: list[Any] = []
+
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    if buffer.startswith(")]}'"):
+                        buffer = buffer[4:].lstrip()
+
+                    parsed_parts, buffer = parse_stream_frames(buffer)
+                    all_parsed_parts.extend(parsed_parts)
+
+                    for part in parsed_parts:
+                        # 1. Detect if model is busy analyzing data (Thinking state)
+                        if "data_analysis_tool" in str(part):
+                            logger.debug(
+                                "Model is busy (thinking/analyzing). Polling again..."
+                            )
+                            raise APIError("Model is busy. Polling again...")
+
+                        # 2. Check for queueing status
+                        status = get_nested_value(part, [5])
+                        if isinstance(status, list) and status:
+                            logger.debug(
+                                "Model is in a waiting state (queueing). Polling again..."
+                            )
+                            raise APIError("Model is busy. Polling again...")
+
+                        # 3. Check for error codes independently
+                        error_code = get_nested_value(part, [5, 2, 0, 1, 0])
+                        if error_code:
+                            match error_code:
+                                case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                    raise UsageLimitExceeded(
+                                        f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
+                                        "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
+                                    )
+                                case ErrorCode.MODEL_INCONSISTENT:
+                                    raise ModelInvalid(
+                                        "The specified model is inconsistent with the conversation history. "
+                                        "Please ensure you are using the same 'model' parameter throughout the entire ChatSession."
+                                    )
+                                case ErrorCode.MODEL_HEADER_INVALID:
+                                    raise ModelInvalid(
+                                        f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "
+                                        "Please update 'gemini_webapi' to the latest version or report this on GitHub if the problem persists."
+                                    )
+                                case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                                    raise TemporarilyBlocked(
+                                        "Your IP address has been temporarily flagged or blocked by Google. "
+                                        "Please try using a proxy, a different network, or wait for a while before retrying."
+                                    )
+                                case _:
+                                    raise APIError(
+                                        f"Failed to generate contents (stream). Unknown API error code: {error_code}. "
+                                        "This might be a temporary Google service issue."
+                                    )
+
+                        inner_json_str = get_nested_value(part, [2])
+                        if not inner_json_str:
+                            continue
+
+                        try:
+                            part_json = json.loads(inner_json_str)
+                            # Update chat metadata whenever available to support follow-up polls
+                            if m_data := get_nested_value(part_json, [1]):
+                                if isinstance(chat, ChatSession):
+                                    chat.metadata = m_data
+
+                            # Extract data from candidates
+                            candidates_list = get_nested_value(part_json, [4], [])
+                            if not candidates_list:
+                                continue
+
+                            output_candidates = []
+                            any_changed = False
+
+                            for candidate_data in candidates_list:
+                                rcid = get_nested_value(candidate_data, [0])
+                                if not rcid:
+                                    continue
+
+                                if isinstance(chat, ChatSession):
+                                    chat.rcid = rcid
+
+                                # Text output and thoughts
+                                text = get_nested_value(candidate_data, [1, 0], "")
+                                if re.match(
+                                    r"^http://googleusercontent\.com/card_content/\d+",
+                                    text,
+                                ):
+                                    text = (
+                                        get_nested_value(candidate_data, [22, 0])
+                                        or text
+                                    )
+
+                                # Cleanup image generation artifacts
+                                text = re.sub(
+                                    r"http://googleusercontent\.com/image_generation_content/\d+",
+                                    "",
+                                    text,
+                                ).rstrip()
+
+                                thoughts = (
+                                    get_nested_value(candidate_data, [37, 0, 0]) or ""
+                                )
+
+                                # Web images
+                                web_images = []
+                                for web_img_data in get_nested_value(
+                                    candidate_data, [12, 1], []
+                                ):
+                                    url = get_nested_value(web_img_data, [0, 0, 0])
+                                    if url:
+                                        web_images.append(
+                                            WebImage(
+                                                url=url,
+                                                title=get_nested_value(
+                                                    web_img_data, [7, 0], ""
+                                                ),
+                                                alt=get_nested_value(
+                                                    web_img_data, [0, 4], ""
+                                                ),
+                                                proxy=self.proxy,
+                                            )
+                                        )
+
+                                # Generated images
+                                generated_images = []
+                                for gen_img_data in get_nested_value(
+                                    candidate_data, [12, 7, 0], []
+                                ):
+                                    url = get_nested_value(gen_img_data, [0, 3, 3])
+                                    if url:
+                                        img_num = get_nested_value(gen_img_data, [3, 6])
+                                        alt_list = get_nested_value(
+                                            gen_img_data, [3, 5], []
+                                        )
+                                        generated_images.append(
+                                            GeneratedImage(
+                                                url=url,
+                                                title=f"[Generated Image {img_num}]"
+                                                if img_num
+                                                else "[Generated Image]",
+                                                alt=get_nested_value(alt_list, [0], ""),
+                                                proxy=self.proxy,
+                                                cookies=self.cookies,
+                                            )
+                                        )
+
+                                # Calculate Deltas for this specific candidate
+                                last_text = last_texts.get(rcid, "")
+                                last_thought = last_thoughts.get(rcid, "")
+
+                                text_delta = text
+                                if text.startswith(last_text):
+                                    text_delta = text[len(last_text) :]
+
+                                thoughts_delta = thoughts
+                                if thoughts.startswith(last_thought):
+                                    thoughts_delta = thoughts[len(last_thought) :]
+
+                                if (
+                                    text_delta
+                                    or thoughts_delta
+                                    or web_images
+                                    or generated_images
+                                ):
+                                    any_changed = True
+
+                                last_texts[rcid] = text
+                                last_thoughts[rcid] = thoughts
+
+                                output_candidates.append(
+                                    Candidate(
+                                        rcid=rcid,
+                                        text=text,
+                                        text_delta=text_delta,
+                                        thoughts=thoughts or None,
+                                        thoughts_delta=thoughts_delta,
+                                        web_images=web_images,
+                                        generated_images=generated_images,
+                                    )
+                                )
+
+                            if any_changed:
+                                yield ModelOutput(
+                                    metadata=get_nested_value(part_json, [1], []),
+                                    candidates=output_candidates,
+                                )
+                        except json.JSONDecodeError:
+                            continue
+
+        except ReadTimeout:
+            raise TimeoutError(
+                "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
+                "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
+            )
+
     def start_chat(self, **kwargs) -> "ChatSession":
         """
         Returns a `ChatSession` object attached to this client.
@@ -681,8 +991,8 @@ class GeminiClient(GemMixin):
             )
         except ReadTimeout:
             raise TimeoutError(
-                "Batch execute request timed out, please try again. If the problem persists, "
-                "consider setting a higher `timeout` value when initializing GeminiClient."
+                "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
+                "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
             )
 
         # ? Seems like batch execution will immediately invalidate the current access token,
@@ -813,6 +1123,42 @@ class ChatSession:
             chat=self,
             **kwargs,
         )
+
+    async def send_message_stream(
+        self,
+        prompt: str,
+        files: list[str | Path] | None = None,
+        **kwargs,
+    ) -> AsyncGenerator[ModelOutput, None]:
+        """
+        Generates contents with prompt in streaming mode within this chat session.
+
+        This is a shortcut for `GeminiClient.generate_content_stream(prompt, files, self)`.
+        The session's metadata and conversation history are automatically managed.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Prompt provided by user.
+        files: `list[str | Path]`, optional
+            List of file paths to be attached.
+        kwargs: `dict`, optional
+            Additional arguments passed to the streaming request.
+
+        Yields
+        ------
+        :class:`ModelOutput`
+            Partial output data containing text deltas.
+        """
+        async for output in self.geminiclient.generate_content_stream(
+            prompt=prompt,
+            files=files,
+            model=self.model,
+            gem=self.gem,
+            chat=self,
+            **kwargs,
+        ):
+            yield output
 
     def choose_candidate(self, index: int) -> ModelOutput:
         """

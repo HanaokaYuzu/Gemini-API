@@ -99,6 +99,67 @@ def _parse_with_length_markers(content: str) -> list | None:
     return collected_chunks if collected_chunks else None
 
 
+def parse_stream_frames(buffer: str) -> tuple[list[Any], str]:
+    """
+    Parse as many JSON frames as possible from an accumulated buffer.
+
+    This function implements Google's length-prefixed framing protocol. Each frame starts
+    with a length marker (number of characters) followed by a newline and the JSON content.
+    If a frame is partially received, it stays in the buffer for the next call.
+
+    Parameters
+    ----------
+    buffer: `str`
+        The accumulated string buffer containing raw streaming data from the API.
+
+    Returns
+    -------
+    `tuple[list[Any], str]`
+        A tuple containing:
+        - A list of parsed JSON objects (envelopes) extracted from the buffer.
+        - The remaining unparsed part of the buffer (incomplete frames).
+    """
+    pos = 0
+    total_len = len(buffer)
+    parsed_objects = []
+
+    while pos < total_len:
+        while pos < total_len and buffer[pos].isspace():
+            pos += 1
+
+        if pos >= total_len:
+            break
+
+        match = _LENGTH_MARKER_PATTERN.match(buffer, pos=pos)
+        if not match:
+            # If we have a prefix but no length marker yet, wait for more data
+            break
+
+        length_val = match.group(1)
+        length = int(length_val)
+        start_content = match.end()
+        end_hint = start_content + length
+
+        if end_hint > total_len:
+            # Chunk is truncated, wait for more data
+            break
+
+        chunk = buffer[start_content:end_hint].strip()
+        pos = end_hint
+
+        if chunk:
+            try:
+                parsed = json.loads(chunk)
+                if isinstance(parsed, list):
+                    parsed_objects.extend(parsed)
+                else:
+                    parsed_objects.append(parsed)
+            except json.JSONDecodeError:
+                logger.debug(f"Streaming: Failed to parse chunk: {reprlib.repr(chunk)}")
+
+    return parsed_objects, buffer[pos:]
+
+
 def extract_json_from_response(text: str) -> list:
     """Extract and normalize JSON content from a Google API response."""
     if not isinstance(text, str):
