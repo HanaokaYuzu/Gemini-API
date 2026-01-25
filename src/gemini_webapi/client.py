@@ -344,7 +344,7 @@ class GeminiClient(GemMixin):
             await self.reset_close_task()
 
         try:
-            message_content = [prompt]
+            file_data = None
             if files:
                 uploaded_urls = await asyncio.gather(
                     *(upload_file(file, self.proxy) for file in files)
@@ -353,11 +353,26 @@ class GeminiClient(GemMixin):
                     [[url], parse_file_name(file)]
                     for url, file in zip(uploaded_urls, files)
                 ]
-                message_content = [prompt, 0, None, file_data]
+
+            message_content = [
+                prompt,
+                0,
+                None,
+                file_data,
+                None,
+                None,
+                0,
+            ]
 
             params = {"_reqid": random.randint(1000000, 9999999), "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
+
+            inner_req_list: list[Any] = [None] * 69
+            inner_req_list[0] = message_content
+            inner_req_list[2] = chat.metadata if chat else ["", "", "", None, None, None, None, None, None, ""]
+            if gem_id:
+                inner_req_list[19] = gem_id
 
             response = await self.client.post(
                 Endpoint.GENERATE.value,
@@ -368,14 +383,7 @@ class GeminiClient(GemMixin):
                     "f.req": json.dumps(
                         [
                             None,
-                            json.dumps(
-                                [
-                                    message_content,
-                                    None,
-                                    chat and chat.metadata,
-                                ]
-                                + (gem_id and [None] * 16 + [gem_id] or [])
-                            ).decode(),
+                            json.dumps(inner_req_list).decode(),
                         ]
                     ).decode(),
                 },
@@ -403,9 +411,14 @@ class GeminiClient(GemMixin):
                     part_json = json.loads(part_body_str)
 
                     # Update chat metadata if available in any chunk to support follow-up polls
-                    if m_data := get_nested_value(part_json, [1]):
-                        if isinstance(chat, ChatSession):
-                            chat.metadata = m_data
+                    m_data = get_nested_value(part_json, [1])
+                    if m_data and isinstance(chat, ChatSession):
+                        chat.metadata = m_data
+
+                    # Update context string from index 26 if available
+                    context_str = get_nested_value(part_json, [26])
+                    if isinstance(context_str, str) and isinstance(chat, ChatSession):
+                        chat.metadata = [None] * 9 + [context_str]
 
                     if get_nested_value(part_json, [4]):
                         body_index, body = part_index, part_json
@@ -680,7 +693,7 @@ class GeminiClient(GemMixin):
             await self.reset_close_task()
 
         try:
-            message_content = [prompt]
+            file_data = None
             if files:
                 uploaded_urls = await asyncio.gather(
                     *(upload_file(file, self.proxy) for file in files)
@@ -689,25 +702,34 @@ class GeminiClient(GemMixin):
                     [[url], parse_file_name(file)]
                     for url, file in zip(uploaded_urls, files)
                 ]
-                message_content = [prompt, 0, None, file_data]
+
+            message_content = [
+                prompt,
+                0,
+                None,
+                file_data,
+                None,
+                None,
+                0,
+            ]
 
             params = {"_reqid": random.randint(1000000, 9999999), "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
+
+            inner_req_list: list[Any] = [None] * 69
+            inner_req_list[0] = message_content
+            inner_req_list[2] = chat.metadata if chat else ["", "", "", None, None, None, None, None, None, ""]
+            inner_req_list[7] = 1  # Enable Snapshot Streaming
+            if gem_id:
+                inner_req_list[19] = gem_id
 
             request_data = {
                 "at": self.access_token,
                 "f.req": json.dumps(
                     [
                         None,
-                        json.dumps(
-                            [
-                                message_content,
-                                None,
-                                chat and chat.metadata,
-                            ]
-                            + (gem_id and [None] * 16 + [gem_id] or [])
-                        ).decode(),
+                        json.dumps(inner_req_list).decode(),
                     ]
                 ).decode(),
             }
@@ -791,9 +813,14 @@ class GeminiClient(GemMixin):
                         try:
                             part_json = json.loads(inner_json_str)
                             # Update chat metadata whenever available to support follow-up polls
-                            if m_data := get_nested_value(part_json, [1]):
-                                if isinstance(chat, ChatSession):
-                                    chat.metadata = m_data
+                            m_data = get_nested_value(part_json, [1])
+                            if m_data and isinstance(chat, ChatSession):
+                                chat.metadata = m_data
+
+                            # Update context string from index 26 if available
+                            context_str = get_nested_value(part_json, [26])
+                            if isinstance(context_str, str) and isinstance(chat, ChatSession):
+                                chat.metadata = [None] * 9 + [context_str]
 
                             # Extract data from candidates
                             candidates_list = get_nested_value(part_json, [4], [])
@@ -1045,7 +1072,7 @@ class ChatSession:
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
-        self.__metadata: list[str | None] = [None, None, None]
+        self.__metadata: list[str | None] = ["", "", "", None, None, None, None, None, None, ""]
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
         self.model: Model | str | dict = model
@@ -1194,9 +1221,12 @@ class ChatSession:
 
     @metadata.setter
     def metadata(self, value: list[str]):
-        if len(value) > 3:
-            raise ValueError("metadata cannot exceed 3 elements")
-        self.__metadata[: len(value)] = value
+        if not isinstance(value, list):
+            return
+        # Update only non-None elements to preserve existing CID/RID/RCID/Context
+        for i, val in enumerate(value):
+            if i < 10 and val is not None:
+                self.__metadata[i] = val
 
     @property
     def cid(self):
