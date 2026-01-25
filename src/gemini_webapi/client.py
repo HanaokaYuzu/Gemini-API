@@ -400,60 +400,38 @@ class GeminiClient(GemMixin):
                     f"Failed to generate contents. Request failed with status code {response.status_code}"
                 )
 
-            response_json: list[Any] = []
             body: list[Any] = []
             body_index = 0
-
             response_json = extract_json_from_response(response.text)
 
             for part_index, part in enumerate(response_json):
-                try:
-                    part_body_str = get_nested_value(part, [2])
-                    if not part_body_str:
-                        continue
+                # 0. Update chat metadata first whenever available to support follow-up polls
+                part_body_str = get_nested_value(part, [2])
+                if part_body_str:
+                    try:
+                        part_json = json.loads(part_body_str)
+                        m_data = get_nested_value(part_json, [1])
+                        if m_data and isinstance(chat, ChatSession):
+                            chat.metadata = m_data
 
-                    part_json = json.loads(part_body_str)
+                        # Update context string from index 26 if available
+                        context_str = get_nested_value(part_json, [26])
+                        if isinstance(context_str, str) and isinstance(
+                            chat, ChatSession
+                        ):
+                            chat.metadata = [None] * 9 + [context_str]
 
-                    # Update chat metadata if available in any chunk to support follow-up polls
-                    m_data = get_nested_value(part_json, [1])
-                    if m_data and isinstance(chat, ChatSession):
-                        chat.metadata = m_data
+                        if get_nested_value(part_json, [4]):
+                            body_index, body = part_index, part_json
+                            # Don't break immediately, we want the LAST part that has candidates
+                            # as it's usually the most complete one
+                    except json.JSONDecodeError:
+                        pass
 
-                    # Update context string from index 26 if available
-                    context_str = get_nested_value(part_json, [26])
-                    if isinstance(context_str, str) and isinstance(chat, ChatSession):
-                        chat.metadata = [None] * 9 + [context_str]
-
-                    if get_nested_value(part_json, [4]):
-                        body_index, body = part_index, part_json
-                        # Don't break immediately, we want the LAST part that has candidates
-                        # as it's usually the most complete one
-                except json.JSONDecodeError:
-                    continue
-
-            if not body:
-                # Detect if model is busy analyzing data or in a waiting state
-                # Patterns at index 5 often indicate background processing or queueing.
-                for part in response_json:
-                    if "data_analysis_tool" in str(part):
-                        logger.debug(
-                            "Model is busy (thinking/analyzing). Polling again..."
-                        )
-                        raise APIError("Model is busy. Polling again...")
-
-                    status = get_nested_value(part, [5])
-                    if isinstance(status, list) and status:
-                        logger.debug(
-                            "Model is in a waiting state (queueing). Polling again..."
-                        )
-                        raise APIError("Model is busy. Polling again...")
-
-                await self.close()
-
-                try:
-                    error_code = get_nested_value(
-                        response_json, [0, 5, 2, 0, 1, 0], -1, verbose=True
-                    )
+                # 1. Check for fatal error codes in any part
+                error_code = get_nested_value(part, [5, 2, 0, 1, 0])
+                if error_code:
+                    await self.close()
                     match error_code:
                         case ErrorCode.USAGE_LIMIT_EXCEEDED:
                             raise UsageLimitExceeded(
@@ -480,15 +458,28 @@ class GeminiClient(GemMixin):
                                 f"Failed to generate contents. Unknown API error code: {error_code}. "
                                 "This might be a temporary Google service issue."
                             )
-                except GeminiError:
-                    raise
-                except Exception as e:
-                    logger.debug(
-                        f"Unexpected response structure: {e}. Response: {response.text}"
-                    )
-                    raise APIError(
-                        "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
-                    )
+
+            if not body:
+                # Detect if model is busy analyzing data or in a waiting state
+                # Patterns at index 5 often indicate background processing or queueing.
+                for part in response_json:
+                    if "data_analysis_tool" in str(part):
+                        logger.debug(
+                            "Model is busy (thinking/analyzing). Polling again..."
+                        )
+                        raise APIError("Model is busy. Polling again...")
+
+                    status = get_nested_value(part, [5])
+                    if isinstance(status, list) and status:
+                        logger.debug(
+                            "Model is in a waiting state (queueing). Polling again..."
+                        )
+                        raise APIError("Model is busy. Polling again...")
+
+                await self.close()
+                raise APIError(
+                    "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
+                )
 
             candidate_list: list[Any] = get_nested_value(body, [4], [], verbose=True)
             output_candidates: list[Candidate] = []
@@ -769,24 +760,29 @@ class GeminiClient(GemMixin):
                     parsed_parts, buffer = parse_stream_frames(buffer)
 
                     for part in parsed_parts:
-                        # 1. Detect if model is busy analyzing data (Thinking state)
-                        if "data_analysis_tool" in str(part):
-                            logger.debug(
-                                "Model is busy (thinking/analyzing). Polling again..."
-                            )
-                            raise APIError("Model is busy. Polling again...")
+                        part_json = None
+                        # 0. Update chat metadata first whenever available to support follow-up polls
+                        inner_json_str = get_nested_value(part, [2])
+                        if inner_json_str:
+                            try:
+                                part_json = json.loads(inner_json_str)
+                                m_data = get_nested_value(part_json, [1])
+                                if m_data and isinstance(chat, ChatSession):
+                                    chat.metadata = m_data
 
-                        # 2. Check for queueing status
-                        status = get_nested_value(part, [5])
-                        if isinstance(status, list) and status:
-                            logger.debug(
-                                "Model is in a waiting state (queueing). Polling again..."
-                            )
-                            raise APIError("Model is busy. Polling again...")
+                                # Update context string from index 26 if available
+                                context_str = get_nested_value(part_json, [26])
+                                if isinstance(context_str, str) and isinstance(
+                                    chat, ChatSession
+                                ):
+                                    chat.metadata = [None] * 9 + [context_str]
+                            except json.JSONDecodeError:
+                                pass
 
-                        # 3. Check for error codes independently
+                        # 1. Check for fatal error codes in any part
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
                         if error_code:
+                            await self.close()
                             match error_code:
                                 case ErrorCode.USAGE_LIMIT_EXCEEDED:
                                     raise UsageLimitExceeded(
@@ -814,23 +810,27 @@ class GeminiClient(GemMixin):
                                         "This might be a temporary Google service issue."
                                     )
 
-                        inner_json_str = get_nested_value(part, [2])
+                        # 2. Detect if model is busy analyzing data (Thinking state)
+                        if "data_analysis_tool" in str(part):
+                            logger.debug(
+                                "Model is busy (thinking/analyzing). Polling again..."
+                            )
+                            raise APIError("Model is busy. Polling again...")
+
+                        # 3. Check for queueing status
+                        status = get_nested_value(part, [5])
+                        if isinstance(status, list) and status:
+                            logger.debug(
+                                "Model is in a waiting state (queueing). Polling again..."
+                            )
+                            raise APIError("Model is busy. Polling again...")
+
                         if not inner_json_str:
                             continue
 
                         try:
-                            part_json = json.loads(inner_json_str)
-                            # Update chat metadata whenever available to support follow-up polls
-                            m_data = get_nested_value(part_json, [1])
-                            if m_data and isinstance(chat, ChatSession):
-                                chat.metadata = m_data
-
-                            # Update context string from index 26 if available
-                            context_str = get_nested_value(part_json, [26])
-                            if isinstance(context_str, str) and isinstance(
-                                chat, ChatSession
-                            ):
-                                chat.metadata = [None] * 9 + [context_str]
+                            if part_json is None:
+                                part_json = json.loads(inner_json_str)
 
                             # Extract data from candidates
                             candidates_list = get_nested_value(part_json, [4], [])
