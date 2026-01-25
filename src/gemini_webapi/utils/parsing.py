@@ -106,22 +106,28 @@ def extract_json_from_response(text: str) -> list:
             f"Input text is expected to be a string, got {type(text).__name__} instead."
         )
 
-    content = text.strip()
+    content = text
     if content.startswith(")]}'"):
-        content = content[4:].lstrip()
+        content = content[4:]
 
+    content = content.lstrip()
+
+    # Extract with a length marker
     result = _parse_with_length_markers(content)
     if result is not None:
         return result
 
+    # Extract the entire content
+    content_stripped = content.strip()
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(content_stripped)
         return parsed if isinstance(parsed, list) else [parsed]
     except json.JSONDecodeError:
         pass
 
+    # Extract with NDJSON
     collected_lines = []
-    for line in content.splitlines():
+    for line in content_stripped.splitlines():
         line = line.strip()
         if not line:
             continue
