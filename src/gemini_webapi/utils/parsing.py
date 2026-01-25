@@ -137,7 +137,7 @@ def parse_stream_frames(buffer: str) -> tuple[list[Any], str]:
 
         length_val = match.group(1)
         length = int(length_val)
-        start_content = match.end()
+        start_content = match.start() + len(length_val)
         end_hint = start_content + length
 
         if end_hint > total_len:
