@@ -272,7 +272,6 @@ class GeminiClient(GemMixin):
             except Exception as e:
                 logger.warning(f"Unexpected error while refreshing cookies: {e}")
 
-    @running(retry=5)
     async def generate_content(
         self,
         prompt: str,
@@ -322,7 +321,49 @@ class GeminiClient(GemMixin):
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
+        if self.auto_close:
+            await self.reset_close_task()
 
+        file_data = None
+        if files:
+            uploaded_urls = await asyncio.gather(
+                *(upload_file(file, self.proxy) for file in files)
+            )
+            file_data = [
+                [[url], parse_file_name(file)]
+                for url, file in zip(uploaded_urls, files)
+            ]
+
+        try:
+            output = await self._generate_content(
+                prompt=prompt,
+                req_file_data=file_data,
+                model=model,
+                gem=gem,
+                chat=chat,
+                **kwargs,
+            )
+
+            if files:
+                for file in files:
+                    if isinstance(file, io.BytesIO):
+                        file.close()
+
+            return output
+
+        except Exception:
+            raise
+
+    @running(retry=5)
+    async def _generate_content(
+        self,
+        prompt: str,
+        req_file_data: list[Any] | None = None,
+        model: Model | str | dict = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
+        chat: Optional["ChatSession"] = None,
+        **kwargs,
+    ) -> ModelOutput:
         assert prompt, "Prompt cannot be empty."
 
         if isinstance(model, str):
@@ -340,25 +381,12 @@ class GeminiClient(GemMixin):
         else:
             gem_id = gem
 
-        if self.auto_close:
-            await self.reset_close_task()
-
         try:
-            file_data = None
-            if files:
-                uploaded_urls = await asyncio.gather(
-                    *(upload_file(file, self.proxy) for file in files)
-                )
-                file_data = [
-                    [[url], parse_file_name(file)]
-                    for url, file in zip(uploaded_urls, files)
-                ]
-
             message_content = [
                 prompt,
                 0,
                 None,
-                file_data,
+                req_file_data,
                 None,
                 None,
                 0,
@@ -605,11 +633,6 @@ class GeminiClient(GemMixin):
             if isinstance(chat, ChatSession):
                 chat.last_output = output
 
-            if files:
-                for file in files:
-                    if isinstance(file, io.BytesIO):
-                        file.close()
-
             return output
 
         except ReadTimeout:
@@ -625,7 +648,6 @@ class GeminiClient(GemMixin):
             )
             raise APIError(f"Failed to parse response body: {e}")
 
-    @running(retry=5)
     async def generate_content_stream(
         self,
         prompt: str,
@@ -670,6 +692,48 @@ class GeminiClient(GemMixin):
         `gemini_webapi.TimeoutError`
             If the stream request times out.
         """
+        if self.auto_close:
+            await self.reset_close_task()
+
+        file_data = None
+        if files:
+            uploaded_urls = await asyncio.gather(
+                *(upload_file(file, self.proxy) for file in files)
+            )
+            file_data = [
+                [[url], parse_file_name(file)]
+                for url, file in zip(uploaded_urls, files)
+            ]
+
+        try:
+            async for output in self._generate_content_stream(
+                prompt=prompt,
+                req_file_data=file_data,
+                model=model,
+                gem=gem,
+                chat=chat,
+                **kwargs,
+            ):
+                yield output
+
+            if files:
+                for file in files:
+                    if isinstance(file, io.BytesIO):
+                        file.close()
+
+        except Exception:
+            raise
+
+    @running(retry=5)
+    async def _generate_content_stream(
+        self,
+        prompt: str,
+        req_file_data: list[Any] | None = None,
+        model: Model | str | dict = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
+        chat: Optional["ChatSession"] = None,
+        **kwargs,
+    ) -> AsyncGenerator[ModelOutput, None]:
         assert prompt, "Prompt cannot be empty."
 
         if isinstance(model, str):
@@ -684,25 +748,12 @@ class GeminiClient(GemMixin):
 
         gem_id = gem.id if isinstance(gem, Gem) else gem
 
-        if self.auto_close:
-            await self.reset_close_task()
-
         try:
-            file_data = None
-            if files:
-                uploaded_urls = await asyncio.gather(
-                    *(upload_file(file, self.proxy) for file in files)
-                )
-                file_data = [
-                    [[url], parse_file_name(file)]
-                    for url, file in zip(uploaded_urls, files)
-                ]
-
             message_content = [
                 prompt,
                 0,
                 None,
-                file_data,
+                req_file_data,
                 None,
                 None,
                 0,
@@ -955,11 +1006,6 @@ class GeminiClient(GemMixin):
                                 )
                         except json.JSONDecodeError:
                             continue
-
-            if files:
-                for file in files:
-                    if isinstance(file, io.BytesIO):
-                        file.close()
 
         except ReadTimeout:
             raise TimeoutError(
