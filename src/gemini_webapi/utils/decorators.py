@@ -5,6 +5,8 @@ from collections.abc import Callable
 
 from ..exceptions import APIError
 
+DELAY_FACTOR = 5
+
 
 def running(retry: int = 0) -> Callable:
     """
@@ -45,7 +47,7 @@ def running(retry: int = 0) -> Callable:
                         yield item
                 except APIError:
                     if current_retry > 0:
-                        delay = (retry - current_retry + 1) * 5
+                        delay = (retry - current_retry + 1) * DELAY_FACTOR
                         await asyncio.sleep(delay)
                         async for item in wrapper(
                             client, *args, current_retry=current_retry - 1, **kwargs
@@ -81,7 +83,7 @@ def running(retry: int = 0) -> Callable:
                     return await func(client, *args, **kwargs)
                 except APIError:
                     if current_retry > 0:
-                        delay = (retry - current_retry + 1) * 5
+                        delay = (retry - current_retry + 1) * DELAY_FACTOR
                         await asyncio.sleep(delay)
 
                         return await wrapper(

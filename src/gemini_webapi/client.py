@@ -354,7 +354,7 @@ class GeminiClient(GemMixin):
         except Exception:
             raise
 
-    @running(retry=5)
+    @running(retry=10)
     async def _generate_content(
         self,
         prompt: str,
@@ -724,7 +724,7 @@ class GeminiClient(GemMixin):
         except Exception:
             raise
 
-    @running(retry=5)
+    @running(retry=10)
     async def _generate_content_stream(
         self,
         prompt: str,
