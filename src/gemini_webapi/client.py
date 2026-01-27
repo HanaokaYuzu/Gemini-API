@@ -430,7 +430,7 @@ class GeminiClient(GemMixin):
 
             body: list[Any] = []
             body_index = 0
-            response_json = extract_json_from_response(response.text)
+            response_json = extract_json_from_response(response.content)
 
             for part_index, part in enumerate(response_json):
                 # 0. Update chat metadata first whenever available to support follow-up polls
@@ -798,7 +798,7 @@ class GeminiClient(GemMixin):
                         f"Failed to generate contents. Status: {response.status_code}"
                     )
 
-                buffer = ""
+                buffer = b""
                 # Track last seen content for each candidate by rcid
                 last_texts: dict[str, str] = {}
                 last_thoughts: dict[str, str] = {}
@@ -806,9 +806,9 @@ class GeminiClient(GemMixin):
                 is_busy = False
                 has_candidates = False
 
-                async for chunk in response.aiter_text():
+                async for chunk in response.aiter_bytes():
                     buffer += chunk
-                    if buffer.startswith(")]}'"):
+                    if buffer.startswith(b")]}'"):
                         buffer = buffer[4:].lstrip()
 
                     parsed_parts, buffer = parse_stream_frames(buffer)
