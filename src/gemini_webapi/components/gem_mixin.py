@@ -183,7 +183,7 @@ class GemMixin:
                                 [],
                             ]
                         ]
-                    ).decode(),
+                    ).decode("utf-8"),
                 )
             ]
         )
@@ -268,7 +268,7 @@ class GemMixin:
                                 0,
                             ],
                         ]
-                    ).decode(),
+                    ).decode("utf-8"),
                 )
             ]
         )
@@ -298,6 +298,6 @@ class GemMixin:
             gem_id = gem
 
         await self._batch_execute(
-            [RPCData(rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem_id]).decode())],
+            [RPCData(rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem_id]).decode("utf-8"))],
             **kwargs,
         )

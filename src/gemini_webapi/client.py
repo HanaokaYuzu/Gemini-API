@@ -415,9 +415,9 @@ class GeminiClient(GemMixin):
                     "f.req": json.dumps(
                         [
                             None,
-                            json.dumps(inner_req_list).decode(),
+                            json.dumps(inner_req_list).decode("utf-8"),
                         ]
-                    ).decode(),
+                    ).decode("utf-8"),
                 },
                 **kwargs,
             )
@@ -779,9 +779,9 @@ class GeminiClient(GemMixin):
                 "f.req": json.dumps(
                     [
                         None,
-                        json.dumps(inner_req_list).decode(),
+                        json.dumps(inner_req_list).decode("utf-8"),
                     ]
-                ).decode(),
+                ).decode("utf-8"),
             }
 
             async with self.client.stream(
@@ -1071,7 +1071,7 @@ class GeminiClient(GemMixin):
                     "at": self.access_token,
                     "f.req": json.dumps(
                         [[payload.serialize() for payload in payloads]]
-                    ).decode(),
+                    ).decode("utf-8"),
                 },
                 **kwargs,
             )
