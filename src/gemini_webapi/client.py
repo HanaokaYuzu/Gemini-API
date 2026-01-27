@@ -442,8 +442,8 @@ class GeminiClient(GemMixin):
                         if m_data and isinstance(chat, ChatSession):
                             chat.metadata = m_data
 
-                        # Update context string from index 26 if available
-                        context_str = get_nested_value(part_json, [26])
+                        # Update context string from index 25 if available
+                        context_str = get_nested_value(part_json, [25])
                         if isinstance(context_str, str) and isinstance(
                             chat, ChatSession
                         ):
@@ -824,8 +824,8 @@ class GeminiClient(GemMixin):
                                 if m_data and isinstance(chat, ChatSession):
                                     chat.metadata = m_data
 
-                                # Update context string from index 26 if available
-                                context_str = get_nested_value(part_json, [26])
+                                # Update context string from index 25 if available
+                                context_str = get_nested_value(part_json, [25])
                                 if isinstance(context_str, str) and isinstance(
                                     chat, ChatSession
                                 ):
