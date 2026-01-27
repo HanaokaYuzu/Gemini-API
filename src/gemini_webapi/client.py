@@ -354,7 +354,7 @@ class GeminiClient(GemMixin):
         except Exception:
             raise
 
-    @running(retry=10)
+    @running(retry=5)
     async def _generate_content(
         self,
         prompt: str,
@@ -724,7 +724,7 @@ class GeminiClient(GemMixin):
         except Exception:
             raise
 
-    @running(retry=10)
+    @running(retry=5)
     async def _generate_content_stream(
         self,
         prompt: str,
@@ -803,6 +803,9 @@ class GeminiClient(GemMixin):
                 last_texts: dict[str, str] = {}
                 last_thoughts: dict[str, str] = {}
 
+                is_busy = False
+                has_candidates = False
+
                 async for chunk in response.aiter_text():
                     buffer += chunk
                     if buffer.startswith(")]}'"):
@@ -863,18 +866,18 @@ class GeminiClient(GemMixin):
 
                         # 2. Detect if model is busy analyzing data (Thinking state)
                         if "data_analysis_tool" in str(part):
-                            logger.debug(
-                                "Model is busy (thinking/analyzing). Polling again..."
-                            )
-                            raise APIError("Model is busy. Polling again...")
+                            is_busy = True
+                            if not has_candidates:
+                                logger.debug("Model is busy (thinking/analyzing)...")
 
                         # 3. Check for queueing status
                         status = get_nested_value(part, [5])
                         if isinstance(status, list) and status:
-                            logger.debug(
-                                "Model is in a waiting state (queueing). Polling again..."
-                            )
-                            raise APIError("Model is busy. Polling again...")
+                            is_busy = True
+                            if not has_candidates:
+                                logger.debug(
+                                    "Model is in a waiting state (queueing)..."
+                                )
 
                         if not inner_json_str:
                             continue
@@ -1000,12 +1003,16 @@ class GeminiClient(GemMixin):
                                 )
 
                             if any_changed:
+                                has_candidates = True
                                 yield ModelOutput(
                                     metadata=get_nested_value(part_json, [1], []),
                                     candidates=output_candidates,
                                 )
                         except json.JSONDecodeError:
                             continue
+
+                if is_busy and not has_candidates:
+                    raise APIError("Model is busy. Polling again...")
 
         except ReadTimeout:
             raise TimeoutError(
