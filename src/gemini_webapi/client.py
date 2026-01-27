@@ -1,4 +1,5 @@
 import asyncio
+import codecs
 import io
 import random
 import re
@@ -430,7 +431,7 @@ class GeminiClient(GemMixin):
 
             body: list[Any] = []
             body_index = 0
-            response_json = extract_json_from_response(response.content)
+            response_json = extract_json_from_response(response.text)
 
             for part_index, part in enumerate(response_json):
                 # 0. Update chat metadata first whenever available to support follow-up polls
@@ -798,7 +799,9 @@ class GeminiClient(GemMixin):
                         f"Failed to generate contents. Status: {response.status_code}"
                     )
 
-                buffer = b""
+                buffer = ""
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+
                 # Track last seen content for each candidate by rcid
                 last_texts: dict[str, str] = {}
                 last_thoughts: dict[str, str] = {}
@@ -807,8 +810,8 @@ class GeminiClient(GemMixin):
                 has_candidates = False
 
                 async for chunk in response.aiter_bytes():
-                    buffer += chunk
-                    if buffer.startswith(b")]}'"):
+                    buffer += decoder.decode(chunk, final=False)
+                    if buffer.startswith(")]}'"):
                         buffer = buffer[4:].lstrip()
 
                     parsed_parts, buffer = parse_stream_frames(buffer)

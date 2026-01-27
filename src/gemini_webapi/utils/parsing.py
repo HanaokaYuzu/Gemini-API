@@ -6,7 +6,7 @@ import orjson as json
 
 from .logger import logger
 
-_LENGTH_MARKER_PATTERN = re.compile(rb"(\d+)\n")
+_LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 
 
 def get_nested_value(
@@ -45,7 +45,7 @@ def get_nested_value(
     return current if current is not None else default
 
 
-def _parse_with_length_markers(content: bytes) -> list | None:
+def _parse_with_length_markers(content: str) -> list | None:
     """
     Parse streaming responses using length markers as hints.
     Google's format: [length]\n[json_payload]\n
@@ -56,7 +56,7 @@ def _parse_with_length_markers(content: bytes) -> list | None:
     collected_chunks = []
 
     while pos < total_len:
-        while pos < total_len and chr(content[pos]).isspace():
+        while pos < total_len and content[pos].isspace():
             pos += 1
 
         if pos >= total_len:
@@ -99,22 +99,22 @@ def _parse_with_length_markers(content: bytes) -> list | None:
     return collected_chunks if collected_chunks else None
 
 
-def parse_stream_frames(buffer: bytes) -> tuple[list[Any], bytes]:
+def parse_stream_frames(buffer: str) -> tuple[list[Any], str]:
     """
     Parse as many JSON frames as possible from an accumulated buffer.
 
     This function implements Google's length-prefixed framing protocol. Each frame starts
-    with a length marker (number of bytes) followed by a newline and the JSON content.
+    with a length marker (number of characters) followed by a newline and the JSON content.
     If a frame is partially received, it stays in the buffer for the next call.
 
     Parameters
     ----------
-    buffer: `bytes`
-        The accumulated bytes buffer containing raw streaming data from the API.
+    buffer: `str`
+        The accumulated string buffer containing raw streaming data from the API.
 
     Returns
     -------
-    `tuple[list[Any], bytes]`
+    `tuple[list[Any], str]`
         A tuple containing:
         - A list of parsed JSON objects (envelopes) extracted from the buffer.
         - The remaining unparsed part of the buffer (incomplete frames).
@@ -124,7 +124,7 @@ def parse_stream_frames(buffer: bytes) -> tuple[list[Any], bytes]:
     parsed_objects = []
 
     while pos < total_len:
-        while pos < total_len and chr(buffer[pos]).isspace():
+        while pos < total_len and buffer[pos].isspace():
             pos += 1
 
         if pos >= total_len:
@@ -160,18 +160,15 @@ def parse_stream_frames(buffer: bytes) -> tuple[list[Any], bytes]:
     return parsed_objects, buffer[pos:]
 
 
-def extract_json_from_response(text: bytes | str) -> list:
+def extract_json_from_response(text: str) -> list:
     """Extract and normalize JSON content from a Google API response."""
-    if isinstance(text, str):
-        text = text.encode("utf-8")
-
-    if not isinstance(text, bytes):
+    if not isinstance(text, str):
         raise TypeError(
-            f"Input text is expected to be a string or bytes, got {type(text).__name__} instead."
+            f"Input text is expected to be a string, got {type(text).__name__} instead."
         )
 
     content = text
-    if content.startswith(b")]}'"):
+    if content.startswith(")]}'"):
         content = content[4:]
 
     content = content.lstrip()
