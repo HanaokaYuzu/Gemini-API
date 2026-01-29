@@ -9,6 +9,27 @@ from .logger import logger
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 
 
+def _get_char_count_for_utf16_units(
+    s: str, start_idx: int, utf16_units: int
+) -> tuple[int, int]:
+    """
+    Calculate the number of Python characters (code points) and actual UTF-16
+    units found.
+    """
+    count = 0
+    units = 0
+    limit = len(s)
+
+    while units < utf16_units and (start_idx + count) < limit:
+        char = s[start_idx + count]
+        u = 2 if ord(char) > 0xFFFF else 1
+        if units + u > utf16_units:
+            break
+        units += u
+        count += 1
+    return count, units
+
+
 def get_nested_value(
     data: Any, path: list[int | str], default: Any = None, verbose: bool = False
 ) -> Any:
@@ -69,14 +90,18 @@ def _parse_with_length_markers(content: str) -> list | None:
         length_val = match.group(1)
         length = int(length_val)
 
-        # Content starts immediately after the digits
+        # Content starts immediately after the digits.
+        # Google uses UTF-16 code units (JavaScript .length) for the length marker.
         start_content = match.start() + len(length_val)
-        end_hint = start_content + length
+        char_count, units_found = _get_char_count_for_utf16_units(
+            content, start_content, length
+        )
+        end_hint = start_content + char_count
         pos = end_hint
 
-        if end_hint > total_len:
+        if units_found < length:
             logger.debug(
-                f"Chunk at pos {start_content} is truncated. Expected {length} chars."
+                f"Chunk at pos {start_content} is truncated. Expected {length} UTF-16 units, got {units_found}."
             )
             break
 
@@ -138,14 +163,17 @@ def parse_stream_frames(buffer: str) -> tuple[list[Any], str]:
         length_val = match.group(1)
         length = int(length_val)
         start_content = match.start() + len(length_val)
-        end_hint = start_content + length
+        char_count, units_found = _get_char_count_for_utf16_units(
+            buffer, start_content, length
+        )
 
-        if end_hint > total_len:
+        if units_found < length:
             # Chunk is truncated, wait for more data
             break
 
-        chunk = buffer[start_content:end_hint].strip()
-        pos = end_hint
+        end_pos = start_content + char_count
+        chunk = buffer[start_content:end_pos].strip()
+        pos = end_pos
 
         if chunk:
             try:
