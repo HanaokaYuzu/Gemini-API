@@ -800,7 +800,7 @@ class GeminiClient(GemMixin):
                     )
 
                 buffer = ""
-                decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
                 # Track last seen content for each candidate by rcid
                 last_texts: dict[str, str] = {}
