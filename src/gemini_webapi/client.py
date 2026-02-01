@@ -84,6 +84,7 @@ class GeminiClient(GemMixin):
         "refresh_task",
         "verbose",
         "_lock",
+        "_reqid",
         "_gems",  # From GemMixin
         "kwargs",
     ]
@@ -111,6 +112,7 @@ class GeminiClient(GemMixin):
         self.refresh_task: Task | None = None
         self.verbose: bool = True
         self._lock = asyncio.Lock()
+        self._reqid: int = 0
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -393,9 +395,14 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params = {"_reqid": random.randint(1000000, 9999999), "rt": "c"}
+            params: dict[str, Any] = {"rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
+            if isinstance(chat, ChatSession) and chat.cid:
+                self._reqid += 100000
+            else:
+                self._reqid = random.randint(10000, 99999)
+            params["_reqid"] = self._reqid
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
@@ -760,9 +767,14 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params = {"_reqid": random.randint(1000000, 9999999), "rt": "c"}
+            params: dict[str, Any] = {"rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
+            if isinstance(chat, ChatSession) and chat.cid:
+                self._reqid += 100000
+            else:
+                self._reqid = random.randint(10000, 99999)
+            params["_reqid"] = self._reqid
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
