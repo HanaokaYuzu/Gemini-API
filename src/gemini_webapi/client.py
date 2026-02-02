@@ -16,7 +16,6 @@ from .exceptions import (
     APIError,
     AuthError,
     GeminiError,
-    ImageGenerationError,
     ModelInvalid,
     TemporarilyBlocked,
     TimeoutError,
@@ -31,7 +30,6 @@ from .types import (
     WebImage,
 )
 from .utils import (
-    extract_json_from_response,
     get_access_token,
     get_nested_value,
     logger,
@@ -364,326 +362,32 @@ class GeminiClient(GemMixin):
                 ]
             )
 
-            output = await self._generate_content(
+            output = None
+            async for output in self._generate_content_stream(
                 prompt=prompt,
                 req_file_data=file_data,
                 model=model,
                 gem=gem,
                 chat=chat,
                 **kwargs,
-            )
+            ):
+                pass
 
-            if files:
-                for file in files:
-                    if isinstance(file, io.BytesIO):
-                        file.close()
-
-            return output
-
-        except Exception:
-            raise
-
-    @running(retry=5)
-    async def _generate_content(
-        self,
-        prompt: str,
-        req_file_data: list[Any] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
-        gem: Gem | str | None = None,
-        chat: Optional["ChatSession"] = None,
-        **kwargs,
-    ) -> ModelOutput:
-        assert prompt, "Prompt cannot be empty."
-
-        if isinstance(model, str):
-            model = Model.from_name(model)
-        elif isinstance(model, dict):
-            model = Model.from_dict(model)
-        elif not isinstance(model, Model):
-            raise TypeError(
-                f"'model' must be a `gemini_webapi.constants.Model` instance, "
-                f"string, or dictionary; got `{type(model).__name__}`"
-            )
-
-        req_id = self._reqid
-        self._reqid += 100000
-
-        if isinstance(gem, Gem):
-            gem_id = gem.id
-        else:
-            gem_id = gem
-
-        try:
-            message_content = [
-                prompt,
-                0,
-                None,
-                req_file_data,
-                None,
-                None,
-                0,
-            ]
-
-            params: dict[str, Any] = {"_reqid": req_id, "rt": "c"}
-            if self.cfb2h:
-                params["bl"] = self.cfb2h
-            if self.fdrfje:
-                params["f.sid"] = self.fdrfje
-
-            inner_req_list: list[Any] = [None] * 69
-            inner_req_list[0] = message_content
-            inner_req_list[2] = (
-                chat.metadata
-                if chat
-                else ["", "", "", None, None, None, None, None, None, ""]
-            )
-            if gem_id:
-                inner_req_list[19] = gem_id
-
-            response = await self.client.post(
-                Endpoint.GENERATE.value,
-                params=params,
-                headers=model.model_header,
-                data={
-                    "at": self.access_token,
-                    "f.req": json.dumps(
-                        [
-                            None,
-                            json.dumps(inner_req_list).decode("utf-8"),
-                        ]
-                    ).decode("utf-8"),
-                },
-                **kwargs,
-            )
-
-            if response.status_code != 200:
-                await self.close()
-                raise APIError(
-                    f"Failed to generate contents. Request failed with status code {response.status_code}"
-                )
-
-            if self.client:
-                self.cookies.update(self.client.cookies)
-
-            body: list[Any] = []
-            body_index = 0
-            response_json = extract_json_from_response(response.text)
-
-            for part_index, part in enumerate(response_json):
-                # 0. Update chat metadata first whenever available to support follow-up polls
-                part_body_str = get_nested_value(part, [2])
-                if part_body_str:
-                    try:
-                        part_json = json.loads(part_body_str)
-                        m_data = get_nested_value(part_json, [1])
-                        if m_data and isinstance(chat, ChatSession):
-                            chat.metadata = m_data
-
-                        # Update context string from index 25 if available
-                        context_str = get_nested_value(part_json, [25])
-                        if isinstance(context_str, str) and isinstance(
-                            chat, ChatSession
-                        ):
-                            chat.metadata = [None] * 9 + [context_str]
-
-                        if get_nested_value(part_json, [4]):
-                            body_index, body = part_index, part_json
-                            # Don't break immediately, we want the LAST part that has candidates
-                            # as it's usually the most complete one
-                    except json.JSONDecodeError:
-                        pass
-
-                # 1. Check for fatal error codes in any part
-                error_code = get_nested_value(part, [5, 2, 0, 1, 0])
-                if error_code:
-                    await self.close()
-                    match error_code:
-                        case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                            raise UsageLimitExceeded(
-                                f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
-                                "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
-                            )
-                        case ErrorCode.MODEL_INCONSISTENT:
-                            raise ModelInvalid(
-                                "The specified model is inconsistent with the conversation history. "
-                                "Please ensure you are using the same 'model' parameter throughout the entire ChatSession."
-                            )
-                        case ErrorCode.MODEL_HEADER_INVALID:
-                            raise ModelInvalid(
-                                f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "
-                                "Please update 'gemini_webapi' to the latest version or report this on GitHub if the problem persists."
-                            )
-                        case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                            raise TemporarilyBlocked(
-                                "Your IP address has been temporarily flagged or blocked by Google. "
-                                "Please try using a proxy, a different network, or wait for a while before retrying."
-                            )
-                        case _:
-                            raise APIError(
-                                f"Failed to generate contents. Unknown API error code: {error_code}. "
-                                "This might be a temporary Google service issue."
-                            )
-
-            if not body:
-                # Detect if model is busy analyzing data or in a waiting state
-                # Patterns at index 5 often indicate background processing or queueing.
-                for part in response_json:
-                    if "data_analysis_tool" in str(part):
-                        logger.debug(
-                            "Model is busy (thinking/analyzing). Polling again..."
-                        )
-                        raise APIError("Model is busy. Polling again...")
-
-                    status = get_nested_value(part, [5])
-                    if isinstance(status, list) and status:
-                        logger.debug(
-                            "Model is in a waiting state (queueing). Polling again..."
-                        )
-                        raise APIError("Model is busy. Polling again...")
-
-                await self.close()
-                raise APIError(
-                    "Failed to generate contents. Unexpected response data structure. Client will try to re-initialize on next request."
-                )
-
-            candidate_list: list[Any] = get_nested_value(body, [4], [], verbose=True)
-            output_candidates: list[Candidate] = []
-
-            for candidate_index, candidate in enumerate(candidate_list):
-                rcid = get_nested_value(candidate, [0])
-                if not rcid:
-                    continue  # Skip candidate if it has no rcid
-
-                # Text output and thoughts
-                text = get_nested_value(candidate, [1, 0], "")
-                if re.match(r"^http://googleusercontent\.com/card_content/\d+", text):
-                    text = get_nested_value(candidate, [22, 0]) or text
-
-                thoughts = get_nested_value(candidate, [37, 0, 0])
-
-                # Web images
-                web_images = []
-                for web_img_data in get_nested_value(candidate, [12, 1], []):
-                    url = get_nested_value(web_img_data, [0, 0, 0])
-                    if not url:
-                        continue
-
-                    web_images.append(
-                        WebImage(
-                            url=url,
-                            title=get_nested_value(web_img_data, [7, 0], ""),
-                            alt=get_nested_value(web_img_data, [0, 4], ""),
-                            proxy=self.proxy,
-                        )
-                    )
-
-                # Generated images
-                generated_images = []
-                if get_nested_value(candidate, [12, 7, 0]):
-                    img_body = None
-                    for img_part_index, part in enumerate(response_json):
-                        if img_part_index < body_index:
-                            continue
-                        try:
-                            img_part_body_str = get_nested_value(part, [2])
-                            if not img_part_body_str:
-                                continue
-
-                            img_part_json = json.loads(img_part_body_str)
-                            if get_nested_value(
-                                img_part_json, [4, candidate_index, 12, 7, 0]
-                            ):
-                                img_body = img_part_json
-                        except json.JSONDecodeError:
-                            continue
-
-                    if not img_body:
-                        raise ImageGenerationError(
-                            "Failed to parse generated images. Please update gemini_webapi to the latest version. "
-                            "If the error persists and is caused by the package, please report it on GitHub."
-                        )
-
-                    img_candidate = get_nested_value(
-                        img_body, [4, candidate_index], [], verbose=True
-                    )
-
-                    if finished_text := get_nested_value(
-                        img_candidate, [1, 0]
-                    ):  # Only overwrite if new text is returned after image generation
-                        text = re.sub(
-                            r"http://googleusercontent\.com/image_generation_content/\d+",
-                            "",
-                            finished_text,
-                        ).rstrip()
-
-                    for img_index, gen_img_data in enumerate(
-                        get_nested_value(img_candidate, [12, 7, 0], [])
-                    ):
-                        url = get_nested_value(gen_img_data, [0, 3, 3])
-                        if not url:
-                            continue
-
-                        img_num = get_nested_value(gen_img_data, [3, 6])
-                        title = (
-                            f"[Generated Image {img_num}]"
-                            if img_num
-                            else "[Generated Image]"
-                        )
-
-                        alt_list = get_nested_value(gen_img_data, [3, 5], [])
-                        alt = (
-                            get_nested_value(alt_list, [img_index])
-                            or get_nested_value(alt_list, [0])
-                            or ""
-                        )
-
-                        generated_images.append(
-                            GeneratedImage(
-                                url=url,
-                                title=title,
-                                alt=alt,
-                                proxy=self.proxy,
-                                cookies=self.cookies,
-                            )
-                        )
-
-                output_candidates.append(
-                    Candidate(
-                        rcid=rcid,
-                        text=text,
-                        thoughts=thoughts,
-                        web_images=web_images,
-                        generated_images=generated_images,
-                    )
-                )
-
-            if not output_candidates:
+            if output is None:
                 raise GeminiError(
                     "Failed to generate contents. No output data found in response."
                 )
-
-            output = ModelOutput(
-                metadata=get_nested_value(body, [1], [], verbose=True),
-                candidates=output_candidates,
-            )
 
             if isinstance(chat, ChatSession):
                 chat.last_output = output
 
             return output
 
-        except ReadTimeout:
-            raise TimeoutError(
-                "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
-                "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
-            )
-        except (GeminiError, APIError):
-            raise
-        except Exception as e:
-            logger.debug(
-                f"{type(e).__name__}: {e}; Unexpected response or parsing error. Response: {locals().get('response', 'N/A')}"
-            )
-            raise APIError(f"Failed to parse response body: {e}")
+        finally:
+            if files:
+                for file in files:
+                    if isinstance(file, io.BytesIO):
+                        file.close()
 
     async def generate_content_stream(
         self,
@@ -764,6 +468,7 @@ class GeminiClient(GemMixin):
                 ]
             )
 
+            output = None
             async for output in self._generate_content_stream(
                 prompt=prompt,
                 req_file_data=file_data,
@@ -774,13 +479,14 @@ class GeminiClient(GemMixin):
             ):
                 yield output
 
+            if output and isinstance(chat, ChatSession):
+                chat.last_output = output
+
+        finally:
             if files:
                 for file in files:
                     if isinstance(file, io.BytesIO):
                         file.close()
-
-        except Exception:
-            raise
 
     @running(retry=5)
     async def _generate_content_stream(
@@ -1113,7 +819,7 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
-    @running(retry=5)
+    @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
         Execute a batch of requests to Gemini API.

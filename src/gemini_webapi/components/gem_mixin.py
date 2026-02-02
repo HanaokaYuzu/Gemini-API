@@ -41,7 +41,7 @@ class GemMixin:
 
         return self._gems
 
-    @running(retry=2)
+    @running(retry=1)
     async def fetch_gems(self, include_hidden: bool = False, **kwargs) -> GemJar:
         """
         Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
@@ -139,7 +139,7 @@ class GemMixin:
 
         return self._gems
 
-    @running(retry=2)
+    @running(retry=1)
     async def create_gem(self, name: str, prompt: str, description: str = "") -> Gem:
         """
         Create a new custom gem.
@@ -213,7 +213,6 @@ class GemMixin:
             predefined=False,
         )
 
-    @running(retry=2)
     async def update_gem(
         self, gem: Gem | str, name: str, prompt: str, description: str = ""
     ) -> Gem:
@@ -281,7 +280,6 @@ class GemMixin:
             predefined=False,
         )
 
-    @running(retry=2)
     async def delete_gem(self, gem: Gem | str, **kwargs) -> None:
         """
         Delete a custom gem.
