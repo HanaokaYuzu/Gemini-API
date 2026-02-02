@@ -95,8 +95,17 @@ async def get_access_token(
         and Path(GEMINI_COOKIE_PATH)
         or (Path(__file__).parent / "temp")
     )
-    if "__Secure-1PSID" in base_cookies:
-        filename = f".cached_1psidts_{base_cookies['__Secure-1PSID']}.txt"
+
+    # Safely get __Secure-1PSID value
+    if isinstance(base_cookies, Cookies):
+        secure_1psid = base_cookies.get(
+            "__Secure-1PSID", domain=".google.com"
+        ) or base_cookies.get("__Secure-1PSID")
+    else:
+        secure_1psid = base_cookies.get("__Secure-1PSID")
+
+    if secure_1psid:
+        filename = f".cached_1psidts_{secure_1psid}.txt"
         cache_file = cache_dir / filename
         if cache_file.is_file():
             cached_1psidts = cache_file.read_text()

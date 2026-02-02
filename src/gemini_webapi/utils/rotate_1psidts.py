@@ -2,19 +2,21 @@ import os
 import time
 from pathlib import Path
 
-from httpx import AsyncClient
+from httpx import AsyncClient, Cookies
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 
 
-async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str | None:
+async def rotate_1psidts(
+    cookies: dict | Cookies, proxy: str | None = None
+) -> str | None:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
     Parameters
     ----------
-    cookies : `dict`
+    cookies : `dict | httpx.Cookies`
         Cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
@@ -38,7 +40,20 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str | None:
         or (Path(__file__).parent / "temp")
     )
     path.mkdir(parents=True, exist_ok=True)
-    filename = f".cached_1psidts_{cookies['__Secure-1PSID']}.txt"
+
+    # Safely get __Secure-1PSID value for filename
+    if isinstance(cookies, Cookies):
+        # Prefer .google.com domain to avoid CookieConflict
+        secure_1psid = cookies.get(
+            "__Secure-1PSID", domain=".google.com"
+        ) or cookies.get("__Secure-1PSID")
+    else:
+        secure_1psid = cookies.get("__Secure-1PSID")
+
+    if not secure_1psid:
+        return None
+
+    filename = f".cached_1psidts_{secure_1psid}.txt"
     path = path / filename
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
@@ -50,7 +65,7 @@ async def rotate_1psidts(cookies: dict, proxy: str | None = None) -> str | None:
             url=Endpoint.ROTATE_COOKIES.value,
             headers=Headers.ROTATE_COOKIES.value,
             cookies=cookies,
-            data='[000,"-0000000000000000000"]',
+            content='[000,"-0000000000000000000"]',
         )
         if response.status_code == 401:
             raise AuthError

@@ -254,9 +254,11 @@ class GeminiClient(GemMixin):
                 async with self._lock:
                     new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
 
-                    temp_cookies = self.cookies.copy()
+                    temp_cookies = Cookies(self.cookies)
                     if new_1psidts:
-                        temp_cookies["__Secure-1PSIDTS"] = new_1psidts
+                        temp_cookies.set(
+                            "__Secure-1PSIDTS", new_1psidts, domain=".google.com"
+                        )
 
                     access_token, valid_cookies, cfb2h, fdrfje = await get_access_token(
                         base_cookies=temp_cookies,
