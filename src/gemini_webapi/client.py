@@ -11,7 +11,7 @@ import orjson as json
 from httpx import AsyncClient, ReadTimeout, Response
 
 from .components import GemMixin
-from .constants import Endpoint, ErrorCode, Headers, Model
+from .constants import Endpoint, ErrorCode, GRPC, Headers, Model
 from .exceptions import (
     APIError,
     AuthError,
@@ -114,7 +114,7 @@ class GeminiClient(GemMixin):
         self.refresh_task: Task | None = None
         self.verbose: bool = True
         self._lock = asyncio.Lock()
-        self._reqid: int = 0
+        self._reqid: int = random.randint(10000, 99999)
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -331,8 +331,20 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
+        if not (isinstance(chat, ChatSession) and chat.cid):
+            self._reqid = random.randint(10000, 99999)
+
         file_data = None
         if files:
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
+            )
+
             uploaded_urls = await asyncio.gather(
                 *(upload_file(file, self.proxy) for file in files)
             )
@@ -340,11 +352,17 @@ class GeminiClient(GemMixin):
                 [[url], parse_file_name(file)]
                 for url, file in zip(uploaded_urls, files)
             ]
-        if isinstance(chat, ChatSession) and chat.cid:
-            self._reqid += 100000
-        else:
-            self._reqid = random.randint(10000, 99999)
+
         try:
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
+            )
+
             output = await self._generate_content(
                 prompt=prompt,
                 req_file_data=file_data,
@@ -386,6 +404,9 @@ class GeminiClient(GemMixin):
                 f"string, or dictionary; got `{type(model).__name__}`"
             )
 
+        req_id = self._reqid
+        self._reqid += 100000
+
         if isinstance(gem, Gem):
             gem_id = gem.id
         else:
@@ -402,7 +423,7 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params: dict[str, Any] = {"_reqid": self._reqid, "rt": "c"}
+            params: dict[str, Any] = {"_reqid": req_id, "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
             if self.fdrfje:
@@ -707,8 +728,20 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
+        if not (isinstance(chat, ChatSession) and chat.cid):
+            self._reqid = random.randint(10000, 99999)
+
         file_data = None
         if files:
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
+            )
+
             uploaded_urls = await asyncio.gather(
                 *(upload_file(file, self.proxy) for file in files)
             )
@@ -716,11 +749,17 @@ class GeminiClient(GemMixin):
                 [[url], parse_file_name(file)]
                 for url, file in zip(uploaded_urls, files)
             ]
-        if isinstance(chat, ChatSession) and chat.cid:
-            self._reqid += 100000
-        else:
-            self._reqid = random.randint(10000, 99999)
+
         try:
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
+            )
+
             async for output in self._generate_content_stream(
                 prompt=prompt,
                 req_file_data=file_data,
@@ -761,6 +800,9 @@ class GeminiClient(GemMixin):
                 f"string, or dictionary; got `{type(model).__name__}`"
             )
 
+        req_id = self._reqid
+        self._reqid += 100000
+
         gem_id = gem.id if isinstance(gem, Gem) else gem
 
         try:
@@ -774,7 +816,7 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params: dict[str, Any] = {"_reqid": self._reqid, "rt": "c"}
+            params: dict[str, Any] = {"_reqid": req_id, "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
             if self.fdrfje:
@@ -1071,8 +1113,8 @@ class GeminiClient(GemMixin):
 
         Parameters
         ----------
-        payloads: `list[GRPC]`
-            List of `gemini_webapi.types.GRPC` objects to be executed.
+        payloads: `list[RPCData]`
+            List of `gemini_webapi.types.RPCData` objects to be executed.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
@@ -1082,10 +1124,23 @@ class GeminiClient(GemMixin):
         :class:`httpx.Response`
             Response object containing the result of the batch execution.
         """
-
+        req_id = self._reqid
+        self._reqid += 100000
         try:
+            params: dict[str, Any] = {
+                "rpcids": ",".join([p.rpcid.value for p in payloads]),
+                "_reqid": req_id,
+                "rt": "c",
+                "source-path": "/app",
+            }
+            if self.cfb2h:
+                params["bl"] = self.cfb2h
+            if self.fdrfje:
+                params["f.sid"] = self.fdrfje
+
             response = await self.client.post(
                 Endpoint.BATCH_EXEC,
+                params=params,
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
