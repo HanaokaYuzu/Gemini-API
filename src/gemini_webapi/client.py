@@ -55,7 +55,7 @@ class GeminiClient(GemMixin):
     secure_1psid: `str`, optional
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
-        __Secure-1PSIDTS cookie value, some google accounts don't require this value, provide only if it's in the cookie list.
+        __Secure-1PSIDTS cookie value, some Google accounts don't require this value, provide only if it's in the cookie list.
     proxy: `str`, optional
         Proxy URL.
     kwargs: `dict`, optional
@@ -336,7 +336,10 @@ class GeminiClient(GemMixin):
                 [[url], parse_file_name(file)]
                 for url, file in zip(uploaded_urls, files)
             ]
-
+        if isinstance(chat, ChatSession) and chat.cid:
+            self._reqid += 100000
+        else:
+            self._reqid = random.randint(10000, 99999)
         try:
             output = await self._generate_content(
                 prompt=prompt,
@@ -395,14 +398,9 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params: dict[str, Any] = {"rt": "c"}
+            params: dict[str, Any] = {"_reqid": self._reqid, "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
-            if isinstance(chat, ChatSession) and chat.cid:
-                self._reqid += 100000
-            else:
-                self._reqid = random.randint(10000, 99999)
-            params["_reqid"] = self._reqid
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
@@ -712,7 +710,10 @@ class GeminiClient(GemMixin):
                 [[url], parse_file_name(file)]
                 for url, file in zip(uploaded_urls, files)
             ]
-
+        if isinstance(chat, ChatSession) and chat.cid:
+            self._reqid += 100000
+        else:
+            self._reqid = random.randint(10000, 99999)
         try:
             async for output in self._generate_content_stream(
                 prompt=prompt,
@@ -767,14 +768,9 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params: dict[str, Any] = {"rt": "c"}
+            params: dict[str, Any] = {"_reqid": self._reqid, "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
-            if isinstance(chat, ChatSession) and chat.cid:
-                self._reqid += 100000
-            else:
-                self._reqid = random.randint(10000, 99999)
-            params["_reqid"] = self._reqid
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
