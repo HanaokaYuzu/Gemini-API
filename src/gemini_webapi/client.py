@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 import orjson as json
-from httpx import AsyncClient, ReadTimeout, Response
+from httpx import AsyncClient, Cookies, ReadTimeout, Response
 
 from .components import GemMixin
 from .constants import Endpoint, ErrorCode, GRPC, Headers, Model
@@ -98,7 +98,7 @@ class GeminiClient(GemMixin):
         **kwargs,
     ):
         super().__init__()
-        self.cookies = {}
+        self.cookies = Cookies()
         self.proxy = proxy
         self._running: bool = False
         self.client: AsyncClient | None = None
@@ -118,9 +118,11 @@ class GeminiClient(GemMixin):
         self.kwargs = kwargs
 
         if secure_1psid:
-            self.cookies["__Secure-1PSID"] = secure_1psid
+            self.cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
             if secure_1psidts:
-                self.cookies["__Secure-1PSIDTS"] = secure_1psidts
+                self.cookies.set(
+                    "__Secure-1PSIDTS", secure_1psidts, domain=".google.com"
+                )
 
     async def init(
         self,
@@ -460,6 +462,9 @@ class GeminiClient(GemMixin):
                 raise APIError(
                     f"Failed to generate contents. Request failed with status code {response.status_code}"
                 )
+
+            if self.client:
+                self.cookies.update(self.client.cookies)
 
             body: list[Any] = []
             body_index = 0
@@ -857,6 +862,9 @@ class GeminiClient(GemMixin):
                         f"Failed to generate contents. Status: {response.status_code}"
                     )
 
+                if self.client:
+                    self.cookies.update(self.client.cookies)
+
                 buffer = ""
                 decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
@@ -1160,6 +1168,9 @@ class GeminiClient(GemMixin):
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )
+
+        if self.client:
+            self.cookies.update(self.client.cookies)
 
         return response
 
