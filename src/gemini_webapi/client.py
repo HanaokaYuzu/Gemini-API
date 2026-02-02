@@ -1155,8 +1155,6 @@ class GeminiClient(GemMixin):
                 "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
             )
 
-        # ? Seems like batch execution will immediately invalidate the current access token,
-        # ? causing the next request to fail with 401 Unauthorized.
         if response.status_code != 200:
             await self.close()
             raise APIError(

@@ -59,9 +59,9 @@ async def get_access_token(
     `dict`
         Cookies of the successful request.
     `str`, optional
-        Build label (cfb2h).
+        `bl` value.
     `str`, optional
-        FdrFJe value.
+        `f.sid` value.
 
     Raises
     ------
