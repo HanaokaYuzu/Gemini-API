@@ -242,7 +242,7 @@ class GeminiClient(GemMixin):
 
     async def start_auto_refresh(self) -> None:
         """
-        Start the background task to automatically refresh cookies and access token.
+        Start the background task to automatically refresh cookies.
         """
         if self.refresh_interval < 60:
             self.refresh_interval = 60
@@ -255,20 +255,30 @@ class GeminiClient(GemMixin):
 
             try:
                 async with self._lock:
-                    # Only rotate __Secure-1PSIDTS cookie to keep login alive.
-                    new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
+                    # Refresh all cookies in the background to keep the session alive.
+                    new_1psidts, rotated_cookies = await rotate_1psidts(
+                        self.cookies, self.proxy
+                    )
+                    if rotated_cookies:
+                        self.cookies.update(rotated_cookies)
+                        if self.client:
+                            self.client.cookies.update(rotated_cookies)
 
                     if new_1psidts:
-                        self.cookies.set(
-                            "__Secure-1PSIDTS", new_1psidts, domain=".google.com"
-                        )
-                        if self.client:
-                            self.client.cookies.set(
-                                "__Secure-1PSIDTS", new_1psidts, domain=".google.com"
+                        if rotated_cookies:
+                            logger.debug(
+                                f"Cookies refreshed (network update). "
+                                f"Session SID preserved: f.sid={self.fdrfje}"
                             )
-
-                        logger.debug(
-                            f"Cookies refreshed. Session SID preserved (f.sid={self.fdrfje})."
+                        else:
+                            logger.debug(
+                                f"Cookies are up to date (cached). "
+                                f"Session SID preserved: f.sid={self.fdrfje}"
+                            )
+                    else:
+                        logger.warning(
+                            "Rotation response did not contain a new __Secure-1PSIDTS. "
+                            "Session might expire soon if this persists."
                         )
             except asyncio.CancelledError:
                 raise

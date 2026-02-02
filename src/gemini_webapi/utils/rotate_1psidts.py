@@ -10,7 +10,7 @@ from ..exceptions import AuthError
 
 async def rotate_1psidts(
     cookies: dict | Cookies, proxy: str | None = None
-) -> str | None:
+) -> tuple[str | None, Cookies | None]:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
@@ -23,8 +23,8 @@ async def rotate_1psidts(
 
     Returns
     -------
-    `str`
-        New value of the __Secure-1PSIDTS cookie.
+    `tuple[str | None, httpx.Cookies | None]`
+        New value of the __Secure-1PSIDTS cookie and the full updated cookies jar.
 
     Raises
     ------
@@ -51,14 +51,14 @@ async def rotate_1psidts(
         secure_1psid = cookies.get("__Secure-1PSID")
 
     if not secure_1psid:
-        return None
+        return None, None
 
     filename = f".cached_1psidts_{secure_1psid}.txt"
     path = path / filename
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
     if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
-        return path.read_text()
+        return path.read_text(), None
 
     async with AsyncClient(http2=True, proxy=proxy) as client:
         response = await client.post(
@@ -73,5 +73,5 @@ async def rotate_1psidts(
 
         if new_1psidts := response.cookies.get("__Secure-1PSIDTS"):
             path.write_text(new_1psidts)
-            return new_1psidts
-        return None
+            return new_1psidts, response.cookies
+        return None, response.cookies
