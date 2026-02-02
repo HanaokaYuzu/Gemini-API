@@ -28,7 +28,7 @@ async def send_request(
     ) as client:
         response = await client.get(Endpoint.INIT.value)
         response.raise_for_status()
-        return response, dict(client.cookies)
+        return response, cookies
 
 
 async def get_access_token(
@@ -59,9 +59,9 @@ async def get_access_token(
     `dict`
         Cookies of the successful request.
     `str`, optional
-        `bl` value.
+        Build label (cfb2h).
     `str`, optional
-        `f.sid` value.
+        FdrFJe value.
 
     Raises
     ------
