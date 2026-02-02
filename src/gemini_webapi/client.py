@@ -132,6 +132,7 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
+        force: bool = False,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -151,10 +152,12 @@ class GeminiClient(GemMixin):
             Time interval for background cookie and access token refresh in seconds. Effective only if `auto_refresh` is `True`.
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
+        force: `bool`, optional
+            If `True`, will re-initialize the client even if it's already running.
         """
 
         async with self._lock:
-            if self._running:
+            if self._running and not force:
                 return
 
             try:
@@ -252,28 +255,21 @@ class GeminiClient(GemMixin):
 
             try:
                 async with self._lock:
+                    # Only rotate __Secure-1PSIDTS cookie to keep login alive.
                     new_1psidts = await rotate_1psidts(self.cookies, self.proxy)
 
-                    temp_cookies = Cookies(self.cookies)
                     if new_1psidts:
-                        temp_cookies.set(
+                        self.cookies.set(
                             "__Secure-1PSIDTS", new_1psidts, domain=".google.com"
                         )
+                        if self.client:
+                            self.client.cookies.set(
+                                "__Secure-1PSIDTS", new_1psidts, domain=".google.com"
+                            )
 
-                    access_token, valid_cookies, cfb2h, fdrfje = await get_access_token(
-                        base_cookies=temp_cookies,
-                        proxy=self.proxy,
-                        verbose=self.verbose,
-                    )
-
-                    self.access_token = access_token
-                    self.cookies = valid_cookies
-                    self.cfb2h = cfb2h
-                    self.fdrfje = fdrfje
-                    if self._running and self.client:
-                        self.client.cookies = valid_cookies
-
-                    logger.debug("Cookies and access_token refreshed.")
+                        logger.debug(
+                            f"Cookies refreshed. Session SID preserved (f.sid={self.fdrfje})."
+                        )
             except asyncio.CancelledError:
                 raise
             except AuthError:
