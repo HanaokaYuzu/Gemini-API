@@ -132,7 +132,6 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
-        force: bool = False,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -152,12 +151,10 @@ class GeminiClient(GemMixin):
             Time interval for background cookie and access token refresh in seconds. Effective only if `auto_refresh` is `True`.
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
-        force: `bool`, optional
-            If `True`, will re-initialize the client even if it's already running.
         """
 
         async with self._lock:
-            if self._running and not force:
+            if self._running:
                 return
 
             try:
@@ -266,15 +263,9 @@ class GeminiClient(GemMixin):
 
                     if new_1psidts:
                         if rotated_cookies:
-                            logger.debug(
-                                f"Cookies refreshed (network update). "
-                                f"Session SID preserved: f.sid={self.fdrfje}"
-                            )
+                            logger.debug("Cookies refreshed (network update).")
                         else:
-                            logger.debug(
-                                f"Cookies are up to date (cached). "
-                                f"Session SID preserved: f.sid={self.fdrfje}"
-                            )
+                            logger.debug("Cookies are up to date (cached).")
                     else:
                         logger.warning(
                             "Rotation response did not contain a new __Secure-1PSIDTS. "
