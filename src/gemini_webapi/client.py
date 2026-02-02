@@ -267,7 +267,7 @@ class GeminiClient(GemMixin):
                     self.cfb2h = cfb2h
                     self.fdrfje = fdrfje
                     if self._running and self.client:
-                        self.client.cookies = valid_cookies
+                        self.client.cookies.update(valid_cookies)
 
                     logger.debug("Cookies and access_token refreshed.")
             except asyncio.CancelledError:
@@ -460,6 +460,8 @@ class GeminiClient(GemMixin):
                 raise APIError(
                     f"Failed to generate contents. Request failed with status code {response.status_code}"
                 )
+
+            self.cookies.update(dict(self.client.cookies))
 
             body: list[Any] = []
             body_index = 0
@@ -857,6 +859,8 @@ class GeminiClient(GemMixin):
                         f"Failed to generate contents. Status: {response.status_code}"
                     )
 
+                self.cookies.update(dict(self.client.cookies))
+
                 buffer = ""
                 decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
@@ -1155,13 +1159,13 @@ class GeminiClient(GemMixin):
                 "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
             )
 
-        # ? Seems like batch execution will immediately invalidate the current access token,
-        # ? causing the next request to fail with 401 Unauthorized.
         if response.status_code != 200:
             await self.close()
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )
+
+        self.cookies.update(dict(self.client.cookies))
 
         return response
 
