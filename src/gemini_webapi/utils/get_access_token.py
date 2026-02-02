@@ -33,7 +33,7 @@ async def send_request(
 
 async def get_access_token(
     base_cookies: dict, proxy: str | None = None, verbose: bool = False
-) -> tuple[str, dict, str | None]:
+) -> tuple[str, dict, str | None, str | None]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -60,6 +60,8 @@ async def get_access_token(
         Cookies of the successful request.
     `str`, optional
         Build label (cfb2h).
+    `str`, optional
+        FdrFJe value.
 
     Raises
     ------
@@ -179,6 +181,7 @@ async def get_access_token(
             match = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
             if match:
                 cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
+                fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
                 if verbose:
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
@@ -187,6 +190,7 @@ async def get_access_token(
                     match.group(1),
                     request_cookies,
                     cfb2h.group(1) if cfb2h else None,
+                    fdrfje.group(1) if fdrfje else None,
                 )
             elif verbose:
                 logger.debug(

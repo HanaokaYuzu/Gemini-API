@@ -75,6 +75,7 @@ class GeminiClient(GemMixin):
         "client",
         "access_token",
         "cfb2h",
+        "fdrfje",
         "timeout",
         "auto_close",
         "close_delay",
@@ -103,6 +104,7 @@ class GeminiClient(GemMixin):
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
         self.cfb2h: str | None = None
+        self.fdrfje: str | None = None
         self.timeout: float = 300
         self.auto_close: bool = False
         self.close_delay: float = 300
@@ -155,7 +157,7 @@ class GeminiClient(GemMixin):
 
             try:
                 self.verbose = verbose
-                access_token, valid_cookies, cfb2h = await get_access_token(
+                access_token, valid_cookies, cfb2h, fdrfje = await get_access_token(
                     base_cookies=self.cookies, proxy=self.proxy, verbose=self.verbose
                 )
 
@@ -171,6 +173,7 @@ class GeminiClient(GemMixin):
                 self.access_token = access_token
                 self.cookies = valid_cookies
                 self.cfb2h = cfb2h
+                self.fdrfje = fdrfje
                 self._running = True
 
                 self.timeout = timeout
@@ -253,7 +256,7 @@ class GeminiClient(GemMixin):
                     if new_1psidts:
                         temp_cookies["__Secure-1PSIDTS"] = new_1psidts
 
-                    access_token, valid_cookies, cfb2h = await get_access_token(
+                    access_token, valid_cookies, cfb2h, fdrfje = await get_access_token(
                         base_cookies=temp_cookies,
                         proxy=self.proxy,
                         verbose=self.verbose,
@@ -262,6 +265,7 @@ class GeminiClient(GemMixin):
                     self.access_token = access_token
                     self.cookies = valid_cookies
                     self.cfb2h = cfb2h
+                    self.fdrfje = fdrfje
                     if self._running and self.client:
                         self.client.cookies = valid_cookies
 
@@ -401,6 +405,8 @@ class GeminiClient(GemMixin):
             params: dict[str, Any] = {"_reqid": self._reqid, "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
+            if self.fdrfje:
+                params["f.sid"] = self.fdrfje
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
@@ -771,6 +777,8 @@ class GeminiClient(GemMixin):
             params: dict[str, Any] = {"_reqid": self._reqid, "rt": "c"}
             if self.cfb2h:
                 params["bl"] = self.cfb2h
+            if self.fdrfje:
+                params["f.sid"] = self.fdrfje
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
