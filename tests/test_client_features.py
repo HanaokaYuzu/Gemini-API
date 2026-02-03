@@ -31,6 +31,21 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response.text)
 
     @logger.catch(reraise=True)
+    async def test_streaming_mode(self):
+        full_text = ""
+        chunk_count = 0
+
+        async for chunk in self.geminiclient.generate_content_stream(
+            "What's the difference between 'await' and 'async for'?"
+        ):
+            full_text += chunk.text_delta
+            chunk_count += 1
+            print(chunk.text_delta, end="", flush=True)
+        print()
+
+        logger.debug(f"Total chunks: {chunk_count}")
+
+    @logger.catch(reraise=True)
     async def test_switch_model(self):
         for model in Model:
             if model.advanced_only:

@@ -33,6 +33,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - **System Prompt** - Supports customizing model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating contents with [Gemini extensions](https://gemini.google.com/extensions) on, like YouTube and Gmail.
 - **Classified Outputs** - Categorizes texts, thoughts, web images and AI generated images in the response.
+- **Streaming Mode** - Supports stream generation, yielding partial outputs as they are generated.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generating tasks and return outputs efficiently.
 
@@ -48,6 +49,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents with files](#generate-contents-with-files)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
+  - [Streaming mode](#streaming-mode)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Manage Custom Gems](#manage-custom-gems)
@@ -216,6 +218,28 @@ async def main():
 
 asyncio.run(main())
 ```
+
+### Streaming mode
+
+For longer responses, you can use streaming mode to receive partial outputs as they are generated. This provides a more responsive user experience, especially for real-time applications like chatbots.
+
+The `generate_content_stream` method yields `ModelOutput` objects where the `text_delta` attribute contains only the **new characters** received since the last yield, making it easy to display incremental updates.
+
+```python
+async def main():
+    async for chunk in client.generate_content_stream(
+        "What's the difference between 'await' and 'async for'?"
+    ):
+        print(chunk.text_delta, end="", flush=True)
+
+    print()
+
+asyncio.run(main())
+```
+
+> [!TIP]
+>
+> You can also use streaming mode in multi-turn conversations with `ChatSession.send_message_stream`.
 
 ### Select language model
 
