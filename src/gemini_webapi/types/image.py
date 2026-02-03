@@ -1,8 +1,9 @@
 import re
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
-from httpx import AsyncClient, HTTPError
+from httpx import AsyncClient, Cookies, HTTPError
 from pydantic import BaseModel, field_validator
 
 from ..utils import logger
@@ -39,7 +40,7 @@ class Image(BaseModel):
         self,
         path: str = "temp",
         filename: str | None = None,
-        cookies: dict | None = None,
+        cookies: dict | Cookies | None = None,
         verbose: bool = False,
         skip_invalid_filename: bool = False,
     ) -> str | None:
@@ -81,7 +82,7 @@ class Image(BaseModel):
                 return None
 
         async with AsyncClient(
-            follow_redirects=True, cookies=cookies, proxy=self.proxy
+            http2=True, follow_redirects=True, cookies=cookies, proxy=self.proxy
         ) as client:
             response = await client.get(self.url)
             if response.status_code == 200:
@@ -121,16 +122,16 @@ class GeneratedImage(Image):
 
     Parameters
     ----------
-    cookies: `dict`
+    cookies: `dict | httpx.Cookies`
         Cookies used for requesting the content of the generated image, inherit from GeminiClient object or manually set.
         Should contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values.
     """
 
-    cookies: dict[str, str]
+    cookies: Any
 
     @field_validator("cookies")
     @classmethod
-    def validate_cookies(cls, v: dict) -> dict:
+    def validate_cookies(cls, v: Any) -> Any:
         if len(v) == 0:
             raise ValueError(
                 "GeneratedImage is designed to be initialized with same cookies as GeminiClient."
@@ -142,7 +143,7 @@ class GeneratedImage(Image):
         self,
         path: str = "temp",
         filename: str | None = None,
-        cookies: dict | None = None,
+        cookies: dict | Cookies | None = None,
         verbose: bool = False,
         skip_invalid_filename: bool = False,
         full_size: bool = True,
