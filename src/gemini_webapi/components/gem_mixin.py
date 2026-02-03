@@ -5,7 +5,7 @@ import orjson as json
 from ..constants import GRPC
 from ..exceptions import APIError
 from ..types import Gem, GemJar, RPCData
-from ..utils import running, logger, extract_json_from_response, get_nested_value
+from ..utils import extract_json_from_response, get_nested_value, logger
 
 
 class GemMixin:
@@ -41,7 +41,6 @@ class GemMixin:
 
         return self._gems
 
-    @running(retry=1)
     async def fetch_gems(self, include_hidden: bool = False, **kwargs) -> GemJar:
         """
         Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
@@ -139,7 +138,6 @@ class GemMixin:
 
         return self._gems
 
-    @running(retry=1)
     async def create_gem(self, name: str, prompt: str, description: str = "") -> Gem:
         """
         Create a new custom gem.

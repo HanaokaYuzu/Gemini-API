@@ -9,7 +9,10 @@ from ..constants import Endpoint, Headers
 
 
 def _generate_random_name(extension: str = ".txt") -> str:
-    """Generate a random filename using a large integer for better performance."""
+    """
+    Generate a random filename using a large integer for better performance.
+    """
+
     return f"input_{random.randint(1000000, 9999999)}{extension}"
 
 
@@ -63,7 +66,7 @@ async def upload_file(
 
     async with AsyncClient(http2=True, proxy=proxy) as client:
         response = await client.post(
-            url=Endpoint.UPLOAD.value,
+            url=Endpoint.UPLOAD,
             headers=Headers.UPLOAD.value,
             files={"file": (filename, file_content)},
             follow_redirects=True,

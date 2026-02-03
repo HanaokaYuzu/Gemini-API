@@ -6,6 +6,7 @@ import orjson as json
 
 from .logger import logger
 
+
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 
 
@@ -16,6 +17,7 @@ def _get_char_count_for_utf16_units(
     Calculate the number of Python characters (code points) and actual UTF-16
     units found.
     """
+
     count = 0
     units = 0
     limit = len(s)
@@ -27,6 +29,7 @@ def _get_char_count_for_utf16_units(
             break
         units += u
         count += 1
+
     return count, units
 
 
@@ -36,12 +39,18 @@ def get_nested_value(
     """
     Safely navigate through a nested structure (list or dict) using a sequence of keys/indices.
 
-    Args:
-        data: The nested structure to traverse.
-        path: A list of indices or keys representing the path.
-        default: Value to return if the path is invalid.
-        verbose: If True, log debug information when the path cannot be fully traversed.
+    Parameters
+    ----------
+    data: `Any`
+        The nested structure to traverse.
+    path: `list[int | str]`
+        A list of indices or keys representing the path.
+    default: `Any`
+        Value to return if the path is invalid.
+    verbose: `bool`
+        If True, log debug information when the path cannot be fully traversed.
     """
+
     current = data
 
     for i, key in enumerate(path):
@@ -72,6 +81,7 @@ def _parse_with_length_markers(content: str) -> list | None:
     Google's format: [length]\n[json_payload]\n
     The length value includes the newline after the number and the newline after the JSON.
     """
+
     pos = 0
     total_len = len(content)
     collected_chunks = []
@@ -144,6 +154,7 @@ def parse_stream_frames(buffer: str) -> tuple[list[Any], str]:
         - A list of parsed JSON objects (envelopes) extracted from the buffer.
         - The remaining unparsed part of the buffer (incomplete frames).
     """
+
     pos = 0
     total_len = len(buffer)
     parsed_objects = []
@@ -189,7 +200,10 @@ def parse_stream_frames(buffer: str) -> tuple[list[Any], str]:
 
 
 def extract_json_from_response(text: str) -> list:
-    """Extract and normalize JSON content from a Google API response."""
+    """
+    Extract and normalize JSON content from a Google API response.
+    """
+
     if not isinstance(text, str):
         raise TypeError(
             f"Input text is expected to be a string, got {type(text).__name__} instead."

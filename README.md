@@ -225,8 +225,8 @@ Currently available models (as of November 20, 2025):
 
 - `unspecified` - Default model
 - `gemini-3.0-pro` - Gemini 3.0 Pro
-- `gemini-2.5-pro` - Gemini 2.5 Pro
-- `gemini-2.5-flash` - Gemini 2.5 Flash
+- `gemini-3.0-flash` - Gemini 3.0 Flash
+- `gemini-3.0-flash-thinking` - Gemini 3.0 Flash Thinking
 
 ```python
 from gemini_webapi.constants import Model
@@ -234,9 +234,9 @@ from gemini_webapi.constants import Model
 async def main():
     response1 = await client.generate_content(
         "What's you language model version? Reply version number only.",
-        model=Model.G_2_5_FLASH,
+        model=Model.G_3_0_FLASH,
     )
-    print(f"Model version ({Model.G_2_5_FLASH.model_name}): {response1.text}")
+    print(f"Model version ({Model.G_3_0_FLASH.model_name}): {response1.text}")
 
     chat = client.start_chat(model="gemini-2.5-pro")
     response2 = await chat.send_message("What's you language model version? Reply version number only.")
@@ -284,7 +284,7 @@ async def main():
 
     response1 = await client.generate_content(
         "what's your system prompt?",
-        model=Model.G_2_5_FLASH,
+        model=Model.G_3_0_FLASH,
         gem=coding_partner,
     )
     print(response1.text)

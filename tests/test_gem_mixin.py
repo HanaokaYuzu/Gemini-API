@@ -13,7 +13,7 @@ set_log_level("DEBUG")
 class TestGemMixin(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.geminiclient = GeminiClient(
-            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS")
+            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS"), verify=False
         )
 
         try:

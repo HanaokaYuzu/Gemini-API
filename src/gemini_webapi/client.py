@@ -72,8 +72,8 @@ class GeminiClient(GemMixin):
         "_running",
         "client",
         "access_token",
-        "cfb2h",
-        "fdrfje",
+        "build_label",
+        "session_id",
         "timeout",
         "auto_close",
         "close_delay",
@@ -101,8 +101,8 @@ class GeminiClient(GemMixin):
         self._running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
-        self.cfb2h: str | None = None
-        self.fdrfje: str | None = None
+        self.build_label: str | None = None
+        self.session_id: str | None = None
         self.timeout: float = 300
         self.auto_close: bool = False
         self.close_delay: float = 300
@@ -157,8 +157,13 @@ class GeminiClient(GemMixin):
 
             try:
                 self.verbose = verbose
-                access_token, valid_cookies, cfb2h, fdrfje = await get_access_token(
-                    base_cookies=self.cookies, proxy=self.proxy, verbose=self.verbose
+                access_token, build_label, session_id, valid_cookies = (
+                    await get_access_token(
+                        base_cookies=self.cookies,
+                        proxy=self.proxy,
+                        verbose=self.verbose,
+                        verify=self.kwargs.get("verify", True),
+                    )
                 )
 
                 self.client = AsyncClient(
@@ -172,8 +177,8 @@ class GeminiClient(GemMixin):
                 )
                 self.access_token = access_token
                 self.cookies = valid_cookies
-                self.cfb2h = cfb2h
-                self.fdrfje = fdrfje
+                self.build_label = build_label
+                self.session_id = session_id
                 self._running = True
 
                 self.timeout = timeout
@@ -327,6 +332,7 @@ class GeminiClient(GemMixin):
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
+
         if self.auto_close:
             await self.reset_close_task()
 
@@ -363,7 +369,7 @@ class GeminiClient(GemMixin):
             )
 
             output = None
-            async for output in self._generate_content_stream(
+            async for output in self._generate(
                 prompt=prompt,
                 req_file_data=file_data,
                 model=model,
@@ -433,6 +439,7 @@ class GeminiClient(GemMixin):
         `gemini_webapi.TimeoutError`
             If the stream request times out.
         """
+
         if self.auto_close:
             await self.reset_close_task()
 
@@ -469,7 +476,7 @@ class GeminiClient(GemMixin):
             )
 
             output = None
-            async for output in self._generate_content_stream(
+            async for output in self._generate(
                 prompt=prompt,
                 req_file_data=file_data,
                 model=model,
@@ -489,7 +496,7 @@ class GeminiClient(GemMixin):
                         file.close()
 
     @running(retry=5)
-    async def _generate_content_stream(
+    async def _generate(
         self,
         prompt: str,
         req_file_data: list[Any] | None = None,
@@ -498,6 +505,10 @@ class GeminiClient(GemMixin):
         chat: Optional["ChatSession"] = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
+        """
+        Internal method which actually sends content generation requests.
+        """
+
         assert prompt, "Prompt cannot be empty."
 
         if isinstance(model, str):
@@ -510,7 +521,7 @@ class GeminiClient(GemMixin):
                 f"string, or dictionary; got `{type(model).__name__}`"
             )
 
-        req_id = self._reqid
+        _reqid = self._reqid
         self._reqid += 100000
 
         gem_id = gem.id if isinstance(gem, Gem) else gem
@@ -526,11 +537,11 @@ class GeminiClient(GemMixin):
                 0,
             ]
 
-            params: dict[str, Any] = {"_reqid": req_id, "rt": "c"}
-            if self.cfb2h:
-                params["bl"] = self.cfb2h
-            if self.fdrfje:
-                params["f.sid"] = self.fdrfje
+            params: dict[str, Any] = {"_reqid": _reqid, "rt": "c"}
+            if self.build_label:
+                params["bl"] = self.build_label
+            if self.session_id:
+                params["f.sid"] = self.session_id
 
             inner_req_list: list[Any] = [None] * 69
             inner_req_list[0] = message_content
@@ -555,7 +566,7 @@ class GeminiClient(GemMixin):
 
             async with self.client.stream(
                 "POST",
-                Endpoint.GENERATE.value,
+                Endpoint.GENERATE,
                 params=params,
                 headers=model.model_header,
                 data=request_data,
@@ -687,9 +698,9 @@ class GeminiClient(GemMixin):
                                         or text
                                     )
 
-                                # Cleanup image generation artifacts
+                                # Cleanup googleusercontent artifacts
                                 text = re.sub(
-                                    r"http://googleusercontent\.com/image_generation_content/\d+",
+                                    r"http://googleusercontent\.com/\w+/\d+\n*",
                                     "",
                                     text,
                                 ).rstrip()
@@ -732,9 +743,11 @@ class GeminiClient(GemMixin):
                                         generated_images.append(
                                             GeneratedImage(
                                                 url=url,
-                                                title=f"[Generated Image {img_num}]"
-                                                if img_num
-                                                else "[Generated Image]",
+                                                title=(
+                                                    f"[Generated Image {img_num}]"
+                                                    if img_num
+                                                    else "[Generated Image]"
+                                                ),
                                                 alt=get_nested_value(alt_list, [0], ""),
                                                 proxy=self.proxy,
                                                 cookies=self.cookies,
@@ -837,19 +850,21 @@ class GeminiClient(GemMixin):
         :class:`httpx.Response`
             Response object containing the result of the batch execution.
         """
-        req_id = self._reqid
+
+        _reqid = self._reqid
         self._reqid += 100000
+
         try:
             params: dict[str, Any] = {
                 "rpcids": ",".join([p.rpcid.value for p in payloads]),
-                "_reqid": req_id,
+                "_reqid": _reqid,
                 "rt": "c",
                 "source-path": "/app",
             }
-            if self.cfb2h:
-                params["bl"] = self.cfb2h
-            if self.fdrfje:
-                params["f.sid"] = self.fdrfje
+            if self.build_label:
+                params["bl"] = self.build_label
+            if self.session_id:
+                params["f.sid"] = self.session_id
 
             response = await self.client.post(
                 Endpoint.BATCH_EXEC,
@@ -1035,6 +1050,7 @@ class ChatSession:
         :class:`ModelOutput`
             Partial output data containing text deltas.
         """
+
         async for output in self.geminiclient.generate_content_stream(
             prompt=prompt,
             files=files,
@@ -1085,6 +1101,7 @@ class ChatSession:
     def metadata(self, value: list[str]):
         if not isinstance(value, list):
             return
+
         # Update only non-None elements to preserve existing CID/RID/RCID/Context
         for i, val in enumerate(value):
             if i < 10 and val is not None:

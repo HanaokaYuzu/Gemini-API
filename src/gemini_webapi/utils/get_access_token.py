@@ -26,13 +26,16 @@ async def send_request(
         cookies=cookies,
         follow_redirects=True,
     ) as client:
-        response = await client.get(Endpoint.INIT.value)
+        response = await client.get(Endpoint.INIT)
         response.raise_for_status()
         return response, client.cookies
 
 
 async def get_access_token(
-    base_cookies: dict | Cookies, proxy: str | None = None, verbose: bool = False
+    base_cookies: dict | Cookies,
+    proxy: str | None = None,
+    verbose: bool = False,
+    verify: bool = True,
 ) -> tuple[str, Cookies, str | None, str | None]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
@@ -51,17 +54,13 @@ async def get_access_token(
         Proxy URL.
     verbose: `bool`, optional
         If `True`, will print more infomation in logs.
+    verify: `bool`, optional
+        Whether to verify SSL certificates.
 
     Returns
     -------
-    `str`
-        Access token.
-    `httpx.Cookies`
-        Cookies of the successful request.
-    `str`, optional
-        `bl` value.
-    `str`, optional
-        `f.sid` value.
+    `tuple[str, str | None, str | None, Cookies]`
+        By order: access token; build label; session id; cookies of the successful request.
 
     Raises
     ------
@@ -69,8 +68,10 @@ async def get_access_token(
         If all requests failed.
     """
 
-    async with AsyncClient(http2=True, proxy=proxy, follow_redirects=True) as client:
-        response = await client.get(Endpoint.GOOGLE.value)
+    async with AsyncClient(
+        http2=True, proxy=proxy, follow_redirects=True, verify=verify
+    ) as client:
+        response = await client.get(Endpoint.GOOGLE)
 
     extra_cookies = Cookies()
     if response.status_code == 200:
@@ -187,8 +188,8 @@ async def get_access_token(
     for i, future in enumerate(asyncio.as_completed(tasks)):
         try:
             response, request_cookies = await future
-            match = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
-            if match:
+            snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
+            if snlm0e:
                 cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
                 fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
                 if verbose:
@@ -196,10 +197,10 @@ async def get_access_token(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
                     )
                 return (
-                    match.group(1),
-                    request_cookies,
+                    snlm0e.group(1),
                     cfb2h.group(1) if cfb2h else None,
                     fdrfje.group(1) if fdrfje else None,
+                    request_cookies,
                 )
             elif verbose:
                 logger.debug(
