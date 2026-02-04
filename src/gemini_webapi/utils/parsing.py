@@ -56,7 +56,7 @@ def get_nested_value(
     for i, key in enumerate(path):
         found = False
         if isinstance(key, int):
-            if isinstance(current, list) and 0 <= key < len(current):
+            if isinstance(current, list) and -len(current) <= key < len(current):
                 current = current[key]
                 found = True
         elif isinstance(key, str):

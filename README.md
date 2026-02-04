@@ -297,7 +297,7 @@ System prompt can be applied to conversations via [Gemini Gems](https://gemini.g
 ```python
 async def main():
     # Fetch all gems for the current account, including both predefined and user-created ones
-    await client.fetch_gems(include_hidden=False)
+    await client.fetch_gems(include_hidden=False, language="en")
 
     # Once fetched, gems will be cached in `GeminiClient.gems`
     gems = client.gems

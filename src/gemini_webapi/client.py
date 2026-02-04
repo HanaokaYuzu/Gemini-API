@@ -856,7 +856,7 @@ class GeminiClient(GemMixin):
 
         try:
             params: dict[str, Any] = {
-                "rpcids": ",".join([p.rpcid.value for p in payloads]),
+                "rpcids": ",".join([p.rpcid for p in payloads]),
                 "_reqid": _reqid,
                 "rt": "c",
                 "source-path": "/app",
