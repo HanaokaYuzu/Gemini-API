@@ -761,6 +761,16 @@ class GeminiClient(GemMixin):
                                 text_delta = text
                                 if text.startswith(last_text):
                                     text_delta = text[len(last_text) :]
+                                elif last_text:
+                                    # Fallback for when last_text has auto-appended suffixes like "\n```" or "```"
+                                    # caused by Gemini web's post-processing mechanism (to ensure valid Markdown
+                                    # during streaming), which are missing in the next raw snapshot.
+                                    for suffix in ["\n```", "```", "\n"]:
+                                        if last_text.endswith(suffix):
+                                            test_prefix = last_text[: -len(suffix)]
+                                            if text.startswith(test_prefix):
+                                                text_delta = text[len(test_prefix) :]
+                                                break
 
                                 thoughts_delta = thoughts
                                 if thoughts.startswith(last_thought):
