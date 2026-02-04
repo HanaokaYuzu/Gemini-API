@@ -25,6 +25,9 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
+    # Activity methods
+    BARD_ACTIVITY = "ESY5D"
+
 
     # Delete methods
     DELETE_CHAT1 = "GzXR5e"
@@ -38,7 +41,7 @@ class Headers(Enum):
         "Host": "gemini.google.com",
         "Origin": "https://gemini.google.com",
         "Referer": "https://gemini.google.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
         "X-Same-Domain": "1",
     }
     ROTATE_COOKIES = {
@@ -52,21 +55,21 @@ class Model(Enum):
     G_3_0_PRO = (
         "gemini-3.0-pro",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]'
         },
         False,
     )
-    G_2_5_PRO = (
-        "gemini-2.5-pro",
+    G_3_0_FLASH = (
+        "gemini-3.0-flash",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]'
         },
         False,
     )
-    G_2_5_FLASH = (
-        "gemini-2.5-flash",
+    G_3_0_FLASH_THINKING = (
+        "gemini-3.0-flash-thinking",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]'
         },
         False,
     )

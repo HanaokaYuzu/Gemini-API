@@ -5,7 +5,7 @@ import orjson as json
 from ..constants import GRPC
 from ..exceptions import APIError
 from ..types import Gem, GemJar, RPCData
-from ..utils import running, logger
+from ..utils import extract_json_from_response, get_nested_value, logger
 
 
 class GemMixin:
@@ -41,8 +41,9 @@ class GemMixin:
 
         return self._gems
 
-    @running(retry=2)
-    async def fetch_gems(self, include_hidden: bool = False, **kwargs) -> GemJar:
+    async def fetch_gems(
+        self, include_hidden: bool = False, language: str = "en", **kwargs
+    ) -> GemJar:
         """
         Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
 
@@ -54,6 +55,8 @@ class GemMixin:
         include_hidden: `bool`, optional
             There are some predefined gems that by default are not shown to users (and therefore may not work properly).
             Set this parameter to `True` to include them in the fetched gem list.
+        language: `str`, optional
+            Language code for the gems to fetch. Default is 'en'.
 
         Returns
         -------
@@ -65,12 +68,16 @@ class GemMixin:
             [
                 RPCData(
                     rpcid=GRPC.LIST_GEMS,
-                    payload="[4]" if include_hidden else "[3]",
+                    payload=(
+                        f"[4,['{language}'],0]"
+                        if include_hidden
+                        else f"[3,['{language}'],0]"
+                    ),
                     identifier="system",
                 ),
                 RPCData(
                     rpcid=GRPC.LIST_GEMS,
-                    payload="[2]",
+                    payload=f"[2,['{language}'],0]",
                     identifier="custom",
                 ),
             ],
@@ -78,24 +85,32 @@ class GemMixin:
         )
 
         try:
-            response_json = json.loads(response.text.split("\n")[2])
+            response_json = extract_json_from_response(response.text)
 
             predefined_gems, custom_gems = [], []
 
             for part in response_json:
-                if part[-1] == "system":
-                    predefined_gems = json.loads(part[2])[2]
-                elif part[-1] == "custom":
-                    if custom_gems_container := json.loads(part[2]):
-                        custom_gems = custom_gems_container[2]
+                try:
+                    identifier = get_nested_value(part, [-1])
+                    part_body_str = get_nested_value(part, [2])
+                    if not part_body_str:
+                        continue
+
+                    part_body = json.loads(part_body_str)
+                    if identifier == "system":
+                        predefined_gems = get_nested_value(part_body, [2], [])
+                    elif identifier == "custom":
+                        custom_gems = get_nested_value(part_body, [2], [])
+                except json.JSONDecodeError:
+                    continue
 
             if not predefined_gems and not custom_gems:
                 raise Exception
         except Exception:
             await self.close()
-            logger.debug(f"Invalid response: {response.text}")
+            logger.debug(f"Unexpected response data structure: {response.text}")
             raise APIError(
-                "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
+                "Failed to fetch gems. Unexpected response data structure. Client will try to re-initialize on next request."
             )
 
         self._gems = GemJar(
@@ -131,7 +146,6 @@ class GemMixin:
 
         return self._gems
 
-    @running(retry=2)
     async def create_gem(self, name: str, prompt: str, description: str = "") -> Gem:
         """
         Create a new custom gem.
@@ -175,19 +189,26 @@ class GemMixin:
                                 [],
                             ]
                         ]
-                    ).decode(),
+                    ).decode("utf-8"),
                 )
             ]
         )
 
         try:
-            response_json = json.loads(response.text.split("\n")[2])
-            gem_id = json.loads(response_json[0][2])[0]
+            response_json = extract_json_from_response(response.text)
+            part_body_str = get_nested_value(response_json, [0, 2], verbose=True)
+            if not part_body_str:
+                raise Exception
+
+            part_body = json.loads(part_body_str)
+            gem_id = get_nested_value(part_body, [0], verbose=True)
+            if not gem_id:
+                raise Exception
         except Exception:
             await self.close()
-            logger.debug(f"Invalid response: {response.text}")
+            logger.debug(f"Unexpected response data structure: {response.text}")
             raise APIError(
-                "Failed to create gem. Invalid response data received. Client will try to re-initialize on next request."
+                "Failed to create gem. Unexpected response data structure. Client will try to re-initialize on next request."
             )
 
         return Gem(
@@ -198,7 +219,6 @@ class GemMixin:
             predefined=False,
         )
 
-    @running(retry=2)
     async def update_gem(
         self, gem: Gem | str, name: str, prompt: str, description: str = ""
     ) -> Gem:
@@ -253,7 +273,7 @@ class GemMixin:
                                 0,
                             ],
                         ]
-                    ).decode(),
+                    ).decode("utf-8"),
                 )
             ]
         )
@@ -266,7 +286,6 @@ class GemMixin:
             predefined=False,
         )
 
-    @running(retry=2)
     async def delete_gem(self, gem: Gem | str, **kwargs) -> None:
         """
         Delete a custom gem.
@@ -283,6 +302,10 @@ class GemMixin:
             gem_id = gem
 
         await self._batch_execute(
-            [RPCData(rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem_id]).decode())],
+            [
+                RPCData(
+                    rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem_id]).decode("utf-8")
+                )
+            ],
             **kwargs,
         )

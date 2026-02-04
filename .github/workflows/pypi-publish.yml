@@ -36,7 +36,7 @@ jobs:
       - name: Build package
         run: python -m build
       - name: Archive production artifacts
-        uses: actions/upload-artifact@v5.0.0
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: dist
           path: dist
@@ -52,7 +52,7 @@ jobs:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
     steps:
       - name: Retrieve built artifacts
-        uses: actions/download-artifact@v6.0.0
+        uses: actions/download-artifact@v7.0.0
         with:
           name: dist
           path: dist

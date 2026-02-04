@@ -1,13 +1,18 @@
 import asyncio
 import functools
+import inspect
 from collections.abc import Callable
 
-from ..exceptions import APIError, ImageGenerationError
+from ..exceptions import APIError
+
+
+DELAY_FACTOR = 5
 
 
 def running(retry: int = 0) -> Callable:
     """
     Decorator to check if GeminiClient is running before making a request.
+    Supports both regular async functions and async generators.
 
     Parameters
     ----------
@@ -16,38 +21,78 @@ def running(retry: int = 0) -> Callable:
     """
 
     def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(client, *args, retry=retry, **kwargs):
-            try:
-                if not client._running:
-                    await client.init(
-                        timeout=client.timeout,
-                        auto_close=client.auto_close,
-                        close_delay=client.close_delay,
-                        auto_refresh=client.auto_refresh,
-                        refresh_interval=client.refresh_interval,
-                        verbose=False,
-                    )
-                    if client._running:
-                        return await func(client, *args, **kwargs)
+        if inspect.isasyncgenfunction(func):
 
-                    # Should not reach here
-                    raise APIError(
-                        f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
-                    )
-                else:
+            @functools.wraps(func)
+            async def wrapper(client, *args, current_retry=None, **kwargs):
+                if current_retry is None:
+                    current_retry = retry
+
+                try:
+                    if not client._running:
+                        await client.init(
+                            timeout=client.timeout,
+                            auto_close=client.auto_close,
+                            close_delay=client.close_delay,
+                            auto_refresh=client.auto_refresh,
+                            refresh_interval=client.refresh_interval,
+                            verbose=client.verbose,
+                        )
+
+                    if not client._running:
+                        raise APIError(
+                            f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
+                        )
+
+                    async for item in func(client, *args, **kwargs):
+                        yield item
+                except APIError:
+                    if current_retry > 0:
+                        delay = (retry - current_retry + 1) * DELAY_FACTOR
+                        await asyncio.sleep(delay)
+                        async for item in wrapper(
+                            client, *args, current_retry=current_retry - 1, **kwargs
+                        ):
+                            yield item
+                    else:
+                        raise
+
+            return wrapper
+        else:
+
+            @functools.wraps(func)
+            async def wrapper(client, *args, current_retry=None, **kwargs):
+                if current_retry is None:
+                    current_retry = retry
+
+                try:
+                    if not client._running:
+                        await client.init(
+                            timeout=client.timeout,
+                            auto_close=client.auto_close,
+                            close_delay=client.close_delay,
+                            auto_refresh=client.auto_refresh,
+                            refresh_interval=client.refresh_interval,
+                            verbose=client.verbose,
+                        )
+
+                    if not client._running:
+                        raise APIError(
+                            f"Invalid function call: GeminiClient.{func.__name__}. Client initialization failed."
+                        )
+
                     return await func(client, *args, **kwargs)
-            except APIError as e:
-                # Image generation takes too long, only retry once
-                if isinstance(e, ImageGenerationError):
-                    retry = min(1, retry)
+                except APIError:
+                    if current_retry > 0:
+                        delay = (retry - current_retry + 1) * DELAY_FACTOR
+                        await asyncio.sleep(delay)
 
-                if retry > 0:
-                    await asyncio.sleep(1)
-                    return await wrapper(client, *args, retry=retry - 1, **kwargs)
+                        return await wrapper(
+                            client, *args, current_retry=current_retry - 1, **kwargs
+                        )
 
-                raise
+                    raise
 
-        return wrapper
+            return wrapper
 
     return decorator
