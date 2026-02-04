@@ -40,8 +40,8 @@ from .utils import (
     upload_file,
 )
 
-ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~$:^])")
-FINGERPRINT_RE = re.compile(r"[\s\-\*\+\`#_>|~$:^\\]+", re.UNICODE)
+ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~$:^{}&])")
+FINGERPRINT_RE = re.compile(r"[\s\-\*\+\`#_>|~$:^\\{}\[\]()!&<]+", re.UNICODE)
 
 
 class GeminiClient(GemMixin):
@@ -782,15 +782,31 @@ class GeminiClient(GemMixin):
                                     if target_fp_len == 0:
                                         return new_c
 
-                                    low, high = 0, len(new_c)
-                                    p = len(new_c)
-                                    while low <= high:
-                                        mid = (low + high) // 2
+                                    # Find the range [p_low, p_high] where fingerprint length matches target
+                                    low, high_idx = 0, len(new_c)
+                                    p_low = len(new_c)
+                                    while low <= high_idx:
+                                        mid = (low + high_idx) // 2
                                         if _get_fp_len(new_c[:mid]) >= target_fp_len:
-                                            p = mid
-                                            high = mid - 1
+                                            p_low = mid
+                                            high_idx = mid - 1
                                         else:
                                             low = mid + 1
+
+                                    low, high_idx = p_low, len(new_c)
+                                    p_high = len(new_c)
+                                    while low <= high_idx:
+                                        mid = (low + high_idx) // 2
+                                        if _get_fp_len(new_c[:mid]) > target_fp_len:
+                                            p_high = mid
+                                            high_idx = mid - 1
+                                        else:
+                                            low = mid + 1
+
+                                    # Pick position closest to last_sent_clean to avoid duplicates during re-formatting
+                                    p = max(
+                                        p_low, min(p_high - 1, len(last_sent_clean))
+                                    )
                                     return new_c[p:]
 
                                 # Calculate deltas using Content-Length matching
