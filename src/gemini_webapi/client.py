@@ -40,8 +40,10 @@ from .utils import (
     upload_file,
 )
 
-ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~$:^{}&])")
-FINGERPRINT_RE = re.compile(r"[\s\-\*\+\`#_>|~$:^\\{}\[\]()!&<]+", re.UNICODE)
+ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")  # Include a dot (.)
+FINGERPRINT_RE = re.compile(
+    r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE
+)  # Do not include a dot (.)
 
 
 class GeminiClient(GemMixin):
