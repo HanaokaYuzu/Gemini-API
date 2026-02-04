@@ -18,6 +18,7 @@ class GRPC(StrEnum):
     # Chat methods
     LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
+    DELETE_CHAT = "GzXR5e"
 
     # Gem methods
     LIST_GEMS = "CNgdBe"

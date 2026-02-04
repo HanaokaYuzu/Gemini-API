@@ -832,6 +832,25 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
+    async def delete_chat(self, cid: str) -> None:
+        """
+        Delete a specific conversation by chat id.
+
+        Parameters
+        ----------
+        cid: `str`
+            The ID of the chat requiring deletion (e.g. "c_...").
+        """
+
+        await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.DELETE_CHAT,
+                    payload=json.dumps([cid]),
+                ),
+            ]
+        )
+
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
