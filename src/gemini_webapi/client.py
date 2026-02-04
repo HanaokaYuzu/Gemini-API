@@ -596,16 +596,12 @@ class GeminiClient(GemMixin):
                 is_busy = False
                 has_candidates = False
 
-                async for chunk in response.aiter_bytes():
-                    buffer += decoder.decode(chunk, final=False)
-                    if buffer.startswith(")]}'"):
-                        buffer = buffer[4:].lstrip()
-
-                    parsed_parts, buffer = parse_stream_frames(buffer)
-
-                    for part in parsed_parts:
-                        part_json = None
-                        # 0. Update chat metadata first whenever available to support follow-up polls
+                async def _process_parts(
+                    parts: list[Any],
+                ) -> AsyncGenerator[ModelOutput, None]:
+                    nonlocal is_busy, has_candidates
+                    for part in parts:
+                        is_busy = False
                         inner_json_str = get_nested_value(part, [2])
                         if inner_json_str:
                             try:
@@ -613,8 +609,6 @@ class GeminiClient(GemMixin):
                                 m_data = get_nested_value(part_json, [1])
                                 if m_data and isinstance(chat, ChatSession):
                                     chat.metadata = m_data
-
-                                # Update context string from index 25 if available
                                 context_str = get_nested_value(part_json, [25])
                                 if isinstance(context_str, str) and isinstance(
                                     chat, ChatSession
@@ -623,7 +617,7 @@ class GeminiClient(GemMixin):
                             except json.JSONDecodeError:
                                 pass
 
-                        # 1. Check for fatal error codes in any part
+                        # 1. Check for fatal error codes
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
                         if error_code:
                             await self.close()
@@ -671,24 +665,17 @@ class GeminiClient(GemMixin):
 
                         if not inner_json_str:
                             continue
-
                         try:
-                            if part_json is None:
-                                part_json = json.loads(inner_json_str)
-
-                            # Extract data from candidates
+                            part_json = json.loads(inner_json_str)
                             candidates_list = get_nested_value(part_json, [4], [])
                             if not candidates_list:
                                 continue
 
                             output_candidates = []
-                            any_changed = False
-
                             for candidate_data in candidates_list:
                                 rcid = get_nested_value(candidate_data, [0])
                                 if not rcid:
                                     continue
-
                                 if isinstance(chat, ChatSession):
                                     chat.rcid = rcid
 
@@ -713,8 +700,7 @@ class GeminiClient(GemMixin):
                                 thoughts = (
                                     get_nested_value(candidate_data, [37, 0, 0]) or ""
                                 )
-
-                                # Web images
+                                # Image handling
                                 web_images = []
                                 for web_img_data in get_nested_value(
                                     candidate_data, [12, 1], []
@@ -734,7 +720,6 @@ class GeminiClient(GemMixin):
                                             )
                                         )
 
-                                # Generated images
                                 generated_images = []
                                 for gen_img_data in get_nested_value(
                                     candidate_data, [12, 7, 0], []
@@ -742,9 +727,6 @@ class GeminiClient(GemMixin):
                                     url = get_nested_value(gen_img_data, [0, 3, 3])
                                     if url:
                                         img_num = get_nested_value(gen_img_data, [3, 6])
-                                        alt_list = get_nested_value(
-                                            gen_img_data, [3, 5], []
-                                        )
                                         generated_images.append(
                                             GeneratedImage(
                                                 url=url,
@@ -753,7 +735,9 @@ class GeminiClient(GemMixin):
                                                     if img_num
                                                     else "[Generated Image]"
                                                 ),
-                                                alt=get_nested_value(alt_list, [0], ""),
+                                                alt=get_nested_value(
+                                                    gen_img_data, [3, 5, 0], ""
+                                                ),
                                                 proxy=self.proxy,
                                                 cookies=self.cookies,
                                             )
@@ -779,12 +763,9 @@ class GeminiClient(GemMixin):
                                     new_c = _get_clean(new_raw)
                                     if new_c.startswith(last_sent_clean):
                                         return new_c[len(last_sent_clean) :]
-
                                     target_fp_len = _get_fp_len(last_sent_clean)
                                     if target_fp_len == 0:
                                         return new_c
-
-                                    # Find the range [p_low, p_high] where fingerprint length matches target
                                     low, high_idx = 0, len(new_c)
                                     p_low = len(new_c)
                                     while low <= high_idx:
@@ -794,7 +775,6 @@ class GeminiClient(GemMixin):
                                             high_idx = mid - 1
                                         else:
                                             low = mid + 1
-
                                     low, high_idx = p_low, len(new_c)
                                     p_high = len(new_c)
                                     while low <= high_idx:
@@ -804,23 +784,19 @@ class GeminiClient(GemMixin):
                                             high_idx = mid - 1
                                         else:
                                             low = mid + 1
-
-                                    # Pick position closest to last_sent_clean to avoid duplicates during re-formatting
                                     p = max(
                                         p_low, min(p_high - 1, len(last_sent_clean))
                                     )
                                     return new_c[p:]
 
-                                # Calculate deltas using Content-Length matching
                                 last_sent_text = last_texts.get(rcid, "")
                                 text_delta = _get_delta_by_fp_len(text, last_sent_text)
-
-                                thoughts_delta = ""
                                 last_sent_thought = last_thoughts.get(rcid, "")
-                                if thoughts:
-                                    thoughts_delta = _get_delta_by_fp_len(
-                                        thoughts, last_sent_thought
-                                    )
+                                thoughts_delta = (
+                                    _get_delta_by_fp_len(thoughts, last_sent_thought)
+                                    if thoughts
+                                    else ""
+                                )
 
                                 if (
                                     text_delta
@@ -828,12 +804,9 @@ class GeminiClient(GemMixin):
                                     or web_images
                                     or generated_images
                                 ):
-                                    any_changed = True
-
-                                # Store baseline for cumulative matching
+                                    has_candidates = True
                                 last_texts[rcid] = last_sent_text + text_delta
                                 last_thoughts[rcid] = last_sent_thought + thoughts_delta
-
                                 output_candidates.append(
                                     Candidate(
                                         rcid=rcid,
@@ -846,8 +819,7 @@ class GeminiClient(GemMixin):
                                     )
                                 )
 
-                            if any_changed:
-                                has_candidates = True
+                            if output_candidates:
                                 yield ModelOutput(
                                     metadata=get_nested_value(part_json, [1], []),
                                     candidates=output_candidates,
@@ -855,8 +827,25 @@ class GeminiClient(GemMixin):
                         except json.JSONDecodeError:
                             continue
 
-                if is_busy and not has_candidates:
-                    raise APIError("Model is busy. Polling again...")
+                async for chunk in response.aiter_bytes():
+                    buffer += decoder.decode(chunk, final=False)
+                    if buffer.startswith(")]}'"):
+                        buffer = buffer[4:].lstrip()
+                    parsed_parts, buffer = parse_stream_frames(buffer)
+                    async for out in _process_parts(parsed_parts):
+                        yield out
+
+                # Final flush
+                buffer += decoder.decode(b"", final=True)
+                if buffer:
+                    parsed_parts, _ = parse_stream_frames(buffer)
+                    async for out in _process_parts(parsed_parts):
+                        yield out
+
+                if not has_candidates or is_busy:
+                    raise APIError(
+                        f"Stream interrupted (has_candidates={has_candidates}, is_busy={is_busy}). Polling again..."
+                    )
 
         except ReadTimeout:
             raise TimeoutError(
