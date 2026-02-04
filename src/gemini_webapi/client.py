@@ -40,6 +40,8 @@ from .utils import (
     upload_file,
 )
 
+ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~])")
+
 
 class GeminiClient(GemMixin):
     """
@@ -758,60 +760,57 @@ class GeminiClient(GemMixin):
                                 last_text = last_texts.get(rcid, "")
                                 last_thought = last_thoughts.get(rcid, "")
 
-                                # Robust delta calculation using normalization
-                                def normalize(t: str) -> str:
-                                    if not t:
-                                        return ""
-                                    # 1. Strip common auto-appended suffixes
-                                    for s in ["\n```", "```", "\n"]:
-                                        if t.endswith(s):
-                                            t = t[: -len(s)]
-                                    # 2. Unescape only non-code parts
-                                    parts = []
-                                    last_idx = 0
-                                    for match in re.finditer(
-                                        r"(```.*?```|`[^`\n]+?`)", t, re.DOTALL
-                                    ):
-                                        non_code = t[last_idx : match.start()]
-                                        parts.append(
-                                            re.sub(
-                                                r"\\(?=[-\\`*_{}\[\]()#+.!<>])",
-                                                "",
-                                                non_code,
-                                            )
-                                        )
-                                        parts.append(match.group(0))
-                                        last_idx = match.end()
-                                    parts.append(
-                                        re.sub(
-                                            r"\\(?=[-\\`*_{}\[\]()#+.!<>])",
-                                            "",
-                                            t[last_idx:],
-                                        )
-                                    )
-                                    return "".join(parts)
-
-                                n_text = normalize(text)
-                                n_last = normalize(last_text)
-
-                                if n_text.startswith(n_last):
-                                    # Send the clean delta from normalized text
-                                    text_delta = n_text[len(n_last) :]
+                                text_delta = ""
+                                if text.startswith(last_text):
+                                    # Fast path: raw matching
+                                    text_delta = text[len(last_text) :]
                                 else:
-                                    # If still no match, something else is wrong, fallback to raw
-                                    text_delta = (
-                                        text[len(last_text) :]
-                                        if text.startswith(last_text)
-                                        else text
-                                    )
+                                    # Slow path: Normalization only on mismatch
+                                    def _get_clean(s: str) -> str:
+                                        if not s:
+                                            return ""
+                                        s = ESC_SYMBOLS_RE.sub("", s)
+                                        for suffix in ["\n```", "```", "\n"]:
+                                            if s.endswith(suffix):
+                                                s = s[: -len(suffix)]
+                                                break
+                                        return s
+
+                                    new_clean = _get_clean(text)
+                                    last_clean = _get_clean(last_text)
+
+                                    if new_clean.startswith(last_clean):
+                                        text_delta = new_clean[len(last_clean) :]
+                                    else:
+                                        # Recovery path: find longest prefix overlap
+                                        idx = -1
+                                        for i in range(len(last_clean), 0, -1):
+                                            if new_clean.startswith(last_clean[:i]):
+                                                idx = i
+                                                break
+                                        text_delta = (
+                                            new_clean[idx:] if idx != -1 else new_clean
+                                        )
 
                                 thoughts_delta = thoughts
-                                if thoughts.startswith(last_thought):
-                                    thoughts_delta = thoughts[len(last_thought) :]
-                                elif last_thought:
-                                    n_thought = last_thought.rstrip()
-                                    if thoughts.startswith(n_thought):
-                                        thoughts_delta = thoughts[len(n_thought) :]
+                                if thoughts:
+                                    last_thought = last_thoughts.get(rcid, "")
+                                    if thoughts.startswith(last_thought):
+                                        # Fast path: raw matching
+                                        thoughts_delta = thoughts[len(last_thought) :]
+                                    else:
+                                        # Slow path: match using stripped versions to handle inconsistent trailing spaces
+                                        t_clean = thoughts.rstrip()
+                                        lt_clean = last_thought.rstrip()
+                                        if t_clean.startswith(lt_clean):
+                                            thoughts_delta = t_clean[len(lt_clean) :]
+                                        else:
+                                            idx = t_clean.find(lt_clean)
+                                            thoughts_delta = (
+                                                t_clean[idx + len(lt_clean) :]
+                                                if idx != -1
+                                                else t_clean
+                                            )
 
                                 if (
                                     text_delta
