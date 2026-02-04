@@ -40,10 +40,8 @@ from .utils import (
     upload_file,
 )
 
-ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~])")
-FINGERPRINT_RE = re.compile(
-    r"[\s\-\*\+\=\_#\>\[\]\(\)\{\}\!\|\~\`\\\/.,:;?\"']+", re.UNICODE
-)
+ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~$:^])")
+FINGERPRINT_RE = re.compile(r"[\s\-\*\+\`#_>|~$:^\\]+", re.UNICODE)
 
 
 class GeminiClient(GemMixin):
@@ -777,6 +775,9 @@ class GeminiClient(GemMixin):
                                     new_raw: str, last_sent_clean: str
                                 ) -> str:
                                     new_c = _get_clean(new_raw)
+                                    if new_c.startswith(last_sent_clean):
+                                        return new_c[len(last_sent_clean) :]
+
                                     target_fp_len = _get_fp_len(last_sent_clean)
                                     if target_fp_len == 0:
                                         return new_c
