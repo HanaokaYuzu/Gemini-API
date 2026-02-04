@@ -758,23 +758,60 @@ class GeminiClient(GemMixin):
                                 last_text = last_texts.get(rcid, "")
                                 last_thought = last_thoughts.get(rcid, "")
 
-                                text_delta = text
-                                if text.startswith(last_text):
-                                    text_delta = text[len(last_text) :]
-                                elif last_text:
-                                    # Fallback for when last_text has auto-appended suffixes like "\n```" or "```"
-                                    # caused by Gemini web's post-processing mechanism (to ensure valid Markdown
-                                    # during streaming), which are missing in the next raw snapshot.
-                                    for suffix in ["\n```", "```", "\n"]:
-                                        if last_text.endswith(suffix):
-                                            test_prefix = last_text[: -len(suffix)]
-                                            if text.startswith(test_prefix):
-                                                text_delta = text[len(test_prefix) :]
-                                                break
+                                # Robust delta calculation using normalization
+                                def normalize(t: str) -> str:
+                                    if not t:
+                                        return ""
+                                    # 1. Strip common auto-appended suffixes
+                                    for s in ["\n```", "```", "\n"]:
+                                        if t.endswith(s):
+                                            t = t[: -len(s)]
+                                    # 2. Unescape only non-code parts
+                                    parts = []
+                                    last_idx = 0
+                                    for match in re.finditer(
+                                        r"(```.*?```|`[^`\n]+?`)", t, re.DOTALL
+                                    ):
+                                        non_code = t[last_idx : match.start()]
+                                        parts.append(
+                                            re.sub(
+                                                r"\\(?=[-\\`*_{}\[\]()#+.!<>])",
+                                                "",
+                                                non_code,
+                                            )
+                                        )
+                                        parts.append(match.group(0))
+                                        last_idx = match.end()
+                                    parts.append(
+                                        re.sub(
+                                            r"\\(?=[-\\`*_{}\[\]()#+.!<>])",
+                                            "",
+                                            t[last_idx:],
+                                        )
+                                    )
+                                    return "".join(parts)
+
+                                n_text = normalize(text)
+                                n_last = normalize(last_text)
+
+                                if n_text.startswith(n_last):
+                                    # Send the clean delta from normalized text
+                                    text_delta = n_text[len(n_last) :]
+                                else:
+                                    # If still no match, something else is wrong, fallback to raw
+                                    text_delta = (
+                                        text[len(last_text) :]
+                                        if text.startswith(last_text)
+                                        else text
+                                    )
 
                                 thoughts_delta = thoughts
                                 if thoughts.startswith(last_thought):
                                     thoughts_delta = thoughts[len(last_thought) :]
+                                elif last_thought:
+                                    n_thought = last_thought.rstrip()
+                                    if thoughts.startswith(n_thought):
+                                        thoughts_delta = thoughts[len(n_thought) :]
 
                                 if (
                                     text_delta
