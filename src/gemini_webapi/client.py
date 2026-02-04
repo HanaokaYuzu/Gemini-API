@@ -756,7 +756,6 @@ class GeminiClient(GemMixin):
                                             )
                                         )
 
-                                # Robust delta calculation helpers
                                 def _get_clean(s: str) -> str:
                                     if not s:
                                         return ""
@@ -772,30 +771,32 @@ class GeminiClient(GemMixin):
                                         return new
                                     if new.startswith(last):
                                         return new[len(last) :]
-                                    # Recovery path: find overlap using an anchor from the end of last string
-                                    anchor_len = 20
-                                    anchor = (
-                                        last[-anchor_len:]
-                                        if len(last) > anchor_len
-                                        else last
-                                    )
-                                    idx = new.find(anchor)
-                                    if idx != -1:
-                                        return new[idx + len(anchor) :]
-                                    return new
 
-                                # Calculate deltas using clean state and anchor recovery
+                                    # Recovery path: sliding fingerprint matching
+                                    for length in [50, 40, 30, 20, 10]:
+                                        if len(last) >= length:
+                                            anchor = last[-length:]
+                                            idx = new.rfind(anchor)
+                                            if idx != -1:
+                                                return new[idx + length :]
+
+                                    return "" if len(new) <= len(last) else new
+
+                                # Calculate deltas using clean state for matching
                                 current_clean = _get_clean(text)
-                                last_clean = last_texts.get(rcid, "")
+                                last_clean = _get_clean(last_texts.get(rcid, ""))
                                 text_delta = _get_delta_with_anchor(
                                     current_clean, last_clean
                                 )
 
                                 thoughts_delta = ""
                                 if thoughts:
-                                    last_thought = last_thoughts.get(rcid, "")
+                                    current_t_clean = _get_clean(thoughts)
+                                    last_t_clean = _get_clean(
+                                        last_thoughts.get(rcid, "")
+                                    )
                                     thoughts_delta = _get_delta_with_anchor(
-                                        thoughts, last_thought
+                                        current_t_clean, last_t_clean
                                     )
 
                                 if (
@@ -807,8 +808,8 @@ class GeminiClient(GemMixin):
                                 ):
                                     any_changed = True
 
-                                # Store the CLEAN versions to ensure consistent prefix matching in the next turn
-                                last_texts[rcid] = current_clean
+                                # Store the RAW versions to preserve every single character
+                                last_texts[rcid] = text
                                 last_thoughts[rcid] = thoughts
 
                                 output_candidates.append(
