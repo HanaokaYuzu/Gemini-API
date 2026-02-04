@@ -816,7 +816,6 @@ class GeminiClient(GemMixin):
                                     or thoughts_delta
                                     or web_images
                                     or generated_images
-                                    or not has_candidates  # Keep stream alive on first chunks
                                 ):
                                     any_changed = True
 
