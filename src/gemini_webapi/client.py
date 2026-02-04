@@ -756,71 +756,59 @@ class GeminiClient(GemMixin):
                                             )
                                         )
 
-                                # Calculate Deltas for this specific candidate
-                                last_text = last_texts.get(rcid, "")
-                                last_thought = last_thoughts.get(rcid, "")
+                                # Robust delta calculation helpers
+                                def _get_clean(s: str) -> str:
+                                    if not s:
+                                        return ""
+                                    s = ESC_SYMBOLS_RE.sub("", s)
+                                    for suffix in ["\n```", "```", "\n"]:
+                                        if s.endswith(suffix):
+                                            s = s[: -len(suffix)]
+                                            break
+                                    return s
 
-                                text_delta = ""
-                                if text.startswith(last_text):
-                                    # Fast path: raw matching
-                                    text_delta = text[len(last_text) :]
-                                else:
-                                    # Slow path: Normalization only on mismatch
-                                    def _get_clean(s: str) -> str:
-                                        if not s:
-                                            return ""
-                                        s = ESC_SYMBOLS_RE.sub("", s)
-                                        for suffix in ["\n```", "```", "\n"]:
-                                            if s.endswith(suffix):
-                                                s = s[: -len(suffix)]
-                                                break
-                                        return s
+                                def _get_delta_with_anchor(new: str, last: str) -> str:
+                                    if not last:
+                                        return new
+                                    if new.startswith(last):
+                                        return new[len(last) :]
+                                    # Recovery path: find overlap using an anchor from the end of last string
+                                    anchor_len = 20
+                                    anchor = (
+                                        last[-anchor_len:]
+                                        if len(last) > anchor_len
+                                        else last
+                                    )
+                                    idx = new.find(anchor)
+                                    if idx != -1:
+                                        return new[idx + len(anchor) :]
+                                    return new
 
-                                    new_clean = _get_clean(text)
-                                    last_clean = _get_clean(last_text)
+                                # Calculate deltas using clean state and anchor recovery
+                                current_clean = _get_clean(text)
+                                last_clean = last_texts.get(rcid, "")
+                                text_delta = _get_delta_with_anchor(
+                                    current_clean, last_clean
+                                )
 
-                                    if new_clean.startswith(last_clean):
-                                        text_delta = new_clean[len(last_clean) :]
-                                    else:
-                                        # Recovery path: find longest prefix overlap
-                                        idx = -1
-                                        for i in range(len(last_clean), 0, -1):
-                                            if new_clean.startswith(last_clean[:i]):
-                                                idx = i
-                                                break
-                                        text_delta = (
-                                            new_clean[idx:] if idx != -1 else new_clean
-                                        )
-
-                                thoughts_delta = thoughts
+                                thoughts_delta = ""
                                 if thoughts:
                                     last_thought = last_thoughts.get(rcid, "")
-                                    if thoughts.startswith(last_thought):
-                                        # Fast path: raw matching
-                                        thoughts_delta = thoughts[len(last_thought) :]
-                                    else:
-                                        # Slow path: match using stripped versions to handle inconsistent trailing spaces
-                                        t_clean = thoughts.rstrip()
-                                        lt_clean = last_thought.rstrip()
-                                        if t_clean.startswith(lt_clean):
-                                            thoughts_delta = t_clean[len(lt_clean) :]
-                                        else:
-                                            idx = t_clean.find(lt_clean)
-                                            thoughts_delta = (
-                                                t_clean[idx + len(lt_clean) :]
-                                                if idx != -1
-                                                else t_clean
-                                            )
+                                    thoughts_delta = _get_delta_with_anchor(
+                                        thoughts, last_thought
+                                    )
 
                                 if (
                                     text_delta
                                     or thoughts_delta
                                     or web_images
                                     or generated_images
+                                    or not has_candidates  # Keep stream alive on first chunks
                                 ):
                                     any_changed = True
 
-                                last_texts[rcid] = text
+                                # Store the CLEAN versions to ensure consistent prefix matching in the next turn
+                                last_texts[rcid] = current_clean
                                 last_thoughts[rcid] = thoughts
 
                                 output_candidates.append(
