@@ -49,6 +49,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents with files](#generate-contents-with-files)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
+  - [Delete previous conversations from Gemini history](#delete-previous-conversations-from-gemini-history)
   - [Streaming mode](#streaming-mode)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
@@ -215,6 +216,23 @@ async def main():
     previous_chat = client.start_chat(metadata=previous_session)
     response = await previous_chat.send_message("What was my previous message?")
     print(response)
+
+asyncio.run(main())
+```
+
+### Delete previous conversations from Gemini history
+
+You can delete a specific chat from Gemini history on the server by calling `GeminiClient.delete_chat` with the chat id.
+
+```python
+async def main():
+    # Start a new chat session
+    chat = client.start_chat()
+    await chat.send_message("This is a temporary conversation.")
+
+    # Delete the chat
+    await client.delete_chat(chat.cid)
+    print(f"Chat deleted: {chat.cid}")
 
 asyncio.run(main())
 ```

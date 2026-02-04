@@ -832,6 +832,25 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
+    async def delete_chat(self, cid: str) -> None:
+        """
+        Delete a specific conversation by chat id.
+
+        Parameters
+        ----------
+        cid: `str`
+            The ID of the chat requiring deletion (e.g. "c_...").
+        """
+
+        await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.DELETE_CHAT,
+                    payload=json.dumps([cid]),
+                ),
+            ]
+        )
+
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
@@ -893,56 +912,6 @@ class GeminiClient(GemMixin):
             self.cookies.update(self.client.cookies)
 
         return response
-
-    async def delete_chat(self, cid: str) -> bool:
-        """
-        Delete a specific chat conversation.
-
-        Parameters
-        ----------
-        cid: `str`
-            The ID of the chat requiring deletion (e.g. "c_...").
-
-        Returns
-        -------
-        `bool`
-            True if deletion was successful.
-
-        Raises
-        ------
-        `gemini_webapi.APIError`
-            If the batch execution fails.
-        """
-
-        await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DELETE_CHAT1,
-                    payload=json.dumps([cid]),
-                ),
-            ]
-        )
-
-        await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DELETE_CHAT2,
-                    payload=json.dumps([cid, [1, None, 0, 1]]),
-                ),
-            ]
-        )
-
-        await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DELETE_CHAT3,
-                    payload=json.dumps([["bard_activity_enabled"]]),
-                ),
-            ]
-        )
-        # We assume success if status_code is 200 (checked in _batch_execute)
-        # Detailed success check could parse the inner response, but typically 200 is sufficient.
-        return True
 
 
 class ChatSession:

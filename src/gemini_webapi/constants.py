@@ -18,6 +18,7 @@ class GRPC(StrEnum):
     # Chat methods
     LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
+    DELETE_CHAT = "GzXR5e"
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
@@ -27,12 +28,6 @@ class GRPC(StrEnum):
 
     # Activity methods
     BARD_ACTIVITY = "ESY5D"
-
-
-    # Delete methods
-    DELETE_CHAT1 = "GzXR5e"
-    DELETE_CHAT2 = "qWymEb"
-    DELETE_CHAT3 = "ESY5D"
 
 
 class Headers(Enum):
