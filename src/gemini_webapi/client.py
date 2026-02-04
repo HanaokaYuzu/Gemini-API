@@ -41,6 +41,9 @@ from .utils import (
 )
 
 ESC_SYMBOLS_RE = re.compile(r"\\(?=[-\\`*_{}\[\]()#+.!<>|~])")
+FINGERPRINT_RE = re.compile(
+    r"[\s\-\*\+\=\_#\>\[\]\(\)\{\}\!\|\~\`\\\/.,:;?\"']+", re.UNICODE
+)
 
 
 class GeminiClient(GemMixin):
@@ -756,47 +759,56 @@ class GeminiClient(GemMixin):
                                             )
                                         )
 
-                                def _get_clean(s: str) -> str:
+                                # Robust delta calculation helpers
+                                def _get_fingerprint(s: str) -> str:
                                     if not s:
                                         return ""
                                     s = ESC_SYMBOLS_RE.sub("", s)
-                                    for suffix in ["\n```", "```", "\n"]:
-                                        if s.endswith(suffix):
-                                            s = s[: -len(suffix)]
-                                            break
-                                    return s
+                                    return FINGERPRINT_RE.sub("", s)
 
-                                def _get_delta_with_anchor(new: str, last: str) -> str:
-                                    if not last:
-                                        return new
-                                    if new.startswith(last):
-                                        return new[len(last) :]
+                                def _get_delta_with_fingerprint(
+                                    new_raw: str, last_raw: str
+                                ) -> str:
+                                    if not last_raw:
+                                        return new_raw
 
-                                    # Recovery path: sliding fingerprint matching
+                                    if new_raw.startswith(last_raw):
+                                        return new_raw[len(last_raw) :]
+
+                                    new_fp = _get_fingerprint(new_raw)
+                                    last_fp = _get_fingerprint(last_raw)
+
+                                    if new_fp.startswith(last_fp):
+                                        return (
+                                            new_raw[len(last_raw) :]
+                                            if len(new_raw) > len(last_raw)
+                                            else ""
+                                        )
+
                                     for length in [50, 40, 30, 20, 10]:
-                                        if len(last) >= length:
-                                            anchor = last[-length:]
-                                            idx = new.rfind(anchor)
+                                        if len(last_fp) >= length:
+                                            anchor = last_fp[-length:]
+                                            idx = new_fp.rfind(anchor)
                                             if idx != -1:
-                                                return new[idx + length :]
+                                                return (
+                                                    new_raw[len(last_raw) :]
+                                                    if len(new_raw) > len(last_raw)
+                                                    else ""
+                                                )
 
-                                    return "" if len(new) <= len(last) else new
+                                    return ""
 
-                                # Calculate deltas using clean state for matching
-                                current_clean = _get_clean(text)
-                                last_clean = _get_clean(last_texts.get(rcid, ""))
-                                text_delta = _get_delta_with_anchor(
-                                    current_clean, last_clean
+                                # Calculate deltas using Content-Fingerprinting
+                                last_text_raw = last_texts.get(rcid, "")
+                                text_delta = _get_delta_with_fingerprint(
+                                    text, last_text_raw
                                 )
 
                                 thoughts_delta = ""
                                 if thoughts:
-                                    current_t_clean = _get_clean(thoughts)
-                                    last_t_clean = _get_clean(
-                                        last_thoughts.get(rcid, "")
-                                    )
-                                    thoughts_delta = _get_delta_with_anchor(
-                                        current_t_clean, last_t_clean
+                                    last_thought_raw = last_thoughts.get(rcid, "")
+                                    thoughts_delta = _get_delta_with_fingerprint(
+                                        thoughts, last_thought_raw
                                     )
 
                                 if (
