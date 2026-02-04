@@ -759,66 +759,48 @@ class GeminiClient(GemMixin):
                                             )
                                         )
 
+                                # Robust delta calculation helpers
                                 def _get_clean(s: str) -> str:
                                     if not s:
                                         return ""
-                                    # 1. Unescape markdown (Google toggles this inconsistently)
                                     s = ESC_SYMBOLS_RE.sub("", s)
-                                    # 2. Strip transient suffixes (auto-closing code blocks)
                                     for suffix in ["\n```", "```", "\n"]:
                                         if s.endswith(suffix):
                                             s = s[: -len(suffix)]
                                             break
                                     return s
 
-                                def _get_fingerprint(s: str) -> str:
-                                    if not s:
-                                        return ""
-                                    # Extreme cleaning for matching only
-                                    return FINGERPRINT_RE.sub("", s)
+                                def _get_fp_len(s: str) -> int:
+                                    return len(FINGERPRINT_RE.sub("", s))
 
-                                def _calculate_robust_delta(
-                                    new_raw: str, last_raw: str
+                                def _get_delta_by_fp_len(
+                                    new_raw: str, last_sent_clean: str
                                 ) -> str:
-                                    if not last_raw:
-                                        return _get_clean(new_raw)
+                                    new_c = _get_clean(new_raw)
+                                    target_fp_len = _get_fp_len(last_sent_clean)
+                                    if target_fp_len == 0:
+                                        return new_c
 
-                                    new_clean = _get_clean(new_raw)
-                                    last_clean = _get_clean(last_raw)
+                                    low, high = 0, len(new_c)
+                                    p = len(new_c)
+                                    while low <= high:
+                                        mid = (low + high) // 2
+                                        if _get_fp_len(new_c[:mid]) >= target_fp_len:
+                                            p = mid
+                                            high = mid - 1
+                                        else:
+                                            low = mid + 1
+                                    return new_c[p:]
 
-                                    if new_clean.startswith(last_clean):
-                                        return new_clean[len(last_clean) :]
-
-                                    # Recovery path: fingerprint overlap
-                                    new_fp = _get_fingerprint(new_clean)
-                                    last_fp = _get_fingerprint(last_clean)
-
-                                    for length in [50, 40, 30, 20, 10]:
-                                        if len(last_fp) >= length:
-                                            anchor = last_fp[-length:]
-                                            idx = new_fp.rfind(anchor)
-                                            if idx != -1:
-                                                # Heuristic: return remaining part of new_clean
-                                                return new_clean[idx + length :]
-
-                                    return (
-                                        ""
-                                        if len(new_clean) <= len(last_clean)
-                                        else new_clean[len(last_clean) :]
-                                    )
-
-                                # Calculate deltas using Clean-Delta logic
-                                last_text_raw = last_texts.get(rcid, "")
-                                text_delta = _calculate_robust_delta(
-                                    text, last_text_raw
-                                )
+                                # Calculate deltas using Content-Length matching
+                                last_sent_text = last_texts.get(rcid, "")
+                                text_delta = _get_delta_by_fp_len(text, last_sent_text)
 
                                 thoughts_delta = ""
+                                last_sent_thought = last_thoughts.get(rcid, "")
                                 if thoughts:
-                                    last_thought_raw = last_thoughts.get(rcid, "")
-                                    # Thoughts don't have code blocks, but can have escaping/newlines jitter
-                                    thoughts_delta = _calculate_robust_delta(
-                                        thoughts, last_thought_raw
+                                    thoughts_delta = _get_delta_by_fp_len(
+                                        thoughts, last_sent_thought
                                     )
 
                                 if (
@@ -829,9 +811,9 @@ class GeminiClient(GemMixin):
                                 ):
                                     any_changed = True
 
-                                # Store RAW snapshots to maintain the reference chain
-                                last_texts[rcid] = text
-                                last_thoughts[rcid] = thoughts
+                                # Store baseline for cumulative matching
+                                last_texts[rcid] = last_sent_text + text_delta
+                                last_thoughts[rcid] = last_sent_thought + thoughts_delta
 
                                 output_candidates.append(
                                     Candidate(
