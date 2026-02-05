@@ -7,23 +7,21 @@ import orjson as json
 from .logger import logger
 
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
-_ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")  # Include a dot (.)
-_FINGERPRINT_RE = re.compile(
-    r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE
-)  # Do not include a dot (.)
+_ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")
+_FINGERPRINT_RE = re.compile(r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE)
 
 
 def get_clean_text(s: str) -> str:
     """
-    Remove escaped symbols and common Markdown suffixes from text.
+    Remove escaped symbols and Gemini post-processing artifacts from text.
     """
     if not s:
         return ""
     s = _ESC_SYMBOLS_RE.sub("", s)
-    for suffix in ["\n```", "```", "\n"]:
+    for suffix in ("\n```", "\n    ", "```", "\n"):
         if s.endswith(suffix):
-            s = s[: -len(suffix)]
-            break
+            return s[: -len(suffix)]
+
     return s
 
 
@@ -36,8 +34,8 @@ def get_fp_len(s: str) -> int:
 
 def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
     """
-    Calculate the text delta based on fingerprint length to handle potential
-    content duplications or interruptions in streaming.
+    Calculate the text delta based on fingerprint length and literal matching
+    to handle potential content duplications or interruptions in streaming.
     """
     new_c = get_clean_text(new_raw)
     if new_c.startswith(last_sent_clean):
@@ -57,18 +55,21 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
 
     low, high_idx = p_low, len(new_c)
     p_high = len(new_c)
-    found_next = False
     while low <= high_idx:
         mid = (low + high_idx) // 2
         if get_fp_len(new_c[:mid]) > target_fp_len:
             p_high = mid
             high_idx = mid - 1
-            found_next = True
         else:
             low = mid + 1
 
-    limit = p_high - 1 if found_next else p_high
-    p = max(p_low, min(limit, len(last_sent_clean)))
+    # Use literal prefix matching within the fingerprint range to find the exact divergence point.
+    p = 0
+    max_match = min(len(new_c), len(last_sent_clean), p_high)
+    while p < max_match and new_c[p] == last_sent_clean[p]:
+        p += 1
+
+    p = max(p, p_low)
     return new_c[p:]
 
 
