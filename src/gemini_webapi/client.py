@@ -482,12 +482,15 @@ class GeminiClient(GemMixin):
             )
 
             output = None
+            # Track state across retries to prevent duplicate content delivery
+            session_state = {"last_texts": {}, "last_thoughts": {}}
             async for output in self._generate(
                 prompt=prompt,
                 req_file_data=file_data,
                 model=model,
                 gem=gem,
                 chat=chat,
+                session_state=session_state,
                 **kwargs,
             ):
                 yield output
@@ -510,6 +513,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        session_state: dict[str, Any] | None = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -591,18 +595,21 @@ class GeminiClient(GemMixin):
                 buffer = ""
                 decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
-                # Track last seen content for each candidate by rcid
-                last_texts: dict[str, str] = {}
-                last_thoughts: dict[str, str] = {}
+                # Track last seen content. session_state allows persistence across retries.
+                if session_state is None:
+                    session_state = {"last_texts": {}, "last_thoughts": {}}
+
+                last_texts: dict[str, str] = session_state["last_texts"]
+                last_thoughts: dict[str, str] = session_state["last_thoughts"]
 
                 is_busy = False
                 has_candidates = False
+                is_completed = False
 
                 async def _process_parts(
                     parts: list[Any],
                 ) -> AsyncGenerator[ModelOutput, None]:
-                    nonlocal is_busy, has_candidates
-                    is_busy = False
+                    nonlocal is_busy, has_candidates, is_completed
                     for part in parts:
                         # 1. Check for fatal error codes
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -662,10 +669,11 @@ class GeminiClient(GemMixin):
                                 if m_data and isinstance(chat, ChatSession):
                                     chat.metadata = m_data
                                 context_str = get_nested_value(part_json, [25])
-                                if isinstance(context_str, str) and isinstance(
-                                    chat, ChatSession
-                                ):
-                                    chat.metadata = [None] * 9 + [context_str]
+                                if isinstance(context_str, str):
+                                    is_completed = True
+                                    is_busy = False
+                                    if isinstance(chat, ChatSession):
+                                        chat.metadata = [None] * 9 + [context_str]
 
                                 candidates_list = get_nested_value(part_json, [4], [])
                                 if candidates_list:
@@ -866,16 +874,11 @@ class GeminiClient(GemMixin):
                     async for out in _process_parts(parsed_parts):
                         yield out
 
-                if not has_candidates:
-                    raise APIError(
-                        "Stream ended without receiving any response candidates. This might be due to a safety filter or temporary API issue."
-                    )
-
-                if is_busy:
+                if not is_completed or is_busy:
                     logger.debug(
-                        "Stream interrupted while model was busy (thinking/analyzing). Polling again..."
+                        f"Stream interrupted (completed={is_completed}, busy={is_busy}). Polling again..."
                     )
-                    raise APIError("Stream interrupted while busy.")
+                    raise APIError("Stream interrupted or truncated.")
 
         except ReadTimeout:
             raise TimeoutError(
