@@ -18,7 +18,7 @@ def get_clean_text(s: str) -> str:
     if not s:
         return ""
     s = _ESC_SYMBOLS_RE.sub("", s)
-    for suffix in ("\n```", "\n    ", "```", "\n"):
+    for suffix in ("\n```", "\n    "):
         if s.endswith(suffix):
             return s[: -len(suffix)]
 
@@ -55,7 +55,30 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
         else:
             low = mid + 1
 
-    return new_c[p_low:]
+    last_content_idx = -1
+    for i in range(len(last_sent_clean) - 1, -1, -1):
+        if not _FINGERPRINT_RE.match(last_sent_clean[i]):
+            last_content_idx = i
+            break
+
+    suffix = last_sent_clean[last_content_idx + 1 :]
+    i = 0
+    j = 0
+    while i < len(suffix) and (p_low + j) < len(new_c):
+        char_s = suffix[i]
+        char_n = new_c[p_low + j]
+
+        if char_s == char_n:
+            i += 1
+            j += 1
+        elif char_s.isspace():
+            i += 1
+        elif char_n.isspace():
+            j += 1
+        else:
+            break
+
+    return new_c[p_low + j :]
 
 
 def _get_char_count_for_utf16_units(
