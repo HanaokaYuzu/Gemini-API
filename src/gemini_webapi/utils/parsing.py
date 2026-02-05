@@ -6,8 +6,65 @@ import orjson as json
 
 from .logger import logger
 
-
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
+_ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")  # Include a dot (.)
+_FINGERPRINT_RE = re.compile(
+    r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE
+)  # Do not include a dot (.)
+
+
+def get_clean_text(s: str) -> str:
+    """
+    Remove escaped symbols and common Markdown suffixes from text.
+    """
+    if not s:
+        return ""
+    s = _ESC_SYMBOLS_RE.sub("", s)
+    for suffix in ["\n```", "```", "\n"]:
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    return s
+
+
+def get_fp_len(s: str) -> int:
+    """
+    Calculate the length of the string after removing fingerprint symbols.
+    """
+    return len(_FINGERPRINT_RE.sub("", s))
+
+
+def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
+    """
+    Calculate the text delta based on fingerprint length to handle potential
+    content duplications or interruptions in streaming.
+    """
+    new_c = get_clean_text(new_raw)
+    if new_c.startswith(last_sent_clean):
+        return new_c[len(last_sent_clean) :]
+    target_fp_len = get_fp_len(last_sent_clean)
+    if target_fp_len == 0:
+        return new_c
+    low, high_idx = 0, len(new_c)
+    p_low = len(new_c)
+    while low <= high_idx:
+        mid = (low + high_idx) // 2
+        if get_fp_len(new_c[:mid]) >= target_fp_len:
+            p_low = mid
+            high_idx = mid - 1
+        else:
+            low = mid + 1
+    low, high_idx = p_low, len(new_c)
+    p_high = len(new_c)
+    while low <= high_idx:
+        mid = (low + high_idx) // 2
+        if get_fp_len(new_c[:mid]) > target_fp_len:
+            p_high = mid
+            high_idx = mid - 1
+        else:
+            low = mid + 1
+    p = max(p_low, min(p_high - 1, len(last_sent_clean)))
+    return new_c[p:]
 
 
 def _get_char_count_for_utf16_units(

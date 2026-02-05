@@ -5,7 +5,6 @@ from collections.abc import Callable
 
 from ..exceptions import APIError
 
-
 DELAY_FACTOR = 5
 
 

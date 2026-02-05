@@ -31,6 +31,7 @@ from .types import (
 )
 from .utils import (
     get_access_token,
+    get_delta_by_fp_len,
     get_nested_value,
     logger,
     parse_file_name,
@@ -39,11 +40,6 @@ from .utils import (
     running,
     upload_file,
 )
-
-ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")  # Include a dot (.)
-FINGERPRINT_RE = re.compile(
-    r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE
-)  # Do not include a dot (.)
 
 
 class GeminiClient(GemMixin):
@@ -678,7 +674,7 @@ class GeminiClient(GemMixin):
                                 candidates_list = get_nested_value(part_json, [4], [])
                                 if candidates_list:
                                     output_candidates = []
-                                    for candidate_data in candidates_list:
+                                    for i, candidate_data in enumerate(candidates_list):
                                         rcid = get_nested_value(candidate_data, [0])
                                         if not rcid:
                                             continue
@@ -760,66 +756,17 @@ class GeminiClient(GemMixin):
                                                     )
                                                 )
 
-                                        # Robust delta calculation helpers
-                                        def _get_clean(s: str) -> str:
-                                            if not s:
-                                                return ""
-                                            s = ESC_SYMBOLS_RE.sub("", s)
-                                            for suffix in ["\n```", "```", "\n"]:
-                                                if s.endswith(suffix):
-                                                    s = s[: -len(suffix)]
-                                                    break
-                                            return s
-
-                                        def _get_fp_len(s: str) -> int:
-                                            return len(FINGERPRINT_RE.sub("", s))
-
-                                        def _get_delta_by_fp_len(
-                                            new_raw: str, last_sent_clean: str
-                                        ) -> str:
-                                            new_c = _get_clean(new_raw)
-                                            if new_c.startswith(last_sent_clean):
-                                                return new_c[len(last_sent_clean) :]
-                                            target_fp_len = _get_fp_len(last_sent_clean)
-                                            if target_fp_len == 0:
-                                                return new_c
-                                            low, high_idx = 0, len(new_c)
-                                            p_low = len(new_c)
-                                            while low <= high_idx:
-                                                mid = (low + high_idx) // 2
-                                                if (
-                                                    _get_fp_len(new_c[:mid])
-                                                    >= target_fp_len
-                                                ):
-                                                    p_low = mid
-                                                    high_idx = mid - 1
-                                                else:
-                                                    low = mid + 1
-                                            low, high_idx = p_low, len(new_c)
-                                            p_high = len(new_c)
-                                            while low <= high_idx:
-                                                mid = (low + high_idx) // 2
-                                                if (
-                                                    _get_fp_len(new_c[:mid])
-                                                    > target_fp_len
-                                                ):
-                                                    p_high = mid
-                                                    high_idx = mid - 1
-                                                else:
-                                                    low = mid + 1
-                                            p = max(
-                                                p_low,
-                                                min(p_high - 1, len(last_sent_clean)),
-                                            )
-                                            return new_c[p:]
-
-                                        last_sent_text = last_texts.get(rcid, "")
-                                        text_delta = _get_delta_by_fp_len(
+                                        last_sent_text = last_texts.get(
+                                            rcid
+                                        ) or last_texts.get(f"idx_{i}", "")
+                                        text_delta = get_delta_by_fp_len(
                                             text, last_sent_text
                                         )
-                                        last_sent_thought = last_thoughts.get(rcid, "")
+                                        last_sent_thought = last_thoughts.get(
+                                            rcid
+                                        ) or last_thoughts.get(f"idx_{i}", "")
                                         thoughts_delta = (
-                                            _get_delta_by_fp_len(
+                                            get_delta_by_fp_len(
                                                 thoughts, last_sent_thought
                                             )
                                             if thoughts
@@ -833,10 +780,20 @@ class GeminiClient(GemMixin):
                                             or generated_images
                                         ):
                                             has_candidates = True
-                                        last_texts[rcid] = last_sent_text + text_delta
-                                        last_thoughts[rcid] = (
+
+                                        # Update state for both RCID and Index to handle retries seamlessly
+                                        new_full_text = last_sent_text + text_delta
+                                        last_texts[rcid] = last_texts[f"idx_{i}"] = (
+                                            new_full_text
+                                        )
+
+                                        new_full_thought = (
                                             last_sent_thought + thoughts_delta
                                         )
+                                        last_thoughts[rcid] = last_thoughts[
+                                            f"idx_{i}"
+                                        ] = new_full_thought
+
                                         output_candidates.append(
                                             Candidate(
                                                 rcid=rcid,
