@@ -492,6 +492,7 @@ class GeminiClient(GemMixin):
                 yield output
 
             if output and isinstance(chat, ChatSession):
+                output.metadata = chat.metadata
                 chat.last_output = output
 
         finally:
@@ -600,23 +601,8 @@ class GeminiClient(GemMixin):
                     parts: list[Any],
                 ) -> AsyncGenerator[ModelOutput, None]:
                     nonlocal is_busy, has_candidates
+                    is_busy = False
                     for part in parts:
-                        is_busy = False
-                        inner_json_str = get_nested_value(part, [2])
-                        if inner_json_str:
-                            try:
-                                part_json = json.loads(inner_json_str)
-                                m_data = get_nested_value(part_json, [1])
-                                if m_data and isinstance(chat, ChatSession):
-                                    chat.metadata = m_data
-                                context_str = get_nested_value(part_json, [25])
-                                if isinstance(context_str, str) and isinstance(
-                                    chat, ChatSession
-                                ):
-                                    chat.metadata = [None] * 9 + [context_str]
-                            except json.JSONDecodeError:
-                                pass
-
                         # 1. Check for fatal error codes
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
                         if error_code:
@@ -642,6 +628,10 @@ class GeminiClient(GemMixin):
                                         "Your IP address has been temporarily flagged or blocked by Google. "
                                         "Please try using a proxy, a different network, or wait for a while before retrying."
                                     )
+                                case ErrorCode.TEMPORARY_ERROR_1013:
+                                    raise APIError(
+                                        "Gemini encountered a temporary error (1013). Retrying..."
+                                    )
                                 case _:
                                     raise APIError(
                                         f"Failed to generate contents (stream). Unknown API error code: {error_code}. "
@@ -663,169 +653,202 @@ class GeminiClient(GemMixin):
                                     "Model is in a waiting state (queueing)..."
                                 )
 
-                        if not inner_json_str:
-                            continue
-                        try:
-                            part_json = json.loads(inner_json_str)
-                            candidates_list = get_nested_value(part_json, [4], [])
-                            if not candidates_list:
+                        inner_json_str = get_nested_value(part, [2])
+                        if inner_json_str:
+                            try:
+                                part_json = json.loads(inner_json_str)
+                                m_data = get_nested_value(part_json, [1])
+                                if m_data and isinstance(chat, ChatSession):
+                                    chat.metadata = m_data
+                                context_str = get_nested_value(part_json, [25])
+                                if isinstance(context_str, str) and isinstance(
+                                    chat, ChatSession
+                                ):
+                                    chat.metadata = [None] * 9 + [context_str]
+
+                                candidates_list = get_nested_value(part_json, [4], [])
+                                if candidates_list:
+                                    output_candidates = []
+                                    for candidate_data in candidates_list:
+                                        rcid = get_nested_value(candidate_data, [0])
+                                        if not rcid:
+                                            continue
+                                        if isinstance(chat, ChatSession):
+                                            chat.rcid = rcid
+
+                                        # Text output and thoughts
+                                        text = get_nested_value(
+                                            candidate_data, [1, 0], ""
+                                        )
+                                        if re.match(
+                                            r"^http://googleusercontent\.com/card_content/\d+",
+                                            text,
+                                        ):
+                                            text = (
+                                                get_nested_value(
+                                                    candidate_data, [22, 0]
+                                                )
+                                                or text
+                                            )
+
+                                        # Cleanup googleusercontent artifacts
+                                        text = re.sub(
+                                            r"http://googleusercontent\.com/\w+/\d+\n*",
+                                            "",
+                                            text,
+                                        ).rstrip()
+
+                                        thoughts = (
+                                            get_nested_value(candidate_data, [37, 0, 0])
+                                            or ""
+                                        )
+                                        # Image handling
+                                        web_images = []
+                                        for web_img_data in get_nested_value(
+                                            candidate_data, [12, 1], []
+                                        ):
+                                            url = get_nested_value(
+                                                web_img_data, [0, 0, 0]
+                                            )
+                                            if url:
+                                                web_images.append(
+                                                    WebImage(
+                                                        url=url,
+                                                        title=get_nested_value(
+                                                            web_img_data, [7, 0], ""
+                                                        ),
+                                                        alt=get_nested_value(
+                                                            web_img_data, [0, 4], ""
+                                                        ),
+                                                        proxy=self.proxy,
+                                                    )
+                                                )
+
+                                        generated_images = []
+                                        for gen_img_data in get_nested_value(
+                                            candidate_data, [12, 7, 0], []
+                                        ):
+                                            url = get_nested_value(
+                                                gen_img_data, [0, 3, 3]
+                                            )
+                                            if url:
+                                                img_num = get_nested_value(
+                                                    gen_img_data, [3, 6]
+                                                )
+                                                generated_images.append(
+                                                    GeneratedImage(
+                                                        url=url,
+                                                        title=(
+                                                            f"[Generated Image {img_num}]"
+                                                            if img_num
+                                                            else "[Generated Image]"
+                                                        ),
+                                                        alt=get_nested_value(
+                                                            gen_img_data, [3, 5, 0], ""
+                                                        ),
+                                                        proxy=self.proxy,
+                                                        cookies=self.cookies,
+                                                    )
+                                                )
+
+                                        # Robust delta calculation helpers
+                                        def _get_clean(s: str) -> str:
+                                            if not s:
+                                                return ""
+                                            s = ESC_SYMBOLS_RE.sub("", s)
+                                            for suffix in ["\n```", "```", "\n"]:
+                                                if s.endswith(suffix):
+                                                    s = s[: -len(suffix)]
+                                                    break
+                                            return s
+
+                                        def _get_fp_len(s: str) -> int:
+                                            return len(FINGERPRINT_RE.sub("", s))
+
+                                        def _get_delta_by_fp_len(
+                                            new_raw: str, last_sent_clean: str
+                                        ) -> str:
+                                            new_c = _get_clean(new_raw)
+                                            if new_c.startswith(last_sent_clean):
+                                                return new_c[len(last_sent_clean) :]
+                                            target_fp_len = _get_fp_len(last_sent_clean)
+                                            if target_fp_len == 0:
+                                                return new_c
+                                            low, high_idx = 0, len(new_c)
+                                            p_low = len(new_c)
+                                            while low <= high_idx:
+                                                mid = (low + high_idx) // 2
+                                                if (
+                                                    _get_fp_len(new_c[:mid])
+                                                    >= target_fp_len
+                                                ):
+                                                    p_low = mid
+                                                    high_idx = mid - 1
+                                                else:
+                                                    low = mid + 1
+                                            low, high_idx = p_low, len(new_c)
+                                            p_high = len(new_c)
+                                            while low <= high_idx:
+                                                mid = (low + high_idx) // 2
+                                                if (
+                                                    _get_fp_len(new_c[:mid])
+                                                    > target_fp_len
+                                                ):
+                                                    p_high = mid
+                                                    high_idx = mid - 1
+                                                else:
+                                                    low = mid + 1
+                                            p = max(
+                                                p_low,
+                                                min(p_high - 1, len(last_sent_clean)),
+                                            )
+                                            return new_c[p:]
+
+                                        last_sent_text = last_texts.get(rcid, "")
+                                        text_delta = _get_delta_by_fp_len(
+                                            text, last_sent_text
+                                        )
+                                        last_sent_thought = last_thoughts.get(rcid, "")
+                                        thoughts_delta = (
+                                            _get_delta_by_fp_len(
+                                                thoughts, last_sent_thought
+                                            )
+                                            if thoughts
+                                            else ""
+                                        )
+
+                                        if (
+                                            text_delta
+                                            or thoughts_delta
+                                            or web_images
+                                            or generated_images
+                                        ):
+                                            has_candidates = True
+                                        last_texts[rcid] = last_sent_text + text_delta
+                                        last_thoughts[rcid] = (
+                                            last_sent_thought + thoughts_delta
+                                        )
+                                        output_candidates.append(
+                                            Candidate(
+                                                rcid=rcid,
+                                                text=text,
+                                                text_delta=text_delta,
+                                                thoughts=thoughts or None,
+                                                thoughts_delta=thoughts_delta,
+                                                web_images=web_images,
+                                                generated_images=generated_images,
+                                            )
+                                        )
+
+                                    if output_candidates:
+                                        yield ModelOutput(
+                                            metadata=get_nested_value(
+                                                part_json, [1], []
+                                            ),
+                                            candidates=output_candidates,
+                                        )
+                            except json.JSONDecodeError:
                                 continue
-
-                            output_candidates = []
-                            for candidate_data in candidates_list:
-                                rcid = get_nested_value(candidate_data, [0])
-                                if not rcid:
-                                    continue
-                                if isinstance(chat, ChatSession):
-                                    chat.rcid = rcid
-
-                                # Text output and thoughts
-                                text = get_nested_value(candidate_data, [1, 0], "")
-                                if re.match(
-                                    r"^http://googleusercontent\.com/card_content/\d+",
-                                    text,
-                                ):
-                                    text = (
-                                        get_nested_value(candidate_data, [22, 0])
-                                        or text
-                                    )
-
-                                # Cleanup googleusercontent artifacts
-                                text = re.sub(
-                                    r"http://googleusercontent\.com/\w+/\d+\n*",
-                                    "",
-                                    text,
-                                ).rstrip()
-
-                                thoughts = (
-                                    get_nested_value(candidate_data, [37, 0, 0]) or ""
-                                )
-                                # Image handling
-                                web_images = []
-                                for web_img_data in get_nested_value(
-                                    candidate_data, [12, 1], []
-                                ):
-                                    url = get_nested_value(web_img_data, [0, 0, 0])
-                                    if url:
-                                        web_images.append(
-                                            WebImage(
-                                                url=url,
-                                                title=get_nested_value(
-                                                    web_img_data, [7, 0], ""
-                                                ),
-                                                alt=get_nested_value(
-                                                    web_img_data, [0, 4], ""
-                                                ),
-                                                proxy=self.proxy,
-                                            )
-                                        )
-
-                                generated_images = []
-                                for gen_img_data in get_nested_value(
-                                    candidate_data, [12, 7, 0], []
-                                ):
-                                    url = get_nested_value(gen_img_data, [0, 3, 3])
-                                    if url:
-                                        img_num = get_nested_value(gen_img_data, [3, 6])
-                                        generated_images.append(
-                                            GeneratedImage(
-                                                url=url,
-                                                title=(
-                                                    f"[Generated Image {img_num}]"
-                                                    if img_num
-                                                    else "[Generated Image]"
-                                                ),
-                                                alt=get_nested_value(
-                                                    gen_img_data, [3, 5, 0], ""
-                                                ),
-                                                proxy=self.proxy,
-                                                cookies=self.cookies,
-                                            )
-                                        )
-
-                                # Robust delta calculation helpers
-                                def _get_clean(s: str) -> str:
-                                    if not s:
-                                        return ""
-                                    s = ESC_SYMBOLS_RE.sub("", s)
-                                    for suffix in ["\n```", "```", "\n"]:
-                                        if s.endswith(suffix):
-                                            s = s[: -len(suffix)]
-                                            break
-                                    return s
-
-                                def _get_fp_len(s: str) -> int:
-                                    return len(FINGERPRINT_RE.sub("", s))
-
-                                def _get_delta_by_fp_len(
-                                    new_raw: str, last_sent_clean: str
-                                ) -> str:
-                                    new_c = _get_clean(new_raw)
-                                    if new_c.startswith(last_sent_clean):
-                                        return new_c[len(last_sent_clean) :]
-                                    target_fp_len = _get_fp_len(last_sent_clean)
-                                    if target_fp_len == 0:
-                                        return new_c
-                                    low, high_idx = 0, len(new_c)
-                                    p_low = len(new_c)
-                                    while low <= high_idx:
-                                        mid = (low + high_idx) // 2
-                                        if _get_fp_len(new_c[:mid]) >= target_fp_len:
-                                            p_low = mid
-                                            high_idx = mid - 1
-                                        else:
-                                            low = mid + 1
-                                    low, high_idx = p_low, len(new_c)
-                                    p_high = len(new_c)
-                                    while low <= high_idx:
-                                        mid = (low + high_idx) // 2
-                                        if _get_fp_len(new_c[:mid]) > target_fp_len:
-                                            p_high = mid
-                                            high_idx = mid - 1
-                                        else:
-                                            low = mid + 1
-                                    p = max(
-                                        p_low, min(p_high - 1, len(last_sent_clean))
-                                    )
-                                    return new_c[p:]
-
-                                last_sent_text = last_texts.get(rcid, "")
-                                text_delta = _get_delta_by_fp_len(text, last_sent_text)
-                                last_sent_thought = last_thoughts.get(rcid, "")
-                                thoughts_delta = (
-                                    _get_delta_by_fp_len(thoughts, last_sent_thought)
-                                    if thoughts
-                                    else ""
-                                )
-
-                                if (
-                                    text_delta
-                                    or thoughts_delta
-                                    or web_images
-                                    or generated_images
-                                ):
-                                    has_candidates = True
-                                last_texts[rcid] = last_sent_text + text_delta
-                                last_thoughts[rcid] = last_sent_thought + thoughts_delta
-                                output_candidates.append(
-                                    Candidate(
-                                        rcid=rcid,
-                                        text=text,
-                                        text_delta=text_delta,
-                                        thoughts=thoughts or None,
-                                        thoughts_delta=thoughts_delta,
-                                        web_images=web_images,
-                                        generated_images=generated_images,
-                                    )
-                                )
-
-                            if output_candidates:
-                                yield ModelOutput(
-                                    metadata=get_nested_value(part_json, [1], []),
-                                    candidates=output_candidates,
-                                )
-                        except json.JSONDecodeError:
-                            continue
 
                 async for chunk in response.aiter_bytes():
                     buffer += decoder.decode(chunk, final=False)
@@ -842,10 +865,16 @@ class GeminiClient(GemMixin):
                     async for out in _process_parts(parsed_parts):
                         yield out
 
-                if not has_candidates or is_busy:
+                if not has_candidates:
                     raise APIError(
-                        f"Stream interrupted (has_candidates={has_candidates}, is_busy={is_busy}). Polling again..."
+                        "Stream ended without receiving any response candidates. This might be due to a safety filter or temporary API issue."
                     )
+
+                if is_busy:
+                    logger.debug(
+                        "Stream interrupted while model was busy (thinking/analyzing). Polling again..."
+                    )
+                    raise APIError("Stream interrupted while busy.")
 
         except ReadTimeout:
             raise TimeoutError(
