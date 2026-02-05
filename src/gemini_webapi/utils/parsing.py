@@ -40,9 +40,10 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
     new_c = get_clean_text(new_raw)
     if new_c.startswith(last_sent_clean):
         return new_c[len(last_sent_clean) :]
+
     target_fp_len = get_fp_len(last_sent_clean)
     if target_fp_len == 0:
-        return new_c
+        return new_c[len(last_sent_clean) :]
 
     low, high_idx = 0, len(new_c)
     p_low = len(new_c)
