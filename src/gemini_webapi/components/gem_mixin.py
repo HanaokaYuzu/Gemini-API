@@ -41,7 +41,9 @@ class GemMixin:
 
         return self._gems
 
-    async def fetch_gems(self, include_hidden: bool = False, **kwargs) -> GemJar:
+    async def fetch_gems(
+        self, include_hidden: bool = False, language: str = "en", **kwargs
+    ) -> GemJar:
         """
         Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
 
@@ -53,6 +55,8 @@ class GemMixin:
         include_hidden: `bool`, optional
             There are some predefined gems that by default are not shown to users (and therefore may not work properly).
             Set this parameter to `True` to include them in the fetched gem list.
+        language: `str`, optional
+            Language code for the gems to fetch. Default is 'en'.
 
         Returns
         -------
@@ -64,12 +68,16 @@ class GemMixin:
             [
                 RPCData(
                     rpcid=GRPC.LIST_GEMS,
-                    payload="[4]" if include_hidden else "[3]",
+                    payload=(
+                        f"[4,['{language}'],0]"
+                        if include_hidden
+                        else f"[3,['{language}'],0]"
+                    ),
                     identifier="system",
                 ),
                 RPCData(
                     rpcid=GRPC.LIST_GEMS,
-                    payload="[2]",
+                    payload=f"[2,['{language}'],0]",
                     identifier="custom",
                 ),
             ],

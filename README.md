@@ -49,6 +49,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents with files](#generate-contents-with-files)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
+  - [Delete previous conversations from Gemini history](#delete-previous-conversations-from-gemini-history)
   - [Streaming mode](#streaming-mode)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
@@ -219,6 +220,23 @@ async def main():
 asyncio.run(main())
 ```
 
+### Delete previous conversations from Gemini history
+
+You can delete a specific chat from Gemini history on the server by calling `GeminiClient.delete_chat` with the chat id.
+
+```python
+async def main():
+    # Start a new chat session
+    chat = client.start_chat()
+    await chat.send_message("This is a temporary conversation.")
+
+    # Delete the chat
+    await client.delete_chat(chat.cid)
+    print(f"Chat deleted: {chat.cid}")
+
+asyncio.run(main())
+```
+
 ### Streaming mode
 
 For longer responses, you can use streaming mode to receive partial outputs as they are generated. This provides a more responsive user experience, especially for real-time applications like chatbots.
@@ -297,7 +315,7 @@ System prompt can be applied to conversations via [Gemini Gems](https://gemini.g
 ```python
 async def main():
     # Fetch all gems for the current account, including both predefined and user-created ones
-    await client.fetch_gems(include_hidden=False)
+    await client.fetch_gems(include_hidden=False, language="en")
 
     # Once fetched, gems will be cached in `GeminiClient.gems`
     gems = client.gems

@@ -868,6 +868,25 @@ class GeminiClient(GemMixin):
 
         return ChatSession(geminiclient=self, **kwargs)
 
+    async def delete_chat(self, cid: str) -> None:
+        """
+        Delete a specific conversation by chat id.
+
+        Parameters
+        ----------
+        cid: `str`
+            The ID of the chat requiring deletion (e.g. "c_...").
+        """
+
+        await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.DELETE_CHAT,
+                    payload=json.dumps([cid]),
+                ),
+            ]
+        )
+
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
         """
@@ -892,7 +911,7 @@ class GeminiClient(GemMixin):
 
         try:
             params: dict[str, Any] = {
-                "rpcids": ",".join([p.rpcid.value for p in payloads]),
+                "rpcids": ",".join([p.rpcid for p in payloads]),
                 "_reqid": _reqid,
                 "rt": "c",
                 "source-path": "/app",

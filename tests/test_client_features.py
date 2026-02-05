@@ -154,6 +154,14 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response2.images)
 
     @logger.catch(reraise=True)
+    async def test_delete_chat(self):
+        chat = self.geminiclient.start_chat()
+        await chat.send_message("This is a temporary conversation.")
+        self.assertIsNotNone(chat.cid)
+        await self.geminiclient.delete_chat(chat.cid)
+        logger.debug(f"Chat deleted: {chat.cid}")
+
+    @logger.catch(reraise=True)
     async def test_card_content(self):
         response = await self.geminiclient.generate_content("How is today's weather?")
         logger.debug(response.text)
