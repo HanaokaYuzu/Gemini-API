@@ -71,10 +71,10 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
         if char_s == char_n:
             i += 1
             j += 1
-        elif char_s.isspace():
-            i += 1
-        elif char_n.isspace():
+        elif _FINGERPRINT_RE.match(char_n):
             j += 1
+        elif _FINGERPRINT_RE.match(char_s):
+            i += 1
         else:
             break
 
