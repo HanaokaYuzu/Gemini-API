@@ -63,8 +63,8 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
             high_idx = mid - 1
         else:
             low = mid + 1
-    p = max(p_low, min(p_high - 1, len(last_sent_clean)))
-    return new_c[p:]
+            p = max(p_low, min(p_high, len(last_sent_clean)))
+            return new_c[p:]
 
 
 def _get_char_count_for_utf16_units(
