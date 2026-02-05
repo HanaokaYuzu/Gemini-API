@@ -8,7 +8,7 @@ from .logger import logger
 
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 _ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")
-_FINGERPRINT_RE = re.compile(r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE)
+_FINGERPRINT_SET = set(r"\[]{}()<>`*_#~+:!&^$|-")
 
 
 def get_clean_text(s: str) -> str:
@@ -25,60 +25,45 @@ def get_clean_text(s: str) -> str:
     return s
 
 
-def get_fp_len(s: str) -> int:
-    """
-    Calculate the length of the string after removing fingerprint symbols.
-    """
-    return len(_FINGERPRINT_RE.sub("", s))
+def _is_fp(char: str) -> bool:
+    return char.isspace() or char in _FINGERPRINT_SET
 
 
 def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
     """
-    Calculate the text delta based on fingerprint length and literal matching
-    to handle potential content duplications or interruptions in streaming.
+    Calculate the text delta using an optimized O(N) linear fuzzy match.
+    Skips formatting differences (fingerprints) to find the exact new content.
     """
     new_c = get_clean_text(new_raw)
     if new_c.startswith(last_sent_clean):
         return new_c[len(last_sent_clean) :]
 
-    target_fp_len = get_fp_len(last_sent_clean)
-    if target_fp_len == 0:
-        return new_c[len(last_sent_clean) :]
-
-    low, high_idx = 0, len(new_c)
-    p_low = len(new_c)
-    while low <= high_idx:
-        mid = (low + high_idx) // 2
-        if get_fp_len(new_c[:mid]) >= target_fp_len:
-            p_low = mid
-            high_idx = mid - 1
-        else:
-            low = mid + 1
-
-    last_content_idx = -1
-    for i in range(len(last_sent_clean) - 1, -1, -1):
-        if not _FINGERPRINT_RE.match(last_sent_clean[i]):
-            last_content_idx = i
-            break
-
-    suffix = last_sent_clean[last_content_idx + 1 :]
+    len_last = len(last_sent_clean)
+    len_new = len(new_c)
     i = 0
     j = 0
-    while i < len(suffix) and (p_low + j) < len(new_c):
-        char_s = suffix[i]
-        char_n = new_c[p_low + j]
 
-        if char_s == char_n:
+    while i < len_last and j < len_new:
+        char_last = last_sent_clean[i]
+        char_new = new_c[j]
+
+        if char_last == char_new:
             i += 1
             j += 1
-        elif char_s.isspace():
-            i += 1
-        elif char_n.isspace():
+        elif _is_fp(char_new):
             j += 1
+        elif _is_fp(char_last):
+            i += 1
         else:
             break
 
-    return new_c[p_low + j :]
+    while i < len_last:
+        if _is_fp(last_sent_clean[i]):
+            i += 1
+        else:
+            break
+
+    return new_c[j:]
 
 
 def _get_char_count_for_utf16_units(
