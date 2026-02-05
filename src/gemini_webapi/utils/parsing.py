@@ -54,35 +54,7 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
         else:
             low = mid + 1
 
-    low, high_idx = p_low, len(new_c)
-    p_high = len(new_c)
-    while low <= high_idx:
-        mid = (low + high_idx) // 2
-        if get_fp_len(new_c[:mid]) > target_fp_len:
-            p_high = mid
-            high_idx = mid - 1
-        else:
-            low = mid + 1
-
-    # Find exact end position of last_sent_clean in new_c using suffix matching
-    # within the fingerprint-matched region [p_low, p_high]
-    best_match_end = p_low
-    last_len = len(last_sent_clean)
-
-    for end_pos in range(p_low, min(p_high + 1, len(new_c) + 1)):
-        match_len = 0
-        for i in range(1, min(last_len, end_pos) + 1):
-            if last_sent_clean[-i] == new_c[end_pos - i]:
-                match_len = i
-            else:
-                break
-
-        if match_len >= last_len // 2:
-            best_match_end = end_pos
-            if match_len == last_len:
-                break
-
-    return new_c[best_match_end:]
+    return new_c[p_low:]
 
 
 def _get_char_count_for_utf16_units(
