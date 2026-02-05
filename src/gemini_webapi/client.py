@@ -701,7 +701,7 @@ class GeminiClient(GemMixin):
                                             r"http://googleusercontent\.com/\w+/\d+\n*",
                                             "",
                                             text,
-                                        ).rstrip()
+                                        )
 
                                         thoughts = (
                                             get_nested_value(candidate_data, [37, 0, 0])
