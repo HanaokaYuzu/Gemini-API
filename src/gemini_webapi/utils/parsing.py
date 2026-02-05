@@ -43,6 +43,7 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
     target_fp_len = get_fp_len(last_sent_clean)
     if target_fp_len == 0:
         return new_c
+
     low, high_idx = 0, len(new_c)
     p_low = len(new_c)
     while low <= high_idx:
@@ -63,14 +64,25 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
         else:
             low = mid + 1
 
-    # Use literal prefix matching within the fingerprint range to find the exact divergence point.
-    p = 0
-    max_match = min(len(new_c), len(last_sent_clean), p_high)
-    while p < max_match and new_c[p] == last_sent_clean[p]:
-        p += 1
+    # Find exact end position of last_sent_clean in new_c using suffix matching
+    # within the fingerprint-matched region [p_low, p_high]
+    best_match_end = p_low
+    last_len = len(last_sent_clean)
 
-    p = max(p, p_low)
-    return new_c[p:]
+    for end_pos in range(p_low, min(p_high + 1, len(new_c) + 1)):
+        match_len = 0
+        for i in range(1, min(last_len, end_pos) + 1):
+            if last_sent_clean[-i] == new_c[end_pos - i]:
+                match_len = i
+            else:
+                break
+
+        if match_len >= last_len // 2:
+            best_match_end = end_pos
+            if match_len == last_len:
+                break
+
+    return new_c[best_match_end:]
 
 
 def _get_char_count_for_utf16_units(
