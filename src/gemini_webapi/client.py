@@ -390,6 +390,7 @@ class GeminiClient(GemMixin):
                 )
 
             if isinstance(chat, ChatSession):
+                output.metadata = chat.metadata
                 chat.last_output = output
 
             return output
