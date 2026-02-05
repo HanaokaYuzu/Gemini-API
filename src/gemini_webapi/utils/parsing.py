@@ -54,16 +54,21 @@ def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
             high_idx = mid - 1
         else:
             low = mid + 1
+
     low, high_idx = p_low, len(new_c)
     p_high = len(new_c)
+    found_next = False
     while low <= high_idx:
         mid = (low + high_idx) // 2
         if get_fp_len(new_c[:mid]) > target_fp_len:
             p_high = mid
             high_idx = mid - 1
+            found_next = True
         else:
             low = mid + 1
-    p = max(p_low, min(p_high, len(last_sent_clean)))
+
+    limit = p_high - 1 if found_next else p_high
+    p = max(p_low, min(limit, len(last_sent_clean)))
     return new_c[p:]
 
 
