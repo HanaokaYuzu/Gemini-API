@@ -1,6 +1,7 @@
 import asyncio
 import codecs
 import io
+import time
 import random
 import re
 from asyncio import Task
@@ -83,6 +84,7 @@ class GeminiClient(GemMixin):
         "refresh_interval",
         "refresh_task",
         "verbose",
+        "watchdog_timeout",
         "_lock",
         "_reqid",
         "_gems",  # From GemMixin
@@ -112,6 +114,7 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 540
         self.refresh_task: Task | None = None
         self.verbose: bool = True
+        self.watchdog_timeout: int = 120
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
         self.kwargs = kwargs
@@ -131,6 +134,7 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
+        watchdog_timeout: int = 120,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -150,6 +154,9 @@ class GeminiClient(GemMixin):
             Time interval for background cookie and access token refresh in seconds. Effective only if `auto_refresh` is `True`.
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
+        watchdog_timeout: `int`, optional
+            Timeout in seconds for shadow retry watchdog. If no data receives from stream but connection is active,
+            client will retry automatically after this duration.
         """
 
         async with self._lock:
@@ -158,6 +165,7 @@ class GeminiClient(GemMixin):
 
             try:
                 self.verbose = verbose
+                self.watchdog_timeout = watchdog_timeout
                 access_token, build_label, session_id, valid_cookies = (
                     await get_access_token(
                         base_cookies=self.cookies,
@@ -598,14 +606,15 @@ class GeminiClient(GemMixin):
                 last_texts: dict[str, str] = session_state["last_texts"]
                 last_thoughts: dict[str, str] = session_state["last_thoughts"]
 
-                is_busy = False
+                is_thinking = False
+                is_queueing = False
                 has_candidates = False
                 is_completed = False
 
                 async def _process_parts(
                     parts: list[Any],
                 ) -> AsyncGenerator[ModelOutput, None]:
-                    nonlocal is_busy, has_candidates, is_completed
+                    nonlocal is_thinking, is_queueing, has_candidates, is_completed
                     for part in parts:
                         # 1. Check for fatal error codes
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -644,14 +653,14 @@ class GeminiClient(GemMixin):
 
                         # 2. Detect if model is busy analyzing data (Thinking state)
                         if "data_analysis_tool" in str(part):
-                            is_busy = True
+                            is_thinking = True
                             if not has_candidates:
-                                logger.debug("Model is busy (thinking/analyzing)...")
+                                logger.debug("Model is active (thinking/analyzing)...")
 
                         # 3. Check for queueing status
                         status = get_nested_value(part, [5])
                         if isinstance(status, list) and status:
-                            is_busy = True
+                            is_queueing = True
                             if not has_candidates:
                                 logger.debug(
                                     "Model is in a waiting state (queueing)..."
@@ -667,7 +676,8 @@ class GeminiClient(GemMixin):
                                 context_str = get_nested_value(part_json, [25])
                                 if isinstance(context_str, str):
                                     is_completed = True
-                                    is_busy = False
+                                    is_thinking = False
+                                    is_queueing = False
                                     if isinstance(chat, ChatSession):
                                         chat.metadata = [None] * 9 + [context_str]
 
@@ -807,6 +817,8 @@ class GeminiClient(GemMixin):
                                         )
 
                                     if output_candidates:
+                                        is_thinking = False
+                                        is_queueing = False
                                         yield ModelOutput(
                                             metadata=get_nested_value(
                                                 part_json, [1], []
@@ -816,13 +828,32 @@ class GeminiClient(GemMixin):
                             except json.JSONDecodeError:
                                 continue
 
+                last_progress_time = time.time()
                 async for chunk in response.aiter_bytes():
+                    if len(chunk) > 0:
+                        logger.debug(f"Received stream chunk: {len(chunk)} bytes")
+
                     buffer += decoder.decode(chunk, final=False)
                     if buffer.startswith(")]}'"):
                         buffer = buffer[4:].lstrip()
                     parsed_parts, buffer = parse_stream_frames(buffer)
+
+                    got_update = False
                     async for out in _process_parts(parsed_parts):
                         yield out
+                        got_update = True
+
+                    if got_update or is_thinking:
+                        last_progress_time = time.time()
+                    else:
+                        stall_threshold = min(self.timeout, self.watchdog_timeout)
+                        if (time.time() - last_progress_time) > stall_threshold:
+                            logger.warning(
+                                f"Response stalled (active connection but no progress for {stall_threshold}s). "
+                                f"Queueing={is_queueing}. Retrying..."
+                            )
+                            await self.close()
+                            raise APIError("Response stalled (zombie stream).")
 
                 # Final flush
                 buffer += decoder.decode(b"", final=True)
@@ -831,9 +862,10 @@ class GeminiClient(GemMixin):
                     async for out in _process_parts(parsed_parts):
                         yield out
 
-                if not is_completed or is_busy:
+                if not is_completed or is_thinking or is_queueing:
                     logger.debug(
-                        f"Stream interrupted (completed={is_completed}, busy={is_busy}). Polling again..."
+                        f"Stream interrupted (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
+                        "Polling again..."
                     )
                     raise APIError("Stream interrupted or truncated.")
 
@@ -882,7 +914,7 @@ class GeminiClient(GemMixin):
             [
                 RPCData(
                     rpcid=GRPC.DELETE_CHAT,
-                    payload=json.dumps([cid]),
+                    payload=json.dumps([cid]).decode("utf-8"),
                 ),
             ]
         )
