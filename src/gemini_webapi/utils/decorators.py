@@ -5,7 +5,6 @@ from collections.abc import Callable
 
 from ..exceptions import APIError
 
-
 DELAY_FACTOR = 5
 
 
@@ -37,6 +36,7 @@ def running(retry: int = 0) -> Callable:
                             auto_refresh=client.auto_refresh,
                             refresh_interval=client.refresh_interval,
                             verbose=client.verbose,
+                            watchdog_timeout=client.watchdog_timeout,
                         )
 
                     if not client._running:
@@ -74,6 +74,7 @@ def running(retry: int = 0) -> Callable:
                             auto_refresh=client.auto_refresh,
                             refresh_interval=client.refresh_interval,
                             verbose=client.verbose,
+                            watchdog_timeout=client.watchdog_timeout,
                         )
 
                     if not client._running:

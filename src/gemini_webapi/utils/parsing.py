@@ -6,8 +6,77 @@ import orjson as json
 
 from .logger import logger
 
-
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
+_ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")
+_FINGERPRINT_RE = re.compile(r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE)
+
+
+def get_clean_text(s: str) -> str:
+    """
+    Remove escaped symbols and Gemini post-processing artifacts from text.
+    Aggressively cleans trailing whitespace and artifacts to handle additive streams.
+    """
+    if not s:
+        return ""
+    s = _ESC_SYMBOLS_RE.sub("", s)
+    s = s.rstrip("`-")
+    return s.rstrip()
+
+
+def get_fp_len(s: str) -> int:
+    """
+    Calculate the length of the string after removing fingerprint symbols.
+    """
+    return len(_FINGERPRINT_RE.sub("", s))
+
+
+def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
+    """
+    Calculate the text delta based on fingerprint length and literal matching
+    to handle potential content duplications or interruptions in streaming.
+    """
+    new_c = get_clean_text(new_raw)
+    if new_c.startswith(last_sent_clean):
+        return new_c[len(last_sent_clean) :]
+
+    target_fp_len = get_fp_len(last_sent_clean)
+    if target_fp_len == 0:
+        return new_c[len(last_sent_clean) :]
+
+    low, high_idx = 0, len(new_c)
+    p_low = len(new_c)
+    while low <= high_idx:
+        mid = (low + high_idx) // 2
+        if get_fp_len(new_c[:mid]) >= target_fp_len:
+            p_low = mid
+            high_idx = mid - 1
+        else:
+            low = mid + 1
+
+    last_content_idx = -1
+    for i in range(len(last_sent_clean) - 1, -1, -1):
+        if not _FINGERPRINT_RE.match(last_sent_clean[i]):
+            last_content_idx = i
+            break
+
+    suffix = last_sent_clean[last_content_idx + 1 :]
+    i = 0
+    j = 0
+    while i < len(suffix) and (p_low + j) < len(new_c):
+        char_s = suffix[i]
+        char_n = new_c[p_low + j]
+
+        if char_s == char_n:
+            i += 1
+            j += 1
+        elif _FINGERPRINT_RE.match(char_n):
+            j += 1
+        elif _FINGERPRINT_RE.match(char_s):
+            i += 1
+        else:
+            break
+
+    return new_c[p_low + j :]
 
 
 def _get_char_count_for_utf16_units(
