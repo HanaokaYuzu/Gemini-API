@@ -830,9 +830,6 @@ class GeminiClient(GemMixin):
 
                 last_progress_time = time.time()
                 async for chunk in response.aiter_bytes():
-                    if len(chunk) > 0:
-                        logger.debug(f"Received stream chunk: {len(chunk)} bytes")
-
                     buffer += decoder.decode(chunk, final=False)
                     if buffer.startswith(")]}'"):
                         buffer = buffer[4:].lstrip()
