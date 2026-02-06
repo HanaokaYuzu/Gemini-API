@@ -18,7 +18,7 @@ def get_clean_text(s: str) -> str:
     if not s:
         return ""
     s = _ESC_SYMBOLS_RE.sub("", s)
-    for suffix in ("\n```", "\n    "):
+    for suffix in ("\n```", "\n    ", "\n-----", "\n---"):
         if s.endswith(suffix):
             return s[: -len(suffix)]
 
