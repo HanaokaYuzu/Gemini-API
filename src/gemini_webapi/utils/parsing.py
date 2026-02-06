@@ -14,15 +14,13 @@ _FINGERPRINT_RE = re.compile(r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE)
 def get_clean_text(s: str) -> str:
     """
     Remove escaped symbols and Gemini post-processing artifacts from text.
+    Aggressively cleans trailing whitespace and artifacts to handle additive streams.
     """
     if not s:
         return ""
     s = _ESC_SYMBOLS_RE.sub("", s)
-    for suffix in ("\n```", "\n    ", "\n-----", "\n---"):
-        if s.endswith(suffix):
-            return s[: -len(suffix)]
-
-    return s
+    s = s.rstrip("`-")
+    return s.rstrip()
 
 
 def get_fp_len(s: str) -> int:
