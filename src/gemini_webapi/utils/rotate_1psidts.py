@@ -63,7 +63,7 @@ async def rotate_1psidts(
     async with AsyncClient(http2=True, proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.ROTATE_COOKIES,
-            headers=Headers.ROTATE_COOKIES,
+            headers=Headers.ROTATE_COOKIES.value,
             cookies=cookies,
             content='[000,"-0000000000000000000"]',
         )

@@ -22,7 +22,7 @@ async def send_request(
     async with AsyncClient(
         http2=True,
         proxy=proxy,
-        headers=Headers.GEMINI,
+        headers=Headers.GEMINI.value,
         cookies=cookies,
         follow_redirects=True,
     ) as client:

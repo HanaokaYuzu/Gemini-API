@@ -180,7 +180,7 @@ class GeminiClient(GemMixin):
                     timeout=timeout,
                     proxy=self.proxy,
                     follow_redirects=True,
-                    headers=Headers.GEMINI,
+                    headers=Headers.GEMINI.value,
                     cookies=valid_cookies,
                     **self.kwargs,
                 )
