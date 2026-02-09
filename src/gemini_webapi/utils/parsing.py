@@ -14,14 +14,13 @@ _FLICKER_ESC_RE = re.compile(r"\\{2,}[`*_~].*$")
 
 def get_clean_text(s: str) -> str:
     """
-    Clean Gemini text by removing trailing code block artifacts and temporary
-    escapes of Markdown markers at the very end of a chunk.
+    Clean Gemini text by removing trailing code block artifacts and temporary escapes of Markdown markers.
     """
     if not s:
         return ""
 
     if s.endswith("\n```"):
-        return s[:-4]
+        s = s[:-4]
 
     return _FLICKER_ESC_RE.sub("", s)
 
