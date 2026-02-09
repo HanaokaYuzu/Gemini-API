@@ -766,11 +766,23 @@ class GeminiClient(GemMixin):
                                                     )
                                                 )
 
+                                        # Determine if this frame represents the final state of the message
+                                        is_final = (
+                                            isinstance(
+                                                get_nested_value(candidate_data, [2]),
+                                                list,
+                                            )
+                                            or get_nested_value(
+                                                candidate_data, [8, 0], 1
+                                            )
+                                            == 2
+                                        )
+
                                         last_sent_text = last_texts.get(
                                             rcid
                                         ) or last_texts.get(f"idx_{i}", "")
                                         text_delta, new_full_text = get_delta_by_fp_len(
-                                            text, last_sent_text
+                                            text, last_sent_text, is_final=is_final
                                         )
                                         last_sent_thought = last_thoughts.get(
                                             rcid
@@ -778,7 +790,9 @@ class GeminiClient(GemMixin):
                                         if thoughts:
                                             thoughts_delta, new_full_thought = (
                                                 get_delta_by_fp_len(
-                                                    thoughts, last_sent_thought
+                                                    thoughts,
+                                                    last_sent_thought,
+                                                    is_final=is_final,
                                                 )
                                             )
                                         else:

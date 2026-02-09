@@ -13,7 +13,7 @@ _FLICKER_ESC_RE = re.compile(r"\\{2,}[`*_~].*$")
 
 
 def get_clean_text(s: str) -> str:
-    r"""
+    """
     Clean Gemini text by removing trailing code block artifacts and temporary
     escapes of Markdown markers at the very end of a chunk.
     """
@@ -34,12 +34,14 @@ def get_fp_len(s: str) -> int:
     return len(s.translate(str.maketrans("", "", _VOLATILE_SYMBOLS)))
 
 
-def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> tuple[str, str]:
-    r"""
+def get_delta_by_fp_len(
+    new_raw: str, last_sent_clean: str, is_final: bool
+) -> tuple[str, str]:
+    """
     Calculate text delta by aligning stable content and matching volatile symbols.
     Handles temporary flicker at ends and permanent escaping drift during code block transitions.
     """
-    new_c = get_clean_text(new_raw)
+    new_c = get_clean_text(new_raw) if not is_final else new_raw
 
     if new_c.startswith(last_sent_clean):
         return new_c[len(last_sent_clean) :], new_c
