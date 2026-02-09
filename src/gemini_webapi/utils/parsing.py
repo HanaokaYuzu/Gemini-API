@@ -20,7 +20,7 @@ def get_clean_text(s: str) -> str:
         return ""
 
     if s.endswith("\n```"):
-        s = s[:-4]
+        return s[:-4]
 
     return _FLICKER_ESC_RE.sub("", s)
 
