@@ -9,7 +9,7 @@ from .logger import logger
 
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 _VOLATILE_SYMBOLS = string.whitespace + string.punctuation
-_FLICKER_ESC_RE = re.compile(r"\\{2,}[`*_~].*$")
+_FLICKER_ESC_RE = re.compile(r"\\{2,}[`*_~].*$", re.DOTALL)
 
 
 def get_clean_text(s: str) -> str:
