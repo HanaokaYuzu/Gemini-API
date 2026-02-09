@@ -8,7 +8,7 @@ from .parsing import (
     extract_json_from_response,
     get_delta_by_fp_len,
     get_nested_value,
-    parse_stream_frames,
+    parse_response_by_frame,
 )
 from .rotate_1psidts import rotate_1psidts
 from .upload_file import upload_file, parse_file_name

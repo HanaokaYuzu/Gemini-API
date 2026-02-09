@@ -36,7 +36,7 @@ from .utils import (
     get_nested_value,
     logger,
     parse_file_name,
-    parse_stream_frames,
+    parse_response_by_frame,
     rotate_1psidts,
     running,
     upload_file,
@@ -485,9 +485,9 @@ class GeminiClient(GemMixin):
                 ]
             )
 
-            output = None
             # Track state across retries to prevent duplicate content delivery
             session_state = {"last_texts": {}, "last_thoughts": {}}
+            output = None
             async for output in self._generate(
                 prompt=prompt,
                 req_file_data=file_data,
@@ -848,7 +848,7 @@ class GeminiClient(GemMixin):
                     buffer += decoder.decode(chunk, final=False)
                     if buffer.startswith(")]}'"):
                         buffer = buffer[4:].lstrip()
-                    parsed_parts, buffer = parse_stream_frames(buffer)
+                    parsed_parts, buffer = parse_response_by_frame(buffer)
 
                     got_update = False
                     async for out in _process_parts(parsed_parts):
@@ -870,7 +870,7 @@ class GeminiClient(GemMixin):
                 # Final flush
                 buffer += decoder.decode(b"", final=True)
                 if buffer:
-                    parsed_parts, _ = parse_stream_frames(buffer)
+                    parsed_parts, _ = parse_response_by_frame(buffer)
                     async for out in _process_parts(parsed_parts):
                         yield out
 
