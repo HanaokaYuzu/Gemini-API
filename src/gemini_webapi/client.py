@@ -610,11 +610,12 @@ class GeminiClient(GemMixin):
                 is_queueing = False
                 has_candidates = False
                 is_completed = False
+                is_final_chunk = False
 
                 async def _process_parts(
                     parts: list[Any],
                 ) -> AsyncGenerator[ModelOutput, None]:
-                    nonlocal is_thinking, is_queueing, has_candidates, is_completed
+                    nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk
                     for part in parts:
                         # 1. Check for fatal error codes
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -767,7 +768,7 @@ class GeminiClient(GemMixin):
                                                 )
 
                                         # Determine if this frame represents the final state of the message
-                                        is_final = (
+                                        is_final_chunk = (
                                             isinstance(
                                                 get_nested_value(candidate_data, [2]),
                                                 list,
@@ -782,7 +783,9 @@ class GeminiClient(GemMixin):
                                             rcid
                                         ) or last_texts.get(f"idx_{i}", "")
                                         text_delta, new_full_text = get_delta_by_fp_len(
-                                            text, last_sent_text, is_final=is_final
+                                            text,
+                                            last_sent_text,
+                                            is_final=is_final_chunk,
                                         )
                                         last_sent_thought = last_thoughts.get(
                                             rcid
@@ -792,7 +795,7 @@ class GeminiClient(GemMixin):
                                                 get_delta_by_fp_len(
                                                     thoughts,
                                                     last_sent_thought,
-                                                    is_final=is_final,
+                                                    is_final=is_final_chunk,
                                                 )
                                             )
                                         else:
@@ -871,9 +874,9 @@ class GeminiClient(GemMixin):
                     async for out in _process_parts(parsed_parts):
                         yield out
 
-                if not is_completed or is_thinking or is_queueing:
+                if not is_completed or not is_final_chunk or is_thinking or is_queueing:
                     logger.debug(
-                        f"Stream interrupted (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
+                        f"Stream interrupted (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                         "Polling again..."
                     )
                     raise APIError("Stream interrupted or truncated.")
