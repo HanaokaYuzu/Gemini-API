@@ -1,5 +1,6 @@
 import re
 import reprlib
+import string
 from typing import Any
 
 import orjson as json
@@ -7,76 +8,95 @@ import orjson as json
 from .logger import logger
 
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
-_ESC_SYMBOLS_RE = re.compile(r"\\(?=[\\\[\]{}()<>`*_#~+.:!&^$|-])")
-_FINGERPRINT_RE = re.compile(r"[\s\\\[\]{}()<>`*_#~+:!&^$|-]+", re.UNICODE)
+_VOLATILE_SYMBOLS = string.whitespace + string.punctuation
+_FLICKER_ESC_RE = re.compile(r"\\{2,}[`*_~].*$")
 
 
 def get_clean_text(s: str) -> str:
-    """
-    Remove escaped symbols and Gemini post-processing artifacts from text.
-    Aggressively cleans trailing whitespace and artifacts to handle additive streams.
+    r"""
+    Clean Gemini text by removing trailing code block artifacts and temporary
+    escapes of Markdown markers at the very end of a chunk.
     """
     if not s:
         return ""
-    s = _ESC_SYMBOLS_RE.sub("", s)
-    s = s.rstrip("`-")
-    return s.rstrip()
+
+    if s.endswith("\n```"):
+        return s[:-4]
+
+    return _FLICKER_ESC_RE.sub("", s)
 
 
 def get_fp_len(s: str) -> int:
     """
-    Calculate the length of the string after removing fingerprint symbols.
+    Calculate the length of the string after removing volatile symbols.
+    Uses string translate for maximum performance.
     """
-    return len(_FINGERPRINT_RE.sub("", s))
+    return len(s.translate(str.maketrans("", "", _VOLATILE_SYMBOLS)))
 
 
-def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> str:
-    """
-    Calculate the text delta based on fingerprint length and literal matching
-    to handle potential content duplications or interruptions in streaming.
+def get_delta_by_fp_len(new_raw: str, last_sent_clean: str) -> tuple[str, str]:
+    r"""
+    Calculate text delta by aligning stable content and matching volatile symbols.
+    Handles temporary flicker at ends and permanent escaping drift during code block transitions.
     """
     new_c = get_clean_text(new_raw)
+
     if new_c.startswith(last_sent_clean):
-        return new_c[len(last_sent_clean) :]
+        return new_c[len(last_sent_clean) :], new_c
 
     target_fp_len = get_fp_len(last_sent_clean)
-    if target_fp_len == 0:
-        return new_c[len(last_sent_clean) :]
-
-    low, high_idx = 0, len(new_c)
-    p_low = len(new_c)
-    while low <= high_idx:
-        mid = (low + high_idx) // 2
-        if get_fp_len(new_c[:mid]) >= target_fp_len:
-            p_low = mid
-            high_idx = mid - 1
+    p_low = 0
+    if target_fp_len > 0:
+        curr_fp_len = 0
+        for i, char in enumerate(new_c):
+            if char not in _VOLATILE_SYMBOLS:
+                curr_fp_len += 1
+            if curr_fp_len == target_fp_len:
+                p_low = i + 1
+                break
         else:
-            low = mid + 1
+            common_len = 0
+            for c1, c2 in zip(last_sent_clean, new_c):
+                if c1 == c2:
+                    common_len += 1
+                else:
+                    break
+            return new_c[common_len:], new_c
 
     last_content_idx = -1
     for i in range(len(last_sent_clean) - 1, -1, -1):
-        if not _FINGERPRINT_RE.match(last_sent_clean[i]):
+        if last_sent_clean[i] not in _VOLATILE_SYMBOLS:
             last_content_idx = i
             break
 
     suffix = last_sent_clean[last_content_idx + 1 :]
+
     i = 0
     j = 0
-    while i < len(suffix) and (p_low + j) < len(new_c):
+    limit_n = len(new_c)
+    limit_s = len(suffix)
+
+    while i < limit_s and (p_low + j) < limit_n:
         char_s = suffix[i]
         char_n = new_c[p_low + j]
 
         if char_s == char_n:
             i += 1
             j += 1
-        elif _FINGERPRINT_RE.match(char_n):
-            j += 1
-        elif _FINGERPRINT_RE.match(char_s):
+        elif (
+            char_n == "\\"
+            and (p_low + j + 1) < limit_n
+            and new_c[p_low + j + 1] == char_s
+        ):
+            j += 2
             i += 1
+        elif char_s == "\\" and (i + 1) < limit_s and suffix[i + 1] == char_n:
+            i += 2
+            j += 1
         else:
             break
 
-    return new_c[p_low + j :]
+    return new_c[p_low + j :], new_c
 
 
 def _get_char_count_for_utf16_units(

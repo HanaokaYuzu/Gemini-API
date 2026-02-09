@@ -180,7 +180,7 @@ class GeminiClient(GemMixin):
                     timeout=timeout,
                     proxy=self.proxy,
                     follow_redirects=True,
-                    headers=Headers.GEMINI.value,
+                    headers=Headers.GEMINI,
                     cookies=valid_cookies,
                     **self.kwargs,
                 )
@@ -769,19 +769,21 @@ class GeminiClient(GemMixin):
                                         last_sent_text = last_texts.get(
                                             rcid
                                         ) or last_texts.get(f"idx_{i}", "")
-                                        text_delta = get_delta_by_fp_len(
+                                        text_delta, new_full_text = get_delta_by_fp_len(
                                             text, last_sent_text
                                         )
                                         last_sent_thought = last_thoughts.get(
                                             rcid
                                         ) or last_thoughts.get(f"idx_{i}", "")
-                                        thoughts_delta = (
-                                            get_delta_by_fp_len(
-                                                thoughts, last_sent_thought
+                                        if thoughts:
+                                            thoughts_delta, new_full_thought = (
+                                                get_delta_by_fp_len(
+                                                    thoughts, last_sent_thought
+                                                )
                                             )
-                                            if thoughts
-                                            else ""
-                                        )
+                                        else:
+                                            thoughts_delta = ""
+                                            new_full_thought = ""
 
                                         if (
                                             text_delta
@@ -791,15 +793,11 @@ class GeminiClient(GemMixin):
                                         ):
                                             has_candidates = True
 
-                                        # Update state for both RCID and Index to handle retries seamlessly
-                                        new_full_text = last_sent_text + text_delta
+                                        # Update state with the provider's cleaned state to handle drift
                                         last_texts[rcid] = last_texts[f"idx_{i}"] = (
                                             new_full_text
                                         )
 
-                                        new_full_thought = (
-                                            last_sent_thought + thoughts_delta
-                                        )
                                         last_thoughts[rcid] = last_thoughts[
                                             f"idx_{i}"
                                         ] = new_full_thought
