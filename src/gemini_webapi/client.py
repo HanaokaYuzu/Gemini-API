@@ -874,7 +874,7 @@ class GeminiClient(GemMixin):
                     async for out in _process_parts(parsed_parts):
                         yield out
 
-                if not is_completed or not is_final_chunk or is_thinking or is_queueing:
+                if not (is_completed or is_final_chunk) or is_thinking or is_queueing:
                     logger.debug(
                         f"Stream interrupted (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                         "Polling again..."
