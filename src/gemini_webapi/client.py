@@ -377,6 +377,11 @@ class GeminiClient(GemMixin):
                 ]
             )
 
+            session_state = {
+                "last_texts": {},
+                "last_thoughts": {},
+                "last_progress_time": time.time(),
+            }
             output = None
             async for output in self._generate(
                 prompt=prompt,
@@ -384,6 +389,7 @@ class GeminiClient(GemMixin):
                 model=model,
                 gem=gem,
                 chat=chat,
+                session_state=session_state,
                 **kwargs,
             ):
                 pass
@@ -485,8 +491,11 @@ class GeminiClient(GemMixin):
                 ]
             )
 
-            # Track state across retries to prevent duplicate content delivery
-            session_state = {"last_texts": {}, "last_thoughts": {}}
+            session_state = {
+                "last_texts": {},
+                "last_thoughts": {},
+                "last_progress_time": time.time(),
+            }
             output = None
             async for output in self._generate(
                 prompt=prompt,
@@ -601,10 +610,17 @@ class GeminiClient(GemMixin):
 
                 # Track last seen content. session_state allows persistence across retries.
                 if session_state is None:
-                    session_state = {"last_texts": {}, "last_thoughts": {}}
+                    session_state = {
+                        "last_texts": {},
+                        "last_thoughts": {},
+                        "last_progress_time": time.time(),
+                    }
 
                 last_texts: dict[str, str] = session_state["last_texts"]
                 last_thoughts: dict[str, str] = session_state["last_thoughts"]
+                last_progress_time = session_state.get(
+                    "last_progress_time", time.time()
+                )
 
                 is_thinking = False
                 is_queueing = False
@@ -843,7 +859,6 @@ class GeminiClient(GemMixin):
                             except json.JSONDecodeError:
                                 continue
 
-                last_progress_time = time.time()
                 async for chunk in response.aiter_bytes():
                     buffer += decoder.decode(chunk, final=False)
                     if buffer.startswith(")]}'"):
@@ -857,6 +872,7 @@ class GeminiClient(GemMixin):
 
                     if got_update or is_thinking:
                         last_progress_time = time.time()
+                        session_state["last_progress_time"] = last_progress_time
                     else:
                         stall_threshold = min(self.timeout, self.watchdog_timeout)
                         if (time.time() - last_progress_time) > stall_threshold:
