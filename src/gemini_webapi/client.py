@@ -366,15 +366,13 @@ class GeminiClient(GemMixin):
 
         file_data = None
         if files:
-            asyncio.create_task(
-                self._batch_execute(
-                    [
-                        RPCData(
-                            rpcid=GRPC.BARD_ACTIVITY,
-                            payload='[[["bard_activity_enabled"]]]',
-                        )
-                    ]
-                )
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
             )
 
             uploaded_urls = await asyncio.gather(
@@ -386,15 +384,13 @@ class GeminiClient(GemMixin):
             ]
 
         try:
-            asyncio.create_task(
-                self._batch_execute(
-                    [
-                        RPCData(
-                            rpcid=GRPC.BARD_ACTIVITY,
-                            payload='[[["bard_activity_enabled"]]]',
-                        )
-                    ]
-                )
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
             )
 
             session_state = {
@@ -481,15 +477,13 @@ class GeminiClient(GemMixin):
 
         file_data = None
         if files:
-            asyncio.create_task(
-                self._batch_execute(
-                    [
-                        RPCData(
-                            rpcid=GRPC.BARD_ACTIVITY,
-                            payload='[[["bard_activity_enabled"]]]',
-                        )
-                    ]
-                )
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
             )
 
             uploaded_urls = await asyncio.gather(
@@ -501,15 +495,13 @@ class GeminiClient(GemMixin):
             ]
 
         try:
-            asyncio.create_task(
-                self._batch_execute(
-                    [
-                        RPCData(
-                            rpcid=GRPC.BARD_ACTIVITY,
-                            payload='[[["bard_activity_enabled"]]]',
-                        )
-                    ]
-                )
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_ACTIVITY,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
             )
 
             session_state = {
