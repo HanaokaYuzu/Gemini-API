@@ -13,7 +13,7 @@ from .logger import logger
 
 
 async def send_request(
-    cookies: dict | Cookies, proxy: str | None = None
+    cookies: dict | Cookies, proxy: str | None = None, verbose: bool = False
 ) -> tuple[Response | None, Cookies]:
     """
     Send http request with provided cookies.
@@ -25,6 +25,7 @@ async def send_request(
         headers=Headers.GEMINI.value,
         cookies=cookies,
         allow_redirects=True,
+        debug=verbose,
     ) as client:
         response = await client.get(Endpoint.INIT)
         response.raise_for_status()
@@ -69,7 +70,7 @@ async def get_access_token(
     """
 
     async with AsyncSession(
-        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
+        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify, debug=verbose
     ) as client:
         response = await client.get(Endpoint.GOOGLE)
 
@@ -84,7 +85,7 @@ async def get_access_token(
     if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
         jar = Cookies(extra_cookies)
         jar.update(base_cookies)
-        tasks.append(Task(send_request(jar, proxy=proxy)))
+        tasks.append(Task(send_request(jar, proxy=proxy, verbose=verbose)))
     elif verbose:
         logger.debug(
             "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
@@ -114,7 +115,7 @@ async def get_access_token(
                 jar = Cookies(extra_cookies)
                 jar.update(base_cookies)
                 jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                tasks.append(Task(send_request(jar, proxy=proxy)))
+                tasks.append(Task(send_request(jar, proxy=proxy, verbose=verbose)))
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
         elif verbose:
@@ -129,7 +130,7 @@ async def get_access_token(
                 psid = cache_file.stem[16:]
                 jar.set("__Secure-1PSID", psid, domain=".google.com")
                 jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                tasks.append(Task(send_request(jar, proxy=proxy)))
+                tasks.append(Task(send_request(jar, proxy=proxy, verbose=verbose)))
                 valid_caches += 1
 
         if valid_caches == 0 and verbose:
@@ -162,7 +163,7 @@ async def get_access_token(
                         local_cookies["__Secure-1PSIDTS"] = secure_1psidts
                     if nid := cookies.get("NID"):
                         local_cookies["NID"] = nid
-                    tasks.append(Task(send_request(local_cookies, proxy=proxy)))
+                    tasks.append(Task(send_request(local_cookies, proxy=proxy, verbose=verbose)))
                     valid_browser_cookies += 1
                     if verbose:
                         logger.debug(f"Loaded local browser cookies from {browser}")

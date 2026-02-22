@@ -65,7 +65,7 @@ async def rotate_1psidts(
             url=Endpoint.ROTATE_COOKIES,
             headers=Headers.ROTATE_COOKIES.value,
             cookies=cookies,
-            content='[000,"-0000000000000000000"]',
+            data='[000,"-0000000000000000000"]',
         )
         if response.status_code == 401:
             raise AuthError

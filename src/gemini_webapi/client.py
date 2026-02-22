@@ -183,6 +183,7 @@ class GeminiClient(GemMixin):
                     allow_redirects=True,
                     headers=Headers.GEMINI.value,
                     cookies=valid_cookies,
+                    debug=self.verbose,
                     **self.kwargs,
                 )
                 self.access_token = access_token
