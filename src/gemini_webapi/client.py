@@ -1,15 +1,16 @@
 import asyncio
 import codecs
 import io
-import time
 import random
 import re
+import time
 from asyncio import Task
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 import orjson as json
-from httpx import AsyncClient, Cookies, ReadTimeout, Response
+from curl_cffi.requests import AsyncSession, Cookies, Response
+from curl_cffi.requests.exceptions import ReadTimeout
 
 from .components import GemMixin
 from .constants import Endpoint, ErrorCode, GRPC, Headers, Model
@@ -45,7 +46,7 @@ from .utils import (
 
 class GeminiClient(GemMixin):
     """
-    Async httpx client interface for gemini.google.com.
+    Async requests client interface for gemini.google.com.
 
     `secure_1psid` must be provided unless the optional dependency `browser-cookie3` is installed, and
     you have logged in to google.com in your local browser.
@@ -60,7 +61,7 @@ class GeminiClient(GemMixin):
         Proxy URL.
     kwargs: `dict`, optional
         Additional arguments which will be passed to the http client.
-        Refer to `httpx.AsyncClient` for more information.
+        Refer to `curl_cffi.requests.AsyncSession` for more information.
 
     Raises
     ------
@@ -102,7 +103,7 @@ class GeminiClient(GemMixin):
         self.cookies = Cookies()
         self.proxy = proxy
         self._running: bool = False
-        self.client: AsyncClient | None = None
+        self.client: AsyncSession | None = None
         self.access_token: str | None = None
         self.build_label: str | None = None
         self.session_id: str | None = None
@@ -175,11 +176,11 @@ class GeminiClient(GemMixin):
                     )
                 )
 
-                self.client = AsyncClient(
-                    http2=True,
+                self.client = AsyncSession(
+                    impersonate="chrome",
                     timeout=timeout,
                     proxy=self.proxy,
-                    follow_redirects=True,
+                    allow_redirects=True,
                     headers=Headers.GEMINI.value,
                     cookies=valid_cookies,
                     **self.kwargs,
@@ -255,7 +256,7 @@ class GeminiClient(GemMixin):
             self.refresh_task = None
 
         if self.client:
-            await self.client.aclose()
+            await self.client.close()
 
     async def reset_close_task(self) -> None:
         """
@@ -340,7 +341,7 @@ class GeminiClient(GemMixin):
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
-            Refer to `httpx.AsyncClient.request` for more information.
+            Refer to `curl_cffi.requests.AsyncSession.request` for more information.
 
         Returns
         -------
@@ -456,7 +457,7 @@ class GeminiClient(GemMixin):
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history.
         kwargs: `dict`, optional
-            Additional arguments passed to `httpx.AsyncClient.stream`.
+            Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
         Yields
         ------
@@ -872,7 +873,7 @@ class GeminiClient(GemMixin):
                             except json.JSONDecodeError:
                                 continue
 
-                async for chunk in response.aiter_bytes():
+                async for chunk in response.aiter_content():
                     buffer += decoder.decode(chunk, final=False)
                     if buffer.startswith(")]}'"):
                         buffer = buffer[4:].lstrip()
@@ -971,11 +972,11 @@ class GeminiClient(GemMixin):
             List of `gemini_webapi.types.RPCData` objects to be executed.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
-            Refer to `httpx.AsyncClient.request` for more information.
+            Refer to `curl_cffi.requests.AsyncSession.request` for more information.
 
         Returns
         -------
-        :class:`httpx.Response`
+        :class:`curl_cffi.requests.Response`
             Response object containing the result of the batch execution.
         """
 
@@ -1030,7 +1031,7 @@ class ChatSession:
     Parameters
     ----------
     geminiclient: `GeminiClient`
-        Async httpx client interface for gemini.google.com.
+        Async requests client interface for gemini.google.com.
     metadata: `list[str]`, optional
         List of chat metadata `[cid, rid, rcid]`, can be shorter than 3 elements, like `[cid, rid]` or `[cid]` only.
     cid: `str`, optional
@@ -1122,7 +1123,7 @@ class ChatSession:
             List of file paths to be attached.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
-            Refer to `httpx.AsyncClient.request` for more information.
+            Refer to `curl_cffi.requests.AsyncSession.request` for more information.
 
         Returns
         -------

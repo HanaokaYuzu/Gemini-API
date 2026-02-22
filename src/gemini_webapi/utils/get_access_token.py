@@ -4,7 +4,7 @@ import asyncio
 from asyncio import Task
 from pathlib import Path
 
-from httpx import AsyncClient, Cookies, Response
+from curl_cffi.requests import AsyncSession, Cookies, Response
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
@@ -19,12 +19,12 @@ async def send_request(
     Send http request with provided cookies.
     """
 
-    async with AsyncClient(
-        http2=True,
+    async with AsyncSession(
+        impersonate="chrome",
         proxy=proxy,
         headers=Headers.GEMINI.value,
         cookies=cookies,
-        follow_redirects=True,
+        allow_redirects=True,
     ) as client:
         response = await client.get(Endpoint.INIT)
         response.raise_for_status()
@@ -48,7 +48,7 @@ async def get_access_token(
 
     Parameters
     ----------
-    base_cookies : `dict | httpx.Cookies`
+    base_cookies : `dict | curl_cffi.requests.Cookies`
         Base cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
@@ -68,8 +68,8 @@ async def get_access_token(
         If all requests failed.
     """
 
-    async with AsyncClient(
-        http2=True, proxy=proxy, follow_redirects=True, verify=verify
+    async with AsyncSession(
+        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
     ) as client:
         response = await client.get(Endpoint.GOOGLE)
 

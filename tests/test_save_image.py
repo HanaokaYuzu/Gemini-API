@@ -2,7 +2,7 @@ import os
 import unittest
 import logging
 
-from httpx import HTTPError
+from curl_cffi.requests.exceptions import HTTPError
 
 from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
 

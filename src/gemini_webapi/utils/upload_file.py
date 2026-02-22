@@ -2,7 +2,7 @@ import io
 import random
 from pathlib import Path
 
-from httpx import AsyncClient
+from curl_cffi.requests import AsyncSession
 from pydantic import ConfigDict, validate_call
 
 from ..constants import Endpoint, Headers
@@ -42,7 +42,7 @@ async def upload_file(
 
     Raises
     ------
-    `httpx.HTTPStatusError`
+    `curl_cffi.requests.exceptions.HTTPError`
         If the upload request failed.
     """
 
@@ -64,12 +64,12 @@ async def upload_file(
     else:
         raise ValueError(f"Unsupported file type: {type(file)}")
 
-    async with AsyncClient(http2=True, proxy=proxy) as client:
+    async with AsyncSession(impersonate="chrome", proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.UPLOAD,
             headers=Headers.UPLOAD.value,
             files={"file": (filename, file_content)},
-            follow_redirects=True,
+            allow_redirects=True,
         )
         response.raise_for_status()
         return response.text

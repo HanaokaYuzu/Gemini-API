@@ -2,7 +2,7 @@ import os
 import time
 from pathlib import Path
 
-from httpx import AsyncClient, Cookies
+from curl_cffi.requests import AsyncSession, Cookies
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
@@ -16,21 +16,21 @@ async def rotate_1psidts(
 
     Parameters
     ----------
-    cookies : `dict | httpx.Cookies`
+    cookies : `dict | curl_cffi.requests.Cookies`
         Cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
 
     Returns
     -------
-    `tuple[str | None, httpx.Cookies | None]`
+    `tuple[str | None, curl_cffi.requests.Cookies | None]`
         New value of the __Secure-1PSIDTS cookie and the full updated cookies jar.
 
     Raises
     ------
     `gemini_webapi.AuthError`
         If request failed with 401 Unauthorized.
-    `httpx.HTTPStatusError`
+    `curl_cffi.requests.exceptions.HTTPError`
         If request failed with other status codes.
     """
 
@@ -60,7 +60,7 @@ async def rotate_1psidts(
     if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
         return path.read_text(), None
 
-    async with AsyncClient(http2=True, proxy=proxy) as client:
+    async with AsyncSession(impersonate="chrome", proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.ROTATE_COOKIES,
             headers=Headers.ROTATE_COOKIES.value,

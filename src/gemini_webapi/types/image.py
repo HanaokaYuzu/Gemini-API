@@ -3,7 +3,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 
-from httpx import AsyncClient, Cookies, HTTPError
+from curl_cffi.requests import AsyncSession, Cookies
+from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel, field_validator
 
 from ..utils import logger
@@ -67,7 +68,7 @@ class Image(BaseModel):
 
         Raises
         ------
-        `httpx.HTTPError`
+        `curl_cffi.requests.exceptions.HTTPError`
             If the network request failed.
         """
 
@@ -81,8 +82,11 @@ class Image(BaseModel):
             if skip_invalid_filename:
                 return None
 
-        async with AsyncClient(
-            http2=True, follow_redirects=True, cookies=cookies, proxy=self.proxy
+        async with AsyncSession(
+            impersonate="chrome",
+            allow_redirects=True,
+            cookies=cookies,
+            proxy=self.proxy,
         ) as client:
             response = await client.get(self.url)
             if response.status_code == 200:
@@ -122,7 +126,7 @@ class GeneratedImage(Image):
 
     Parameters
     ----------
-    cookies: `dict | httpx.Cookies`
+    cookies: `dict | curl_cffi.requests.Cookies`
         Cookies used for requesting the content of the generated image, inherit from GeminiClient object or manually set.
         Should contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values.
     """

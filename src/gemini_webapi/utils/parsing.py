@@ -7,7 +7,6 @@ import orjson as json
 
 from .logger import logger
 
-
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
 _VOLATILE_SYMBOLS = string.whitespace + string.punctuation
 _VOLATILE_SET = frozenset(_VOLATILE_SYMBOLS)
