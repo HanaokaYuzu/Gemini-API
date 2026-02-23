@@ -89,6 +89,8 @@ class Image(BaseModel):
             proxy=self.proxy,
         ) as client:
             response = await client.get(self.url)
+            if verbose:
+                logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
             if response.status_code == 200:
                 content_type = response.headers.get("content-type")
                 if content_type and "image" not in content_type:
@@ -108,7 +110,7 @@ class Image(BaseModel):
                 return str(dest.resolve())
             else:
                 raise HTTPError(
-                    f"Error downloading image: {response.status_code} {response.reason_phrase}"
+                    f"Error downloading image: {response.status_code} {response.reason}"
                 )
 
 

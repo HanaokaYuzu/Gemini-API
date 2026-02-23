@@ -183,7 +183,6 @@ class GeminiClient(GemMixin):
                     allow_redirects=True,
                     headers=Headers.GEMINI.value,
                     cookies=valid_cookies,
-                    debug=self.verbose,
                     **self.kwargs,
                 )
                 self.access_token = access_token
@@ -611,6 +610,10 @@ class GeminiClient(GemMixin):
                 data=request_data,
                 **kwargs,
             ) as response:
+                if self.verbose:
+                    logger.debug(
+                        f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}]"
+                    )
                 if response.status_code != 200:
                     await self.close()
                     raise APIError(
@@ -1007,6 +1010,10 @@ class GeminiClient(GemMixin):
                 },
                 **kwargs,
             )
+            if self.verbose:
+                logger.debug(
+                    f"HTTP Request: POST {Endpoint.BATCH_EXEC} [{response.status_code}]"
+                )
         except ReadTimeout:
             raise TimeoutError(
                 "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "

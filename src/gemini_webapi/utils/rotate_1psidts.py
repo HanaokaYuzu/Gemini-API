@@ -6,6 +6,29 @@ from curl_cffi.requests import AsyncSession, Cookies
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
+from .logger import logger
+
+
+def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
+    """
+    Extract a cookie value from a curl_cffi Cookies jar, trying domain-specific
+    lookups first to avoid CookieConflict, then falling back to iteration.
+    """
+    for domain in (
+        ".google.com",
+        "google.com",
+        ".accounts.google.com",
+        "accounts.google.com",
+    ):
+        value = cookies.get(name, domain=domain)
+        if value:
+            return value
+
+    for cookie in cookies.jar:
+        if cookie.name == name:
+            return cookie.value
+
+    return None
 
 
 async def rotate_1psidts(
@@ -43,10 +66,7 @@ async def rotate_1psidts(
 
     # Safely get __Secure-1PSID value for filename
     if isinstance(cookies, Cookies):
-        # Prefer .google.com domain to avoid CookieConflict
-        secure_1psid = cookies.get(
-            "__Secure-1PSID", domain=".google.com"
-        ) or cookies.get("__Secure-1PSID")
+        secure_1psid = _extract_cookie_value(cookies, "__Secure-1PSID")
     else:
         secure_1psid = cookies.get("__Secure-1PSID")
 
@@ -67,12 +87,22 @@ async def rotate_1psidts(
             cookies=cookies,
             data='[000,"-0000000000000000000"]',
         )
+        logger.debug(
+            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
+        )
         if response.status_code == 401:
             raise AuthError
         response.raise_for_status()
 
-        if new_1psidts := response.cookies.get("__Secure-1PSIDTS"):
-            path.write_text(new_1psidts)
-            return new_1psidts, response.cookies
+        new_1psidts = _extract_cookie_value(client.cookies, "__Secure-1PSIDTS")
 
-        return None, response.cookies
+        if new_1psidts:
+            path.write_text(new_1psidts)
+            logger.debug(
+                f"Rotated __Secure-1PSIDTS successfully (length={len(new_1psidts)})."
+            )
+            return new_1psidts, client.cookies
+
+        cookie_names = [c.name for c in client.cookies.jar]
+        logger.debug(f"Rotation response cookies: {cookie_names}")
+        return None, client.cookies

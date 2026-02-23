@@ -10,6 +10,7 @@ from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 from .load_browser_cookies import load_browser_cookies
 from .logger import logger
+from .rotate_1psidts import _extract_cookie_value
 
 
 async def send_request(
@@ -25,9 +26,10 @@ async def send_request(
         headers=Headers.GEMINI.value,
         cookies=cookies,
         allow_redirects=True,
-        debug=verbose,
     ) as client:
         response = await client.get(Endpoint.INIT)
+        if verbose:
+            logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
         response.raise_for_status()
         return response, client.cookies
 
@@ -70,19 +72,31 @@ async def get_access_token(
     """
 
     async with AsyncSession(
-        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify, debug=verbose
+        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
     ) as client:
         response = await client.get(Endpoint.GOOGLE)
+        logger.debug(f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]")
+        preflight_cookies = client.cookies
 
     extra_cookies = Cookies()
     if response.status_code == 200:
-        extra_cookies = response.cookies
+        extra_cookies = preflight_cookies
 
     tasks = []
 
+    has_psid = (
+        _extract_cookie_value(base_cookies, "__Secure-1PSID")
+        if isinstance(base_cookies, Cookies)
+        else base_cookies.get("__Secure-1PSID")
+    )
+    has_psidts = (
+        _extract_cookie_value(base_cookies, "__Secure-1PSIDTS")
+        if isinstance(base_cookies, Cookies)
+        else base_cookies.get("__Secure-1PSIDTS")
+    )
     # Base cookies passed directly on initializing client
     # We use a Jar to merge extra_cookies and base_cookies safely (preserving domains)
-    if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
+    if has_psid and has_psidts:
         jar = Cookies(extra_cookies)
         jar.update(base_cookies)
         tasks.append(Task(send_request(jar, proxy=proxy, verbose=verbose)))
@@ -100,9 +114,7 @@ async def get_access_token(
 
     # Safely get __Secure-1PSID value
     if isinstance(base_cookies, Cookies):
-        secure_1psid = base_cookies.get(
-            "__Secure-1PSID", domain=".google.com"
-        ) or base_cookies.get("__Secure-1PSID")
+        secure_1psid = _extract_cookie_value(base_cookies, "__Secure-1PSID")
     else:
         secure_1psid = base_cookies.get("__Secure-1PSID")
 
@@ -147,10 +159,12 @@ async def get_access_token(
         if browser_cookies:
             for browser, cookies in browser_cookies.items():
                 if secure_1psid := cookies.get("__Secure-1PSID"):
-                    if (
-                        "__Secure-1PSID" in base_cookies
-                        and base_cookies["__Secure-1PSID"] != secure_1psid
-                    ):
+                    base_psid = (
+                        _extract_cookie_value(base_cookies, "__Secure-1PSID")
+                        if isinstance(base_cookies, Cookies)
+                        else base_cookies.get("__Secure-1PSID")
+                    )
+                    if base_psid and base_psid != secure_1psid:
                         if verbose:
                             logger.debug(
                                 f"Skipping loading local browser cookies from {browser}. "
@@ -163,7 +177,9 @@ async def get_access_token(
                         local_cookies["__Secure-1PSIDTS"] = secure_1psidts
                     if nid := cookies.get("NID"):
                         local_cookies["NID"] = nid
-                    tasks.append(Task(send_request(local_cookies, proxy=proxy, verbose=verbose)))
+                    tasks.append(
+                        Task(send_request(local_cookies, proxy=proxy, verbose=verbose))
+                    )
                     valid_browser_cookies += 1
                     if verbose:
                         logger.debug(f"Loaded local browser cookies from {browser}")

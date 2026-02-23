@@ -6,6 +6,7 @@ from curl_cffi.requests import AsyncSession
 from pydantic import ConfigDict, validate_call
 
 from ..constants import Endpoint, Headers
+from .logger import logger
 
 
 def _generate_random_name(extension: str = ".txt") -> str:
@@ -71,6 +72,7 @@ async def upload_file(
             files={"file": (filename, file_content)},
             allow_redirects=True,
         )
+        logger.debug(f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]")
         response.raise_for_status()
         return response.text
 
