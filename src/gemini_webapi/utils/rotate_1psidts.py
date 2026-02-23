@@ -32,7 +32,7 @@ def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
 
 
 async def rotate_1psidts(
-    cookies: dict | Cookies, proxy: str | None = None
+    cookies: dict | Cookies, proxy: str | None = None, verbose: bool = False
 ) -> tuple[str | None, Cookies | None]:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
@@ -43,6 +43,8 @@ async def rotate_1psidts(
         Cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
+    verbose: `bool`, optional
+        If `True`, will print more infomation in logs.
 
     Returns
     -------
@@ -87,9 +89,10 @@ async def rotate_1psidts(
             cookies=cookies,
             data='[000,"-0000000000000000000"]',
         )
-        logger.debug(
-            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
-        )
+        if verbose:
+            logger.debug(
+                f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
+            )
         if response.status_code == 401:
             raise AuthError
         response.raise_for_status()

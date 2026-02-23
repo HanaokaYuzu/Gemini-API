@@ -22,6 +22,7 @@ async def upload_file(
     file: str | Path | bytes | io.BytesIO,
     proxy: str | None = None,
     filename: str | None = None,
+    verbose: bool = False,
 ) -> str:
     """
     Upload a file to Google's server and return its identifier.
@@ -34,6 +35,8 @@ async def upload_file(
         Proxy URL.
     filename: `str`, optional
         Name of the file to be uploaded. Required if file is bytes or BytesIO.
+    verbose: `bool`, optional
+        If `True`, will print more infomation in logs.
 
     Returns
     -------
@@ -72,7 +75,10 @@ async def upload_file(
             files={"file": (filename, file_content)},
             allow_redirects=True,
         )
-        logger.debug(f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]")
+        if verbose:
+            logger.debug(
+                f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
+            )
         response.raise_for_status()
         return response.text
 

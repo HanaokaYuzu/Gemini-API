@@ -286,7 +286,7 @@ class GeminiClient(GemMixin):
                 async with self._lock:
                     # Refresh all cookies in the background to keep the session alive.
                     new_1psidts, rotated_cookies = await rotate_1psidts(
-                        self.cookies, self.proxy
+                        self.cookies, self.proxy, self.verbose
                     )
                     if rotated_cookies:
                         self.cookies.update(rotated_cookies)
@@ -377,7 +377,10 @@ class GeminiClient(GemMixin):
             )
 
             uploaded_urls = await asyncio.gather(
-                *(upload_file(file, self.proxy) for file in files)
+                *(
+                    upload_file(file, proxy=self.proxy, verbose=self.verbose)
+                    for file in files
+                )
             )
             file_data = [
                 [[url], parse_file_name(file)]
@@ -488,7 +491,10 @@ class GeminiClient(GemMixin):
             )
 
             uploaded_urls = await asyncio.gather(
-                *(upload_file(file, self.proxy) for file in files)
+                *(
+                    upload_file(file, proxy=self.proxy, verbose=self.verbose)
+                    for file in files
+                )
             )
             file_data = [
                 [[url], parse_file_name(file)]

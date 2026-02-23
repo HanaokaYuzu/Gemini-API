@@ -75,7 +75,10 @@ async def get_access_token(
         impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
     ) as client:
         response = await client.get(Endpoint.GOOGLE)
-        logger.debug(f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]")
+        if verbose:
+            logger.debug(
+                f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]"
+            )
         preflight_cookies = client.cookies
 
     extra_cookies = Cookies()
