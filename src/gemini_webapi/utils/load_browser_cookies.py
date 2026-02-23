@@ -1,9 +1,18 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.cookiejar import CookieJar
 
 from .logger import logger
 
+try:
+    import browser_cookie3 as bc3
 
-def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
+    HAS_BC3 = True
+except ImportError:
+    bc3 = None
+    HAS_BC3 = False
+
+
+def load_browser_cookies(domain_name: str = "", verbose: bool = False) -> dict:
     """
     Try to load cookies from all supported browsers and return combined cookiejar.
     Optionally pass in a domain name to only load cookies from the specified domain.
@@ -21,11 +30,14 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
         Dictionary with browser as keys and their cookies for the specified domain as values.
         Only browsers that have cookies for the specified domain will be included.
     """
+    if not HAS_BC3 or bc3 is None:
+        if verbose:
+            logger.debug(
+                "Optional dependency 'browser-cookie3' not found. Skipping browser cookie loading."
+            )
+        return {}
 
-    import browser_cookie3 as bc3
-
-    cookies = {}
-    for cookie_fn in [
+    browser_fns = [
         bc3.chrome,
         bc3.chromium,
         bc3.opera,
@@ -36,24 +48,35 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
         bc3.firefox,
         bc3.librewolf,
         bc3.safari,
-    ]:
+    ]
+
+    cookies = {}
+
+    def fetch_cookies(cookie_fn):
         try:
             jar: CookieJar = cookie_fn(domain_name=domain_name)
             if jar:
-                cookies[cookie_fn.__name__] = {
-                    cookie.name: cookie.value for cookie in jar
-                }
+                return cookie_fn.__name__, {cookie.name: cookie.value for cookie in jar}
         except bc3.BrowserCookieError:
             pass
-        except PermissionError as e:
+        except PermissionError as err:
             if verbose:
                 logger.warning(
-                    f"Permission denied while trying to load cookies from {cookie_fn.__name__}. {e}"
+                    f"Permission denied while trying to load cookies from {cookie_fn.__name__}. {err}"
                 )
-        except Exception as e:
+        except Exception as err:
             if verbose:
                 logger.error(
-                    f"Error happened while trying to load cookies from {cookie_fn.__name__}. {e}"
+                    f"Error happened while trying to load cookies from {cookie_fn.__name__}. {err}"
                 )
+        return None
+
+    with ThreadPoolExecutor(max_workers=len(browser_fns)) as executor:
+        futures = [executor.submit(fetch_cookies, fn) for fn in browser_fns]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                browser_name, cookie_dict = result
+                cookies[browser_name] = cookie_dict
 
     return cookies
