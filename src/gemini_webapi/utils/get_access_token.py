@@ -33,9 +33,6 @@ async def send_request(
         if verbose:
             logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
         response.raise_for_status()
-        if verbose:
-            cookie_names = sorted({c.name for c in client.cookies.jar})
-            logger.debug(f"Warmup cookies ({len(cookie_names)}): {cookie_names}")
         return response, client
     except Exception:
         await client.close()
