@@ -189,15 +189,15 @@ async def get_access_token(
         try:
             response, request_cookies = await future
             snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
-            if snlm0e:
-                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
-                fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
+            cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
+            fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
+            if snlm0e or cfb2h or fdrfje:
                 if verbose:
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
                     )
                 return (
-                    snlm0e.group(1),
+                    snlm0e.group(1) if snlm0e else "",
                     cfb2h.group(1) if cfb2h else None,
                     fdrfje.group(1) if fdrfje else None,
                     request_cookies,
