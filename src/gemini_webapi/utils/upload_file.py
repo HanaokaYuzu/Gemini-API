@@ -1,7 +1,9 @@
 import io
+import mimetypes
 import random
 from pathlib import Path
 
+import curl_cffi
 from curl_cffi.requests import AsyncSession
 from pydantic import ConfigDict, validate_call
 
@@ -68,19 +70,32 @@ async def upload_file(
     else:
         raise ValueError(f"Unsupported file type: {type(file)}")
 
-    async with AsyncSession(impersonate="chrome", proxy=proxy) as client:
-        response = await client.post(
-            url=Endpoint.UPLOAD,
-            headers=Headers.UPLOAD.value,
-            files={"file": (filename, file_content)},
-            allow_redirects=True,
-        )
-        if verbose:
-            logger.debug(
-                f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    mp = curl_cffi.CurlMime()
+    mp.addpart(
+        name="file",
+        content_type=content_type,
+        filename=filename,
+        data=file_content,
+    )
+
+    try:
+        async with AsyncSession(impersonate="chrome", proxy=proxy) as client:
+            response = await client.post(
+                url=Endpoint.UPLOAD,
+                headers=Headers.UPLOAD.value,
+                multipart=mp,
+                allow_redirects=True,
             )
-        response.raise_for_status()
-        return response.text
+            if verbose:
+                logger.debug(
+                    f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
+                )
+            response.raise_for_status()
+            return response.text
+    finally:
+        mp.close()
 
 
 def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:
