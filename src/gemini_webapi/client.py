@@ -13,7 +13,7 @@ from curl_cffi.requests import AsyncSession, Cookies, Response
 from curl_cffi.requests.exceptions import ReadTimeout
 
 from .components import GemMixin
-from .constants import Endpoint, ErrorCode, GRPC, Headers, Model
+from .constants import Endpoint, ErrorCode, GRPC, Model
 from .exceptions import (
     APIError,
     AuthError,
@@ -167,26 +167,17 @@ class GeminiClient(GemMixin):
             try:
                 self.verbose = verbose
                 self.watchdog_timeout = watchdog_timeout
-                access_token, build_label, session_id, valid_cookies = (
-                    await get_access_token(
-                        base_cookies=self.cookies,
-                        proxy=self.proxy,
-                        verbose=self.verbose,
-                        verify=self.kwargs.get("verify", True),
-                    )
+                access_token, build_label, session_id, session = await get_access_token(
+                    base_cookies=self.cookies,
+                    proxy=self.proxy,
+                    verbose=self.verbose,
+                    verify=self.kwargs.get("verify", True),
                 )
 
-                self.client = AsyncSession(
-                    impersonate="chrome",
-                    timeout=timeout,
-                    proxy=self.proxy,
-                    allow_redirects=True,
-                    headers=Headers.GEMINI.value,
-                    cookies=valid_cookies,
-                    **self.kwargs,
-                )
+                session.timeout = timeout
+                self.client = session
+                self.cookies = self.client.cookies
                 self.access_token = access_token
-                self.cookies = valid_cookies
                 self.build_label = build_label
                 self.session_id = session_id
                 self._running = True

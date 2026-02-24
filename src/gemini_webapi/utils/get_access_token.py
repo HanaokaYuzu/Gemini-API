@@ -14,23 +14,32 @@ from ..exceptions import AuthError
 
 async def send_request(
     cookies: dict | Cookies, proxy: str | None = None, verbose: bool = False
-) -> tuple[Response | None, Cookies]:
+) -> tuple[Response, AsyncSession]:
     """
     Send http request with provided cookies.
+
+    Returns the response and the **live** session (caller owns its lifecycle).
     """
 
-    async with AsyncSession(
+    client = AsyncSession(
         impersonate="chrome",
         proxy=proxy,
         headers=Headers.GEMINI.value,
         cookies=cookies,
         allow_redirects=True,
-    ) as client:
+    )
+    try:
         response = await client.get(Endpoint.INIT)
         if verbose:
             logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
         response.raise_for_status()
-        return response, client.cookies
+        if verbose:
+            cookie_names = sorted({c.name for c in client.cookies.jar})
+            logger.debug(f"Warmup cookies ({len(cookie_names)}): {cookie_names}")
+        return response, client
+    except Exception:
+        await client.close()
+        raise
 
 
 async def get_access_token(
@@ -38,10 +47,13 @@ async def get_access_token(
     proxy: str | None = None,
     verbose: bool = False,
     verify: bool = True,
-) -> tuple[str, Cookies, str | None, str | None]:
+) -> tuple[str, str | None, str | None, AsyncSession]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
+
+    Returns the **live** AsyncSession that succeeded so the caller can reuse
+    the same TLS connection for subsequent requests.
 
     Possible cookie sources:
     - Base cookies passed to the function.
@@ -61,8 +73,8 @@ async def get_access_token(
 
     Returns
     -------
-    `tuple[str, str | None, str | None, Cookies]`
-        By order: access token; build label; session id; cookies of the successful request.
+    `tuple[str, str | None, str | None, AsyncSession]`
+        By order: access token; build label; session id; the live session.
 
     Raises
     ------
@@ -132,6 +144,8 @@ async def get_access_token(
                 )
                 tried_psid_ts.add((psid, cached_1psidts))
 
+    live_sessions: list[AsyncSession] = []
+
     async def try_run_group(tasks, group_name):
         nonlocal current_attempt
         if not tasks:
@@ -140,7 +154,8 @@ async def get_access_token(
         for future in asyncio.as_completed(tasks):
             current_attempt += 1
             try:
-                res, request_cookies = await future
+                res, session = await future
+                live_sessions.append(session)
                 snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', res.text)
                 if snlm0e:
                     for t in tasks:
@@ -153,12 +168,19 @@ async def get_access_token(
                         logger.debug(
                             f"Init attempt ({current_attempt}) from {group_name} succeeded."
                         )
+
+                    for s in live_sessions:
+                        if s is not session:
+                            await s.close()
+
                     return (
                         snlm0e.group(1),
                         cfb2h.group(1) if cfb2h else None,
                         fdrfje.group(1) if fdrfje else None,
-                        request_cookies,
+                        session,
                     )
+                else:
+                    pass
             except asyncio.CancelledError:
                 continue
             except Exception as err:
@@ -242,6 +264,9 @@ async def get_access_token(
     result = await try_run_group(browser_tasks, "Browser")
     if result:
         return result
+
+    for s in live_sessions:
+        await s.close()
 
     raise AuthError(
         f"Failed to initialize client after {current_attempt} attempts. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date."
