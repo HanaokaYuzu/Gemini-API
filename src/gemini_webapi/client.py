@@ -889,11 +889,28 @@ class GeminiClient(GemMixin):
                             except json.JSONDecodeError:
                                 continue
 
+                _debug_raw_stream = ""
+                _debug_part_idx = 0
+
                 async for chunk in response.aiter_content():
-                    buffer += decoder.decode(chunk, final=False)
+                    decoded = decoder.decode(chunk, final=False)
+                    buffer += decoded
+                    _debug_raw_stream += decoded
                     if buffer.startswith(")]}'"):
                         buffer = buffer[4:].lstrip()
                     parsed_parts, buffer = parse_response_by_frame(buffer)
+
+                    for _dp in parsed_parts:
+                        _dp_len = len(_dp) if isinstance(_dp, list) else -1
+                        _dp_tag = get_nested_value(_dp, [0], "?")
+                        _dp_p5 = get_nested_value(_dp, [5])
+                        _dp_p5_queue = isinstance(_dp_p5, list) and bool(_dp_p5)
+                        logger.debug(
+                            f"[CHUNK] part#{_debug_part_idx} tag={_dp_tag} len={_dp_len} "
+                            f"p[5]={'list('+str(len(_dp_p5))+')' if isinstance(_dp_p5, list) else repr(_dp_p5)} "
+                            f"would_queue={_dp_p5_queue}"
+                        )
+                        _debug_part_idx += 1
 
                     got_update = False
                     async for out in _process_parts(parsed_parts):
@@ -915,12 +932,34 @@ class GeminiClient(GemMixin):
 
                 # Final flush
                 buffer += decoder.decode(b"", final=True)
+                _debug_raw_stream += buffer
                 if buffer:
                     parsed_parts, _ = parse_response_by_frame(buffer)
+                    for _dp in parsed_parts:
+                        _dp_len = len(_dp) if isinstance(_dp, list) else -1
+                        _dp_tag = get_nested_value(_dp, [0], "?")
+                        logger.debug(
+                            f"[CHUNK] part#{_debug_part_idx} tag={_dp_tag} len={_dp_len} (final flush)"
+                        )
+                        _debug_part_idx += 1
                     async for out in _process_parts(parsed_parts):
                         yield out
 
+                logger.debug(
+                    f"[STREAM END] parts={_debug_part_idx} completed={is_completed} "
+                    f"final_chunk={is_final_chunk} thinking={is_thinking} queueing={is_queueing} "
+                    f"has_candidates={has_candidates}"
+                )
+
+                # Dump raw stream to file for offline analysis
                 if not (is_completed or is_final_chunk) or is_thinking or is_queueing:
+                    _dump_file = f"debug_stream_{int(time.time())}.log"
+                    try:
+                        with open(_dump_file, "w", encoding="utf-8") as _f:
+                            _f.write(_debug_raw_stream)
+                        logger.debug(f"[DUMP] Raw stream saved to {_dump_file}")
+                    except Exception:
+                        pass
                     logger.debug(
                         f"Stream interrupted (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                         "Polling again..."
