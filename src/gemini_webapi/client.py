@@ -657,7 +657,7 @@ class GeminiClient(GemMixin):
                 ) -> AsyncGenerator[ModelOutput, None]:
                     nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk
                     for part in parts:
-                        # 1. Check for fatal error codes
+                        # Check for fatal error codes
                         error_code = get_nested_value(part, [5, 2, 0, 1, 0])
                         if error_code:
                             await self.close()
@@ -692,16 +692,11 @@ class GeminiClient(GemMixin):
                                         "This might be a temporary Google service issue."
                                     )
 
-                        # 2. Detect if model is busy analyzing data (Thinking state)
-                        if "data_analysis_tool" in str(part):
-                            is_thinking = True
-                            if not has_candidates:
-                                logger.debug("Model is active (thinking/analyzing)...")
-
-                        # 3. Check for queueing status
+                        # Check for queueing status
                         status = get_nested_value(part, [5])
                         if isinstance(status, list) and status:
                             is_queueing = True
+                            is_thinking = False
                             if not has_candidates:
                                 logger.debug(
                                     "Model is in a waiting state (queueing)..."
@@ -714,6 +709,17 @@ class GeminiClient(GemMixin):
                                 m_data = get_nested_value(part_json, [1])
                                 if m_data and isinstance(chat, ChatSession):
                                     chat.metadata = m_data
+
+                                # Check for busy analyzing data
+                                tool_name = get_nested_value(part_json, [6, 1, 0])
+                                if tool_name == "data_analysis_tool":
+                                    is_thinking = True
+                                    is_queueing = False
+                                    if not has_candidates:
+                                        logger.debug(
+                                            "Model is active (thinking/analyzing)..."
+                                        )
+
                                 context_str = get_nested_value(part_json, [25])
                                 if isinstance(context_str, str):
                                     is_completed = True
@@ -894,7 +900,7 @@ class GeminiClient(GemMixin):
                         yield out
                         got_update = True
 
-                    if got_update or is_thinking:
+                    if got_update or (parsed_parts and is_thinking and not is_queueing):
                         last_progress_time = time.time()
                         session_state["last_progress_time"] = last_progress_time
                     else:
