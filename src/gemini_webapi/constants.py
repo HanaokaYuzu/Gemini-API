@@ -46,26 +46,47 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    G_3_0_PRO = (
-        "gemini-3.0-pro",
+    G_3_PRO_AI_FREE = (
+        "gemini-3-pro-ai-free",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]'
         },
         False,
     )
-    G_3_0_FLASH = (
-        "gemini-3.0-flash",
+    G_3_FLASH_AI_FREE = (
+        "gemini-3-flash-ai-free",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]'
         },
         False,
     )
-    G_3_0_FLASH_THINKING = (
-        "gemini-3.0-flash-thinking",
+    G_3_FLASH_THINKING_AI_FREE = (
+        "gemini-3-flash-thinking-ai-free",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]'
         },
         False,
+    )
+    G_3_PRO_AI_PRO = (
+        "gemini-3-pro-ai-pro",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]'
+        },
+        True,
+    )
+    G_3_FLASH_AI_PRO = (
+        "gemini-3-flash-ai-pro",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]'
+        },
+        True,
+    )
+    G_3_FLASH_THINKING_AI_PRO = (
+        "gemini-3-flash-thinking-ai-pro",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]'
+        },
+        True,
     )
 
     def __init__(self, name, header, advanced_only):
