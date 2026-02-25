@@ -1151,7 +1151,7 @@ class GeminiClient(GemMixin):
                     RPCData(
                         rpcid=GRPC.READ_CHAT,
                         payload=json.dumps(
-                            [cid, 1000, None, 1, [1], [4], None, 1]
+                            [cid, 10, None, 1, [1], [4], None, 1]
                         ).decode("utf-8"),
                     ),
                 ]
