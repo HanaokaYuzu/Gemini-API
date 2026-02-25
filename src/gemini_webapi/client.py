@@ -1016,16 +1016,17 @@ class GeminiClient(GemMixin):
                                 f"Stream suspended. Checking conversation history for {chat.cid}..."
                             )
 
+                            poll_start_time = time.time()
+                            poll_timeout = min(self.timeout, self.watchdog_timeout)
+
                             while True:
-                                if (
-                                    time.time() - session_state["last_progress_time"]
-                                    > self.timeout
-                                ):
+                                if (time.time() - poll_start_time) > poll_timeout:
                                     logger.warning(
-                                        f"[Recovery] Polling for {chat.cid} timed out after {self.timeout}s."
+                                        f"[Recovery] Polling for {chat.cid} timed out after {poll_timeout}s."
                                     )
                                     raise APIError(
-                                        "read_chat polling timed out waiting for the model to finish."
+                                        "read_chat polling timed out waiting for the model to finish. "
+                                        "The original request may have been silently aborted by Google."
                                     )
 
                                 recovered = await self.read_chat(chat.cid)
