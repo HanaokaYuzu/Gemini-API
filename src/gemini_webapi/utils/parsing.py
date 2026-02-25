@@ -1,6 +1,6 @@
+import difflib
 import re
 import reprlib
-import string
 from typing import Any
 
 import orjson as json
@@ -8,10 +8,7 @@ import orjson as json
 from .logger import logger
 
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
-_VOLATILE_SYMBOLS = string.whitespace + string.punctuation
-_VOLATILE_SET = frozenset(_VOLATILE_SYMBOLS)
-_VOLATILE_TRANS_TABLE = str.maketrans("", "", _VOLATILE_SYMBOLS)
-_FLICKER_ESC_RE = re.compile(r"\\+[`*_~].*$")
+_FLICKER_ESC_RE = re.compile(r"\\+[`*_~]\s*$")
 
 
 def get_clean_text(s: str) -> str:
@@ -28,21 +25,13 @@ def get_clean_text(s: str) -> str:
     return _FLICKER_ESC_RE.sub("", s)
 
 
-def get_fp_len(s: str) -> int:
-    """
-    Calculate the length of the string after removing volatile symbols.
-    Uses string translate for maximum performance.
-    """
-
-    return len(s.translate(_VOLATILE_TRANS_TABLE))
-
-
 def get_delta_by_fp_len(
     new_raw: str, last_sent_clean: str, is_final: bool
 ) -> tuple[str, str]:
     """
     Calculate text delta by aligning stable content and matching volatile symbols.
     Handles temporary flicker at ends and permanent escaping drift during code block transitions.
+    Uses SequenceMatcher to robustly handle middle-string modifications.
     """
 
     new_c = get_clean_text(new_raw) if not is_final else new_raw
@@ -50,59 +39,34 @@ def get_delta_by_fp_len(
     if new_c.startswith(last_sent_clean):
         return new_c[len(last_sent_clean) :], new_c
 
-    target_fp_len = get_fp_len(last_sent_clean)
-    p_low = 0
-    if target_fp_len > 0:
-        curr_fp_len = 0
-        for i, char in enumerate(new_c):
-            if char not in _VOLATILE_SET:
-                curr_fp_len += 1
-            if curr_fp_len == target_fp_len:
-                p_low = i + 1
-                break
-        else:
-            common_len = 0
-            for c1, c2 in zip(last_sent_clean, new_c):
-                if c1 == c2:
-                    common_len += 1
-                else:
-                    break
-            return new_c[common_len:], new_c
+    # Find the matching suffix to handle differences gracefully
+    search_len = min(3000, max(1000, len(last_sent_clean)))
+    search_len = min(search_len, len(last_sent_clean), len(new_c))
 
-    last_content_idx = -1
-    for i in range(len(last_sent_clean) - 1, -1, -1):
-        if last_sent_clean[i] not in _VOLATILE_SET:
-            last_content_idx = i
-            break
+    if search_len == 0:
+        return new_c, new_c
 
-    suffix = last_sent_clean[last_content_idx + 1 :]
+    tail_last = last_sent_clean[-search_len:]
+    tail_new = new_c[-search_len:]
 
-    i = 0
-    j = 0
-    limit_n = len(new_c)
-    limit_s = len(suffix)
+    sm = difflib.SequenceMatcher(None, tail_last, tail_new)
+    blocks = [b for b in sm.get_matching_blocks() if b.size > 0]
 
-    while i < limit_s and (p_low + j) < limit_n:
-        char_s = suffix[i]
-        char_n = new_c[p_low + j]
+    if blocks:
+        last_match = blocks[-1]
+        match_end = last_match.b + last_match.size
+        return tail_new[match_end:], new_c
 
-        if char_s == char_n:
-            i += 1
-            j += 1
-        elif (
-            char_n == "\\"
-            and (p_low + j + 1) < limit_n
-            and new_c[p_low + j + 1] == char_s
-        ):
-            j += 2
-            i += 1
-        elif char_s == "\\" and (i + 1) < limit_s and suffix[i + 1] == char_n:
-            i += 2
-            j += 1
-        else:
-            break
+    # Fallback to full string if tail didn't match at all
+    sm = difflib.SequenceMatcher(None, last_sent_clean, new_c)
+    blocks = [b for b in sm.get_matching_blocks() if b.size > 0]
 
-    return new_c[p_low + j :], new_c
+    if blocks:
+        last_match = blocks[-1]
+        match_end = last_match.b + last_match.size
+        return new_c[match_end:], new_c
+
+    return new_c, new_c
 
 
 def _get_char_count_for_utf16_units(
