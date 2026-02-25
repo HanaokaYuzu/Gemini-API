@@ -119,7 +119,7 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 540
         self.refresh_task: Task | None = None
         self.verbose: bool = True
-        self.watchdog_timeout: float = 60  # ≤ DELAY_FACTOR × retry × (retry + 1) / 2
+        self.watchdog_timeout: float = 60
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
         self.kwargs = kwargs
@@ -145,7 +145,7 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
-        watchdog_timeout: float = 60,  # ≤ DELAY_FACTOR × retry × (retry + 1) / 2
+        watchdog_timeout: float = 60,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -930,7 +930,11 @@ class GeminiClient(GemMixin):
                     chunk_iterator = response.aiter_content().__aiter__()
                     while True:
                         try:
-                            stall_threshold = min(self.timeout, self.watchdog_timeout)
+                            stall_threshold = (
+                                self.timeout
+                                if (is_thinking or is_queueing)
+                                else min(self.timeout, self.watchdog_timeout)
+                            )
                             chunk = await asyncio.wait_for(
                                 chunk_iterator.__anext__(), timeout=stall_threshold + 5
                             )
@@ -957,7 +961,11 @@ class GeminiClient(GemMixin):
                             last_progress_time = time.time()
                             session_state["last_progress_time"] = last_progress_time
                         else:
-                            stall_threshold = min(self.timeout, self.watchdog_timeout)
+                            stall_threshold = (
+                                self.timeout
+                                if (is_thinking or is_queueing)
+                                else min(self.timeout, self.watchdog_timeout)
+                            )
                             if (time.time() - last_progress_time) > stall_threshold:
                                 if is_thinking:
                                     logger.debug(
@@ -984,7 +992,11 @@ class GeminiClient(GemMixin):
                         or is_thinking
                         or is_queueing
                     ):
-                        stall_threshold = min(self.timeout, self.watchdog_timeout)
+                        stall_threshold = (
+                            self.timeout
+                            if (is_thinking or is_queueing)
+                            else min(self.timeout, self.watchdog_timeout)
+                        )
                         if (time.time() - last_progress_time) > stall_threshold:
                             if not is_thinking:
                                 logger.debug(

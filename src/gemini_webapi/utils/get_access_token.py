@@ -182,7 +182,9 @@ async def get_access_token(
                 continue
             except Exception:
                 if verbose:
-                    logger.debug(f"Init attempt ({current_attempt}) from {group_name} failed.")
+                    logger.debug(
+                        f"Init attempt ({current_attempt}) from {group_name} failed."
+                    )
         return None
 
     current_attempt = 0
@@ -254,7 +256,9 @@ async def get_access_token(
             )
     except Exception:
         if verbose:
-            logger.debug("Skipping loading local browser cookies (Not available or no permission).")
+            logger.debug(
+                "Skipping loading local browser cookies (Not available or no permission)."
+            )
 
     result = await try_run_group(browser_tasks, "Browser")
     if result:
