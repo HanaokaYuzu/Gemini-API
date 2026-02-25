@@ -598,366 +598,325 @@ class GeminiClient(GemMixin):
                     ]
                 ).decode("utf-8"),
             }
-            poll_count = 0
-            while True:
-                poll_count += 1
-                async with self.client.stream(
-                    "POST",
-                    Endpoint.GENERATE,
-                    params=params,
-                    headers=model.model_header,
-                    data=request_data,
-                    **kwargs,
-                ) as response:
-                    if self.verbose:
-                        logger.debug(
-                            f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}]"
-                        )
-                    if response.status_code != 200:
-                        await self.close()
-                        raise APIError(
-                            f"Failed to generate contents. Status: {response.status_code}"
-                        )
 
-                    if self.client:
-                        self.cookies.update(self.client.cookies)
-
-                    buffer = ""
-                    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-
-                    # Track last seen content. session_state allows persistence across retries.
-                    if session_state is None:
-                        session_state = {
-                            "last_texts": {},
-                            "last_thoughts": {},
-                            "last_progress_time": time.time(),
-                        }
-
-                    last_texts: dict[str, str] = session_state["last_texts"]
-                    last_thoughts: dict[str, str] = session_state["last_thoughts"]
-                    last_progress_time = session_state.get(
-                        "last_progress_time", time.time()
+            async with self.client.stream(
+                "POST",
+                Endpoint.GENERATE,
+                params=params,
+                headers=model.model_header,
+                data=request_data,
+                **kwargs,
+            ) as response:
+                if self.verbose:
+                    logger.debug(
+                        f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}]"
+                    )
+                if response.status_code != 200:
+                    await self.close()
+                    raise APIError(
+                        f"Failed to generate contents. Status: {response.status_code}"
                     )
 
-                    is_thinking = False
-                    is_queueing = False
-                    has_candidates = False
-                    is_completed = False
-                    is_final_chunk = False
+                if self.client:
+                    self.cookies.update(self.client.cookies)
 
-                    async def _process_parts(
-                        parts: list[Any],
-                    ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk
-                        for part in parts:
-                            # Check for fatal error codes
-                            error_code = get_nested_value(part, [5, 2, 0, 1, 0])
-                            if error_code:
-                                await self.close()
-                                match error_code:
-                                    case ErrorCode.USAGE_LIMIT_EXCEEDED:
-                                        raise UsageLimitExceeded(
-                                            f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
-                                            "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
-                                        )
-                                    case ErrorCode.MODEL_INCONSISTENT:
-                                        raise ModelInvalid(
-                                            "The specified model is inconsistent with the conversation history. "
-                                            "Please ensure you are using the same 'model' parameter throughout the entire ChatSession."
-                                        )
-                                    case ErrorCode.MODEL_HEADER_INVALID:
-                                        raise ModelInvalid(
-                                            f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "
-                                            "Please update 'gemini_webapi' to the latest version or report this on GitHub if the problem persists."
-                                        )
-                                    case ErrorCode.IP_TEMPORARILY_BLOCKED:
-                                        raise TemporarilyBlocked(
-                                            "Your IP address has been temporarily flagged or blocked by Google. "
-                                            "Please try using a proxy, a different network, or wait for a while before retrying."
-                                        )
-                                    case ErrorCode.TEMPORARY_ERROR_1013:
-                                        raise APIError(
-                                            "Gemini encountered a temporary error (1013). Retrying..."
-                                        )
-                                    case _:
-                                        raise APIError(
-                                            f"Failed to generate contents (stream). Unknown API error code: {error_code}. "
-                                            "This might be a temporary Google service issue."
-                                        )
+                buffer = ""
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
-                            # Check for queueing status
-                            status = get_nested_value(part, [5])
-                            if isinstance(status, list) and status:
-                                is_queueing = True
-                                is_thinking = False
-                                if not has_candidates:
-                                    logger.debug(
-                                        "Model is in a waiting state (queueing)..."
+                # Track last seen content. session_state allows persistence across retries.
+                if session_state is None:
+                    session_state = {
+                        "last_texts": {},
+                        "last_thoughts": {},
+                        "last_progress_time": time.time(),
+                    }
+
+                last_texts: dict[str, str] = session_state["last_texts"]
+                last_thoughts: dict[str, str] = session_state["last_thoughts"]
+                last_progress_time = session_state.get(
+                    "last_progress_time", time.time()
+                )
+
+                is_thinking = False
+                is_queueing = False
+                has_candidates = False
+                is_completed = False
+                is_final_chunk = False
+
+                async def _process_parts(
+                    parts: list[Any],
+                ) -> AsyncGenerator[ModelOutput, None]:
+                    nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk
+                    for part in parts:
+                        # Check for fatal error codes
+                        error_code = get_nested_value(part, [5, 2, 0, 1, 0])
+                        if error_code:
+                            await self.close()
+                            match error_code:
+                                case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                    raise UsageLimitExceeded(
+                                        f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
+                                        "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
+                                    )
+                                case ErrorCode.MODEL_INCONSISTENT:
+                                    raise ModelInvalid(
+                                        "The specified model is inconsistent with the conversation history. "
+                                        "Please ensure you are using the same 'model' parameter throughout the entire ChatSession."
+                                    )
+                                case ErrorCode.MODEL_HEADER_INVALID:
+                                    raise ModelInvalid(
+                                        f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "
+                                        "Please update 'gemini_webapi' to the latest version or report this on GitHub if the problem persists."
+                                    )
+                                case ErrorCode.IP_TEMPORARILY_BLOCKED:
+                                    raise TemporarilyBlocked(
+                                        "Your IP address has been temporarily flagged or blocked by Google. "
+                                        "Please try using a proxy, a different network, or wait for a while before retrying."
+                                    )
+                                case ErrorCode.TEMPORARY_ERROR_1013:
+                                    raise APIError(
+                                        "Gemini encountered a temporary error (1013). Retrying..."
+                                    )
+                                case _:
+                                    raise APIError(
+                                        f"Failed to generate contents (stream). Unknown API error code: {error_code}. "
+                                        "This might be a temporary Google service issue."
                                     )
 
-                            inner_json_str = get_nested_value(part, [2])
-                            if inner_json_str:
-                                try:
-                                    part_json = json.loads(inner_json_str)
-                                    m_data = get_nested_value(part_json, [1])
-                                    if m_data and isinstance(chat, ChatSession):
-                                        chat.metadata = m_data
+                        # Check for queueing status
+                        status = get_nested_value(part, [5])
+                        if isinstance(status, list) and status:
+                            is_queueing = True
+                            is_thinking = False
+                            if not has_candidates:
+                                logger.debug(
+                                    "Model is in a waiting state (queueing)..."
+                                )
 
-                                    # Check for busy analyzing data
-                                    tool_name = get_nested_value(part_json, [6, 1, 0])
-                                    if tool_name == "data_analysis_tool":
-                                        is_thinking = True
-                                        is_queueing = False
-                                        if not has_candidates:
-                                            logger.debug(
-                                                "Model is active (thinking/analyzing)..."
-                                            )
+                        inner_json_str = get_nested_value(part, [2])
+                        if inner_json_str:
+                            try:
+                                part_json = json.loads(inner_json_str)
+                                m_data = get_nested_value(part_json, [1])
+                                if m_data and isinstance(chat, ChatSession):
+                                    chat.metadata = m_data
 
-                                    context_str = get_nested_value(part_json, [25])
-                                    if isinstance(context_str, str):
-                                        is_completed = True
-                                        is_thinking = False
-                                        is_queueing = False
+                                # Check for busy analyzing data
+                                tool_name = get_nested_value(part_json, [6, 1, 0])
+                                if tool_name == "data_analysis_tool":
+                                    is_thinking = True
+                                    is_queueing = False
+                                    if not has_candidates:
+                                        logger.debug(
+                                            "Model is active (thinking/analyzing)..."
+                                        )
+
+                                context_str = get_nested_value(part_json, [25])
+                                if isinstance(context_str, str):
+                                    is_completed = True
+                                    is_thinking = False
+                                    is_queueing = False
+                                    if isinstance(chat, ChatSession):
+                                        chat.metadata = [None] * 9 + [context_str]
+
+                                candidates_list = get_nested_value(part_json, [4], [])
+                                if candidates_list:
+                                    output_candidates = []
+                                    for i, candidate_data in enumerate(candidates_list):
+                                        rcid = get_nested_value(candidate_data, [0])
+                                        if not rcid:
+                                            continue
                                         if isinstance(chat, ChatSession):
-                                            chat.metadata = [None] * 9 + [context_str]
+                                            chat.rcid = rcid
 
-                                    candidates_list = get_nested_value(
-                                        part_json, [4], []
-                                    )
-                                    if candidates_list:
-                                        output_candidates = []
-                                        for i, candidate_data in enumerate(
-                                            candidates_list
+                                        # Text output and thoughts
+                                        text = get_nested_value(
+                                            candidate_data, [1, 0], ""
+                                        )
+                                        if re.match(
+                                            r"^http://googleusercontent\.com/card_content/\d+",
+                                            text,
                                         ):
-                                            rcid = get_nested_value(candidate_data, [0])
-                                            if not rcid:
-                                                continue
-                                            if isinstance(chat, ChatSession):
-                                                chat.rcid = rcid
-
-                                            # Text output and thoughts
-                                            text = get_nested_value(
-                                                candidate_data, [1, 0], ""
-                                            )
-                                            if re.match(
-                                                r"^http://googleusercontent\.com/card_content/\d+",
-                                                text,
-                                            ):
-                                                text = (
-                                                    get_nested_value(
-                                                        candidate_data, [22, 0]
-                                                    )
-                                                    or text
-                                                )
-
-                                            # Cleanup googleusercontent artifacts
-                                            text = re.sub(
-                                                r"http://googleusercontent\.com/\w+/\d+\n*",
-                                                "",
-                                                text,
-                                            )
-
-                                            thoughts = (
+                                            text = (
                                                 get_nested_value(
-                                                    candidate_data, [37, 0, 0]
+                                                    candidate_data, [22, 0]
                                                 )
-                                                or ""
-                                            )
-                                            # Image handling
-                                            web_images = []
-                                            for web_img_data in get_nested_value(
-                                                candidate_data, [12, 1], []
-                                            ):
-                                                url = get_nested_value(
-                                                    web_img_data, [0, 0, 0]
-                                                )
-                                                if url:
-                                                    web_images.append(
-                                                        WebImage(
-                                                            url=url,
-                                                            title=get_nested_value(
-                                                                web_img_data, [7, 0], ""
-                                                            ),
-                                                            alt=get_nested_value(
-                                                                web_img_data, [0, 4], ""
-                                                            ),
-                                                            proxy=self.proxy,
-                                                        )
-                                                    )
-
-                                            generated_images = []
-                                            for gen_img_data in get_nested_value(
-                                                candidate_data, [12, 7, 0], []
-                                            ):
-                                                url = get_nested_value(
-                                                    gen_img_data, [0, 3, 3]
-                                                )
-                                                if url:
-                                                    img_num = get_nested_value(
-                                                        gen_img_data, [3, 6]
-                                                    )
-                                                    generated_images.append(
-                                                        GeneratedImage(
-                                                            url=url,
-                                                            title=(
-                                                                f"[Generated Image {img_num}]"
-                                                                if img_num
-                                                                else "[Generated Image]"
-                                                            ),
-                                                            alt=get_nested_value(
-                                                                gen_img_data,
-                                                                [3, 5, 0],
-                                                                "",
-                                                            ),
-                                                            proxy=self.proxy,
-                                                            cookies=self.cookies,
-                                                        )
-                                                    )
-
-                                            # Determine if this frame represents the final state of the message
-                                            is_final_chunk = (
-                                                isinstance(
-                                                    get_nested_value(
-                                                        candidate_data, [2]
-                                                    ),
-                                                    list,
-                                                )
-                                                or get_nested_value(
-                                                    candidate_data, [8, 0], 1
-                                                )
-                                                == 2
+                                                or text
                                             )
 
-                                            last_sent_text = last_texts.get(
-                                                rcid
-                                            ) or last_texts.get(f"idx_{i}", "")
-                                            text_delta, new_full_text = (
+                                        # Cleanup googleusercontent artifacts
+                                        text = re.sub(
+                                            r"http://googleusercontent\.com/\w+/\d+\n*",
+                                            "",
+                                            text,
+                                        )
+
+                                        thoughts = (
+                                            get_nested_value(candidate_data, [37, 0, 0])
+                                            or ""
+                                        )
+                                        # Image handling
+                                        web_images = []
+                                        for web_img_data in get_nested_value(
+                                            candidate_data, [12, 1], []
+                                        ):
+                                            url = get_nested_value(
+                                                web_img_data, [0, 0, 0]
+                                            )
+                                            if url:
+                                                web_images.append(
+                                                    WebImage(
+                                                        url=url,
+                                                        title=get_nested_value(
+                                                            web_img_data, [7, 0], ""
+                                                        ),
+                                                        alt=get_nested_value(
+                                                            web_img_data, [0, 4], ""
+                                                        ),
+                                                        proxy=self.proxy,
+                                                    )
+                                                )
+
+                                        generated_images = []
+                                        for gen_img_data in get_nested_value(
+                                            candidate_data, [12, 7, 0], []
+                                        ):
+                                            url = get_nested_value(
+                                                gen_img_data, [0, 3, 3]
+                                            )
+                                            if url:
+                                                img_num = get_nested_value(
+                                                    gen_img_data, [3, 6]
+                                                )
+                                                generated_images.append(
+                                                    GeneratedImage(
+                                                        url=url,
+                                                        title=(
+                                                            f"[Generated Image {img_num}]"
+                                                            if img_num
+                                                            else "[Generated Image]"
+                                                        ),
+                                                        alt=get_nested_value(
+                                                            gen_img_data, [3, 5, 0], ""
+                                                        ),
+                                                        proxy=self.proxy,
+                                                        cookies=self.cookies,
+                                                    )
+                                                )
+
+                                        # Determine if this frame represents the final state of the message
+                                        is_final_chunk = (
+                                            isinstance(
+                                                get_nested_value(candidate_data, [2]),
+                                                list,
+                                            )
+                                            or get_nested_value(
+                                                candidate_data, [8, 0], 1
+                                            )
+                                            == 2
+                                        )
+
+                                        last_sent_text = last_texts.get(
+                                            rcid
+                                        ) or last_texts.get(f"idx_{i}", "")
+                                        text_delta, new_full_text = get_delta_by_fp_len(
+                                            text,
+                                            last_sent_text,
+                                            is_final=is_final_chunk,
+                                        )
+                                        last_sent_thought = last_thoughts.get(
+                                            rcid
+                                        ) or last_thoughts.get(f"idx_{i}", "")
+                                        if thoughts:
+                                            thoughts_delta, new_full_thought = (
                                                 get_delta_by_fp_len(
-                                                    text,
-                                                    last_sent_text,
+                                                    thoughts,
+                                                    last_sent_thought,
                                                     is_final=is_final_chunk,
                                                 )
                                             )
-                                            last_sent_thought = last_thoughts.get(
-                                                rcid
-                                            ) or last_thoughts.get(f"idx_{i}", "")
-                                            if thoughts:
-                                                thoughts_delta, new_full_thought = (
-                                                    get_delta_by_fp_len(
-                                                        thoughts,
-                                                        last_sent_thought,
-                                                        is_final=is_final_chunk,
-                                                    )
-                                                )
-                                            else:
-                                                thoughts_delta = ""
-                                                new_full_thought = ""
+                                        else:
+                                            thoughts_delta = ""
+                                            new_full_thought = ""
 
-                                            if (
-                                                text_delta
-                                                or thoughts_delta
-                                                or web_images
-                                                or generated_images
-                                            ):
-                                                has_candidates = True
+                                        if (
+                                            text_delta
+                                            or thoughts_delta
+                                            or web_images
+                                            or generated_images
+                                        ):
+                                            has_candidates = True
 
-                                            # Update state with the provider's cleaned state to handle drift
-                                            last_texts[rcid] = last_texts[
-                                                f"idx_{i}"
-                                            ] = new_full_text
+                                        # Update state with the provider's cleaned state to handle drift
+                                        last_texts[rcid] = last_texts[f"idx_{i}"] = (
+                                            new_full_text
+                                        )
 
-                                            last_thoughts[rcid] = last_thoughts[
-                                                f"idx_{i}"
-                                            ] = new_full_thought
+                                        last_thoughts[rcid] = last_thoughts[
+                                            f"idx_{i}"
+                                        ] = new_full_thought
 
-                                            output_candidates.append(
-                                                Candidate(
-                                                    rcid=rcid,
-                                                    text=text,
-                                                    text_delta=text_delta,
-                                                    thoughts=thoughts or None,
-                                                    thoughts_delta=thoughts_delta,
-                                                    web_images=web_images,
-                                                    generated_images=generated_images,
-                                                )
+                                        output_candidates.append(
+                                            Candidate(
+                                                rcid=rcid,
+                                                text=text,
+                                                text_delta=text_delta,
+                                                thoughts=thoughts or None,
+                                                thoughts_delta=thoughts_delta,
+                                                web_images=web_images,
+                                                generated_images=generated_images,
                                             )
+                                        )
 
-                                        if output_candidates:
-                                            is_thinking = False
-                                            is_queueing = False
-                                            yield ModelOutput(
-                                                metadata=get_nested_value(
-                                                    part_json, [1], []
-                                                ),
-                                                candidates=output_candidates,
-                                            )
-                                except json.JSONDecodeError:
-                                    continue
+                                    if output_candidates:
+                                        is_thinking = False
+                                        is_queueing = False
+                                        yield ModelOutput(
+                                            metadata=get_nested_value(
+                                                part_json, [1], []
+                                            ),
+                                            candidates=output_candidates,
+                                        )
+                            except json.JSONDecodeError:
+                                continue
 
-                    async for chunk in response.aiter_content():
-                        buffer += decoder.decode(chunk, final=False)
-                        if buffer.startswith(")]}'"):
-                            buffer = buffer[4:].lstrip()
-                        parsed_parts, buffer = parse_response_by_frame(buffer)
+                async for chunk in response.aiter_content():
+                    buffer += decoder.decode(chunk, final=False)
+                    if buffer.startswith(")]}'"):
+                        buffer = buffer[4:].lstrip()
+                    parsed_parts, buffer = parse_response_by_frame(buffer)
 
-                        got_update = False
-                        async for out in _process_parts(parsed_parts):
-                            yield out
-                            got_update = True
+                    got_update = False
+                    async for out in _process_parts(parsed_parts):
+                        yield out
+                        got_update = True
 
-                        if got_update or (
-                            parsed_parts and is_thinking and not is_queueing
-                        ):
-                            last_progress_time = time.time()
-                            session_state["last_progress_time"] = last_progress_time
-                        else:
-                            stall_threshold = min(self.timeout, self.watchdog_timeout)
-                            if (time.time() - last_progress_time) > stall_threshold:
-                                logger.warning(
-                                    f"Response stalled (active connection but no progress for {stall_threshold}s). "
-                                    f"Queueing={is_queueing}. Retrying..."
-                                )
-                                await self.close()
-                                raise APIError("Response stalled.")
-
-                    # Final flush
-                    buffer += decoder.decode(b"", final=True)
-                    if buffer:
-                        parsed_parts, _ = parse_response_by_frame(buffer)
-                        async for out in _process_parts(parsed_parts):
-                            yield out
-
-                    if is_completed or is_final_chunk:
-                        break
-
-                    if is_queueing or is_thinking:
-                        if poll_count >= (max(1, self.watchdog_timeout // 2)):
-                            logger.error(
-                                f"Max polling limit reached ({poll_count} times)."
+                    if got_update or (parsed_parts and is_thinking and not is_queueing):
+                        last_progress_time = time.time()
+                        session_state["last_progress_time"] = last_progress_time
+                    else:
+                        stall_threshold = min(self.timeout, self.watchdog_timeout)
+                        if (time.time() - last_progress_time) > stall_threshold:
+                            logger.warning(
+                                f"Response stalled (active connection but no progress for {stall_threshold}s). "
+                                f"Queueing={is_queueing}. Retrying..."
                             )
                             await self.close()
-                            raise APIError(
-                                "Server queueing/thinking timeout limit reached."
-                            )
+                            raise APIError("Response stalled (zombie stream).")
 
-                        if is_queueing:
-                            logger.debug(
-                                f"Server is queueing. Polling again ({poll_count})..."
-                            )
-                        elif is_thinking:
-                            logger.debug(
-                                f"Model is running a tool or thinking. Polling again ({poll_count})..."
-                            )
+                # Final flush
+                buffer += decoder.decode(b"", final=True)
+                if buffer:
+                    parsed_parts, _ = parse_response_by_frame(buffer)
+                    async for out in _process_parts(parsed_parts):
+                        yield out
 
-                        is_queueing = False
-                        is_thinking = False
-                        await asyncio.sleep(2)
-                        continue
-
+                if not (is_completed or is_final_chunk) or is_thinking or is_queueing:
                     logger.debug(
-                        f"Stream disconnected (completed={is_completed}, final_chunk={is_final_chunk})."
+                        f"Stream interrupted (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
+                        "Polling again..."
                     )
-                    raise APIError("Stream disconnected unexpectedly.")
+                    raise APIError("Stream interrupted or truncated.")
 
         except ReadTimeout:
             raise TimeoutError(
