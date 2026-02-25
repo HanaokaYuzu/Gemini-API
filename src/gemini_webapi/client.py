@@ -953,9 +953,7 @@ class GeminiClient(GemMixin):
                             yield out
                             got_update = True
 
-                        if got_update or (
-                            parsed_parts and is_thinking and not is_queueing
-                        ):
+                        if got_update:
                             last_progress_time = time.time()
                             session_state["last_progress_time"] = last_progress_time
                         else:
@@ -1006,47 +1004,52 @@ class GeminiClient(GemMixin):
                                 f"Stream suspended. Checking conversation history for {chat.cid}..."
                             )
 
-                            if (
-                                time.time() - session_state["last_progress_time"]
-                                > self.timeout
-                            ):
-                                logger.warning(
-                                    f"[Recovery] Polling for {chat.cid} timed out after {self.timeout}s."
-                                )
-                                raise APIError(
-                                    "read_chat polling timed out waiting for the model to finish."
-                                )
+                            while True:
+                                if (
+                                    time.time() - session_state["last_progress_time"]
+                                    > self.timeout
+                                ):
+                                    logger.warning(
+                                        f"[Recovery] Polling for {chat.cid} timed out after {self.timeout}s."
+                                    )
+                                    raise APIError(
+                                        "read_chat polling timed out waiting for the model to finish."
+                                    )
 
-                            recovered = await self.read_chat(chat.cid)
-                            if (
-                                recovered
-                                and recovered.candidates
-                                and (
-                                    recovered.candidates[0].text.strip()
-                                    or recovered.candidates[0].generated_images
-                                    or recovered.candidates[0].web_images
-                                )
-                            ):
+                                recovered = await self.read_chat(chat.cid)
+                                if (
+                                    recovered
+                                    and recovered.candidates
+                                    and (
+                                        recovered.candidates[0].text.strip()
+                                        or recovered.candidates[0].generated_images
+                                        or recovered.candidates[0].web_images
+                                    )
+                                ):
+                                    logger.debug(
+                                        f"[Recovery] Successfully recovered response for CID: {chat.cid}"
+                                    )
+                                    recovered.metadata = chat.metadata
+                                    if isinstance(chat, ChatSession):
+                                        chat.rcid = recovered.candidates[0].rcid
+                                    yield recovered
+                                    break
+
+                                poll_count += 1
+                                sleep_time = min(2 * poll_count, 10)
                                 logger.debug(
-                                    f"[Recovery] Successfully recovered response for CID: {chat.cid}"
+                                    f"[Recovery] Response not ready, waiting {sleep_time}s..."
                                 )
-                                recovered.metadata = chat.metadata
-                                if isinstance(chat, ChatSession):
-                                    chat.rcid = recovered.candidates[0].rcid
-                                yield recovered
-                                break
-
-                            logger.debug(
-                                f"[Recovery] Response not ready, waiting {sleep_time}s..."
-                            )
+                                await asyncio.sleep(sleep_time)
+                            break
                         else:
                             logger.debug(
                                 f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
                                 f"Polling again for results in {sleep_time}s... (Request ID: {_reqid})"
                             )
 
-                        await asyncio.sleep(sleep_time)
-                        continue
+                            await asyncio.sleep(sleep_time)
+                            continue
 
                 break
 
