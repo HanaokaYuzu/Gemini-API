@@ -617,12 +617,6 @@ class GeminiClient(GemMixin):
 
         while True:
             try:
-                if not has_generated_text and chat and chat_backup:
-                    chat.metadata = list(chat_backup["metadata"])  # type: ignore
-                    chat.cid = chat_backup["cid"]
-                    chat.rid = chat_backup["rid"]
-                    chat.rcid = chat_backup["rcid"]
-
                 inner_req_list: list[Any] = [None] * 69
                 inner_req_list[0] = message_content
                 inner_req_list[2] = chat.metadata if chat else list(DEFAULT_METADATA)
