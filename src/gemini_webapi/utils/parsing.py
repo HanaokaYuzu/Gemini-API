@@ -8,7 +8,7 @@ import orjson as json
 from .logger import logger
 
 _LENGTH_MARKER_PATTERN = re.compile(r"(\d+)\n")
-_FLICKER_ESC_RE = re.compile(r"\\+[`*_~]\s*$")
+_FLICKER_ESC_RE = re.compile(r"\\+[`*_~].*$")
 
 
 def get_clean_text(s: str) -> str:
