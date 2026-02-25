@@ -32,6 +32,7 @@ from .types import (
     WebImage,
 )
 from .utils import (
+    extract_json_from_response,
     get_access_token,
     get_delta_by_fp_len,
     get_nested_value,
@@ -309,8 +310,10 @@ class GeminiClient(GemMixin):
                 logger.warning(
                     "AuthError: Failed to refresh cookies. Retrying in next interval."
                 )
-            except Exception as e:
-                logger.warning(f"Unexpected error while refreshing cookies: {e}")
+            except Exception:
+                logger.warning(
+                    "Unexpected error while refreshing cookies. Retrying in next interval."
+                )
 
     async def generate_content(
         self,
@@ -997,10 +1000,51 @@ class GeminiClient(GemMixin):
 
                         poll_count += 1
                         sleep_time = min(2 * poll_count, 10)
-                        logger.debug(
-                            f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
-                            f"Polling again for results in {sleep_time}s... (Request ID: {_reqid})"
-                        )
+
+                        if chat and getattr(chat, "cid", None):
+                            logger.debug(
+                                f"Stream suspended. Checking conversation history for {chat.cid}..."
+                            )
+
+                            if (
+                                time.time() - session_state["last_progress_time"]
+                                > self.timeout
+                            ):
+                                logger.warning(
+                                    f"[Recovery] Polling for {chat.cid} timed out after {self.timeout}s."
+                                )
+                                raise APIError(
+                                    "read_chat polling timed out waiting for the model to finish."
+                                )
+
+                            recovered = await self.read_chat(chat.cid)
+                            if (
+                                recovered
+                                and recovered.candidates
+                                and (
+                                    recovered.candidates[0].text.strip()
+                                    or recovered.candidates[0].generated_images
+                                    or recovered.candidates[0].web_images
+                                )
+                            ):
+                                logger.debug(
+                                    f"[Recovery] Successfully recovered response for CID: {chat.cid}"
+                                )
+                                recovered.metadata = chat.metadata
+                                if isinstance(chat, ChatSession):
+                                    chat.rcid = recovered.candidates[0].rcid
+                                yield recovered
+                                break
+
+                            logger.debug(
+                                f"[Recovery] Response not ready, waiting {sleep_time}s..."
+                            )
+                        else:
+                            logger.debug(
+                                f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
+                                f"Polling again for results in {sleep_time}s... (Request ID: {_reqid})"
+                            )
+
                         await asyncio.sleep(sleep_time)
                         continue
 
@@ -1018,14 +1062,18 @@ class GeminiClient(GemMixin):
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
                 raise
-            except Exception as e:
+            except Exception:
                 if not has_generated_text and chat and chat_backup:
                     chat.metadata = list(chat_backup["metadata"])  # type: ignore
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
-                logger.debug(f"{type(e).__name__}: {e}; Unexpected parsing error.")
-                raise APIError(f"Failed to parse response body: {e}")
+                logger.debug(
+                    "Unexpected parsing error encountered during stream processing."
+                )
+                raise APIError(
+                    "Failed to parse response body from Google. This might be a temporary API change or invalid data."
+                )
 
     def start_chat(self, **kwargs) -> "ChatSession":
         """
@@ -1063,6 +1111,113 @@ class GeminiClient(GemMixin):
                 ),
             ]
         )
+
+    async def read_chat(self, cid: str) -> ModelOutput | None:
+        """
+        Fetch the last assistant response from a conversation by chat id.
+
+        Used for recovery when a stream fails after Gemini assigned a cid
+        mid-stream. Returns None on any failure (network, parsing, empty response).
+
+        Parameters
+        ----------
+        cid: `str`
+            The ID of the conversation to read (e.g. "c_...").
+
+        Returns
+        -------
+        :class:`ModelOutput` | None
+            The recovered response, or None if recovery failed.
+        """
+        try:
+            response = await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.READ_CHAT,
+                        payload=json.dumps(
+                            [cid, 1000, None, 1, [1], [4], None, 1]
+                        ).decode("utf-8"),
+                    ),
+                ]
+            )
+
+            response_json = extract_json_from_response(response.text)
+
+            for part in response_json:
+                part_body_str = get_nested_value(part, [2])
+                if not part_body_str:
+                    continue
+
+                part_body = json.loads(part_body_str)
+                turns = get_nested_value(part_body, [0])
+                if not turns:
+                    continue
+                conv_turn = turns[-1]
+                if not conv_turn:
+                    continue
+
+                candidates_list = get_nested_value(conv_turn, [3, 0])
+                if not candidates_list:
+                    continue
+
+                candidate_data = get_nested_value(candidates_list, [0])
+                if not candidate_data:
+                    continue
+
+                rcid = get_nested_value(candidate_data, [0], "")
+                text = get_nested_value(candidate_data, [1, 0], "")
+
+                # Image handling
+                web_images = []
+                for web_img_data in get_nested_value(candidate_data, [12, 1], []):
+                    url = get_nested_value(web_img_data, [0, 0, 0])
+                    if url:
+                        web_images.append(
+                            WebImage(
+                                url=url,
+                                title=get_nested_value(web_img_data, [7, 0], ""),
+                                alt=get_nested_value(web_img_data, [0, 4], ""),
+                                proxy=self.proxy,
+                            )
+                        )
+
+                generated_images = []
+                for gen_img_data in get_nested_value(candidate_data, [12, 7, 0], []):
+                    url = get_nested_value(gen_img_data, [0, 3, 3])
+                    if url:
+                        img_num = get_nested_value(gen_img_data, [3, 6])
+                        generated_images.append(
+                            GeneratedImage(
+                                url=url,
+                                title=(
+                                    f"[Generated Image {img_num}]"
+                                    if img_num
+                                    else "[Generated Image]"
+                                ),
+                                alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
+                                proxy=self.proxy,
+                                cookies=self.cookies,
+                            )
+                        )
+
+                return ModelOutput(
+                    metadata=[cid],
+                    candidates=[
+                        Candidate(
+                            rcid=rcid,
+                            text=text,
+                            web_images=web_images,
+                            generated_images=generated_images,
+                        )
+                    ],
+                )
+
+            return None
+        except Exception:
+            logger.debug(
+                f"[read_chat] Response data for {cid!r} is still incomplete (model is still processing)..."
+            )
+            return None
 
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:

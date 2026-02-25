@@ -180,11 +180,9 @@ async def get_access_token(
                     pass
             except asyncio.CancelledError:
                 continue
-            except Exception as err:
+            except Exception:
                 if verbose:
-                    logger.debug(
-                        f"Init attempt ({current_attempt}) from {group_name} failed: {err}"
-                    )
+                    logger.debug(f"Init attempt ({current_attempt}) from {group_name} failed.")
         return None
 
     current_attempt = 0
@@ -254,9 +252,9 @@ async def get_access_token(
             logger.debug(
                 "Skipping loading local browser cookies. Login to gemini.google.com in your browser first."
             )
-    except Exception as err:
+    except Exception:
         if verbose:
-            logger.warning(f"Skipping loading local browser cookies. {err}")
+            logger.debug("Skipping loading local browser cookies (Not available or no permission).")
 
     result = await try_run_group(browser_tasks, "Browser")
     if result:
