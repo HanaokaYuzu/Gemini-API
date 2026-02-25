@@ -930,7 +930,21 @@ class GeminiClient(GemMixin):
                                 except json.JSONDecodeError:
                                     continue
 
-                    async for chunk in response.aiter_content():
+                    chunk_iterator = response.aiter_content().__aiter__()
+                    while True:
+                        try:
+                            stall_threshold = min(self.timeout, self.watchdog_timeout)
+                            chunk = await asyncio.wait_for(
+                                chunk_iterator.__anext__(), timeout=stall_threshold + 5
+                            )
+                        except StopAsyncIteration:
+                            break
+                        except asyncio.TimeoutError:
+                            logger.debug(
+                                f"[Watchdog] Socket idle for {stall_threshold + 5}s. Refreshing connection..."
+                            )
+                            break
+
                         buffer += decoder.decode(chunk, final=False)
                         if buffer.startswith(")]}'"):
                             buffer = buffer[4:].lstrip()
@@ -952,15 +966,16 @@ class GeminiClient(GemMixin):
                             if (time.time() - last_progress_time) > stall_threshold:
                                 if is_thinking:
                                     logger.debug(
-                                        f"[Watchdog] Model is taking its time thinking ({int(time.time() - last_progress_time)}s). Waiting patiently..."
+                                        f"[Watchdog] Model is taking its time thinking ({int(time.time() - last_progress_time)}s). Reconnecting to poll..."
                                     )
+                                    break
                                 else:
-                                    logger.warning(
-                                        f"Stream stalled (no progress for {stall_threshold}s, queueing={is_queueing}). "
+                                    logger.debug(
+                                        f"[Watchdog] Connection idle for {stall_threshold}s (queueing={is_queueing}). "
                                         "Refreshing connection..."
                                     )
                                     await self.close()
-                                    raise APIError("Response stalled (zombie stream).")
+                                    raise APIError("Connection refresh triggered.")
 
                     # Final flush
                     buffer += decoder.decode(b"", final=True)
@@ -977,20 +992,20 @@ class GeminiClient(GemMixin):
                         stall_threshold = min(self.timeout, self.watchdog_timeout)
                         if (time.time() - last_progress_time) > stall_threshold:
                             if not is_thinking:
-                                logger.warning(
-                                    f"Connection timed out after {stall_threshold}s. Reconnecting..."
+                                logger.debug(
+                                    f"[Watchdog] Stream ended after {stall_threshold}s without completing. Reconnecting..."
                                 )
-                                raise APIError("Response stalled (zombie stream).")
+                                raise APIError("Connection refresh triggered.")
                             else:
                                 logger.debug(
-                                    "[Watchdog] Stream finished but model is still thinking. Polling..."
+                                    "[Watchdog] Stream finished but model is still thinking. Polling again..."
                                 )
 
                         poll_count += 1
                         sleep_time = min(2 * poll_count, 10)
                         logger.debug(
                             f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
-                            f"Polling for tool results in {sleep_time}s... (ReqID: {_reqid})"
+                            f"Polling again for results in {sleep_time}s... (Request ID: {_reqid})"
                         )
                         await asyncio.sleep(sleep_time)
                         continue
