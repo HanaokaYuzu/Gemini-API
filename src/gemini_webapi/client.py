@@ -574,7 +574,7 @@ class GeminiClient(GemMixin):
 
         gem_id = gem.id if isinstance(gem, Gem) else gem
 
-        chat_backup = None
+        chat_backup: dict[str, Any] | None = None
         if chat:
             chat_backup = {
                 "metadata": (
@@ -618,7 +618,7 @@ class GeminiClient(GemMixin):
         while True:
             try:
                 if not has_generated_text and chat and chat_backup:
-                    chat.metadata = list(chat_backup["metadata"])
+                    chat.metadata = list(chat_backup["metadata"])  # type: ignore
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
@@ -1019,14 +1019,14 @@ class GeminiClient(GemMixin):
                 )
             except (GeminiError, APIError):
                 if not has_generated_text and chat and chat_backup:
-                    chat.metadata = list(chat_backup["metadata"])
+                    chat.metadata = list(chat_backup["metadata"])  # type: ignore
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
                 raise
             except Exception as e:
                 if not has_generated_text and chat and chat_backup:
-                    chat.metadata = list(chat_backup["metadata"])
+                    chat.metadata = list(chat_backup["metadata"])  # type: ignore
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
