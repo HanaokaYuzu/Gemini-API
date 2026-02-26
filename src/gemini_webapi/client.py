@@ -103,6 +103,7 @@ class GeminiClient(GemMixin):
         self,
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
+        cookies: dict | Cookies | None = None,
         proxy: str | None = None,
         **kwargs,
     ):
@@ -136,6 +137,12 @@ class GeminiClient(GemMixin):
                 self.cookies.set(
                     "__Secure-1PSIDTS", secure_1psidts, domain=".google.com"
                 )
+
+        if isinstance(cookies, dict):
+            for k, v in cookies.items():
+                self.cookies.set(k, v, domain=".google.com")
+        elif isinstance(cookies, Cookies):
+            self.cookies.update(cookies)
 
     async def init(
         self,
@@ -406,9 +413,15 @@ class GeminiClient(GemMixin):
                         if isinstance(chat_data, list) and len(chat_data) > 1:
                             cid = get_nested_value(chat_data, [0], "")
                             title = get_nested_value(chat_data, [1], "")
+                            is_pinned = bool(get_nested_value(chat_data, [2]))
+
                             if cid and title:
                                 if not any(c.cid == cid for c in recent_chats):
-                                    recent_chats.append(ChatInfo(cid=cid, title=title))
+                                    recent_chats.append(
+                                        ChatInfo(
+                                            cid=cid, title=title, is_pinned=is_pinned
+                                        )
+                                    )
                     break
 
         self._recent_chats = recent_chats
@@ -984,14 +997,32 @@ class GeminiClient(GemMixin):
                                                                 break
 
                                                     if chat_title:
+                                                        is_pinned = False
+                                                        for c in self._recent_chats:
+                                                            if c.cid == cid:
+                                                                is_pinned = c.is_pinned
+                                                                break
+
+                                                        expected_idx = (
+                                                            0
+                                                            if is_pinned
+                                                            else sum(
+                                                                1
+                                                                for c in self._recent_chats
+                                                                if c.cid != cid
+                                                                and c.is_pinned
+                                                            )
+                                                        )
+
                                                         if not (
-                                                            self._recent_chats
+                                                            len(self._recent_chats)
+                                                            > expected_idx
                                                             and self._recent_chats[
-                                                                0
+                                                                expected_idx
                                                             ].cid
                                                             == cid
                                                             and self._recent_chats[
-                                                                0
+                                                                expected_idx
                                                             ].title
                                                             == chat_title
                                                         ):
@@ -1001,10 +1032,11 @@ class GeminiClient(GemMixin):
                                                                 if c.cid != cid
                                                             ]
                                                             self._recent_chats.insert(
-                                                                0,
+                                                                expected_idx,
                                                                 ChatInfo(
                                                                     cid=cid,
                                                                     title=chat_title,
+                                                                    is_pinned=is_pinned,
                                                                 ),
                                                             )
 

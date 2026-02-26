@@ -15,3 +15,4 @@ class ChatInfo(BaseModel):
 
     cid: str
     title: str
+    is_pinned: bool = False
