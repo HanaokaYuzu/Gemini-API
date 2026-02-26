@@ -27,7 +27,7 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    BARD_ACTIVITY = "ESY5D"
+    BARD_SETTINGS = "ESY5D"
 
     LIST_MODELS = "otAQ7b"
 

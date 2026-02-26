@@ -31,6 +31,7 @@ from .types import (
     RPCData,
     WebImage,
     AvailableModel,
+    ChatInfo,
 )
 from .utils import (
     extract_json_from_response,
@@ -93,6 +94,8 @@ class GeminiClient(GemMixin):
         "_lock",
         "_reqid",
         "_gems",  # From GemMixin
+        "_available_models",
+        "_recent_chats",
         "kwargs",
     ]
 
@@ -122,6 +125,9 @@ class GeminiClient(GemMixin):
         self.watchdog_timeout: float = 120
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
+
+        self._available_models: list[AvailableModel] | None = None
+        self._recent_chats: list[ChatInfo] | None = None
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -130,8 +136,6 @@ class GeminiClient(GemMixin):
                 self.cookies.set(
                     "__Secure-1PSIDTS", secure_1psidts, domain=".google.com"
                 )
-
-        self._available_models: list[AvailableModel] | None = None
 
     async def init(
         self,
@@ -299,6 +303,15 @@ class GeminiClient(GemMixin):
         """
         Send initial RPC calls to set up the session.
         """
+        await self._fetch_models()
+        await self._send_bard_settings()
+        await self._send_bard_activity()
+        await self._fetch_recent_chats()
+
+    async def _fetch_models(self) -> None:
+        """
+        Fetch and parse available models.
+        """
         response = await self._batch_execute(
             [
                 RPCData(
@@ -353,25 +366,74 @@ class GeminiClient(GemMixin):
 
         self._available_models = available_models
 
+    async def _fetch_recent_chats(self, recent: int = 13) -> None:
+        """
+        Fetch and parse recent chats.
+        """
+        response_chats1 = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.LIST_CHATS,
+                    payload=json.dumps([recent, None, [1, None, 1]]).decode("utf-8"),
+                ),
+            ]
+        )
+        response_chats2 = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.LIST_CHATS,
+                    payload=json.dumps([recent, None, [0, None, 1]]).decode("utf-8"),
+                ),
+            ]
+        )
+
+        recent_chats: list[ChatInfo] = []
+        for response_chats in (response_chats1, response_chats2):
+            chats_json = extract_json_from_response(response_chats.text)
+            for part in chats_json:
+                part_body_str = get_nested_value(part, [2])
+                if not part_body_str:
+                    continue
+
+                try:
+                    part_body = json.loads(part_body_str)
+                except json.JSONDecodeError:
+                    continue
+
+                chat_list = get_nested_value(part_body, [2])
+                if isinstance(chat_list, list):
+                    for chat_data in chat_list:
+                        if isinstance(chat_data, list) and len(chat_data) > 1:
+                            cid = get_nested_value(chat_data, [0], "")
+                            title = get_nested_value(chat_data, [1], "")
+                            if cid and title:
+                                if not any(c.cid == cid for c in recent_chats):
+                                    recent_chats.append(ChatInfo(cid=cid, title=title))
+                    break
+
+        self._recent_chats = recent_chats
+
+    async def _send_bard_settings(self) -> None:
+        """
+        Send required setup activity to Gemini.
+        """
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.BARD_ACTIVITY,
+                    rpcid=GRPC.BARD_SETTINGS,
                     payload='[[["adaptive_device_responses_enabled","advanced_mode_theme_override_triggered","advanced_zs_upsell_dismissal_count","advanced_zs_upsell_last_dismissed","ai_transparency_notice_dismissed","audio_overview_discovery_dismissal_count","audio_overview_discovery_last_dismissed","bard_in_chrome_link_sharing_enabled","bard_sticky_mode_disabled_count","canvas_create_discovery_tooltip_seen_count","combined_files_button_tag_seen_count","indigo_banner_explicit_dismissal_count","indigo_banner_impression_count","indigo_banner_last_seen_sec","current_popup_id","deep_research_has_seen_file_upload_tooltip","deep_research_model_update_disclaimer_display_count","default_bot_id","disabled_discovery_card_feature_ids","disabled_model_discovery_tooltip_feature_ids","disabled_mode_disclaimers","disabled_new_model_badge_mode_ids","disabled_settings_discovery_tooltip_feature_ids","disablement_disclaimer_last_dismissed_sec","disable_advanced_beta_dialog","disable_advanced_beta_non_en_banner","disable_advanced_resubscribe_ui","disable_at_mentions_discovery_tooltip","disable_autorun_fact_check_u18","disable_bot_create_tips_card","disable_bot_docs_in_gems_disclaimer","disable_bot_onboarding_dialog","disable_bot_save_reminder_tips_card","disable_bot_send_prompt_tips_card","disable_bot_shared_in_drive_disclaimer","disable_bot_try_create_tips_card","disable_colab_tooltip","disable_collapsed_tool_menu_tooltip","disable_continue_discovery_tooltip","disable_debug_info_moved_tooltip_v2","disable_enterprise_mode_dialog","disable_export_python_tooltip","disable_extensions_discovery_dialog","disable_extension_one_time_badge","disable_fact_check_tooltip_v2","disable_free_file_upload_tips_card","disable_generated_image_download_dialog","disable_get_app_banner","disable_get_app_desktop_dialog","disable_googler_in_enterprise_mode","disable_human_review_disclosure","disable_ice_open_vega_editor_tooltip","disable_image_upload_tooltip","disable_legal_concern_tooltip","disable_llm_history_import_disclaimer","disable_location_popup","disable_memory_discovery","disable_memory_extraction_discovery","disable_new_conversation_dialog","disable_onboarding_experience","disable_personal_context_tooltip","disable_photos_upload_disclaimer","disable_power_up_intro_tooltip","disable_scheduled_actions_mobile_notification_snackbar","disable_storybook_listen_button_tooltip","disable_streaming_settings_tooltip","disable_take_control_disclaimer","disable_teens_only_english_language_dialog","disable_tier1_rebranding_tooltip","disable_try_advanced_mode_dialog","enable_advanced_beta_mode","enable_advanced_mode","enable_googler_in_enterprise_mode","enable_memory","enable_memory_extraction","enable_personal_context","enable_personal_context_gemini","enable_personal_context_gemini_using_photos","enable_personal_context_gemini_using_workspace","enable_personal_context_search","enable_personal_context_youtube","enable_token_streaming","enforce_default_to_fast_version","mayo_discovery_banner_dismissal_count","mayo_discovery_banner_last_dismissed_sec","gempix_discovery_banner_dismissal_count","gempix_discovery_banner_last_dismissed","get_app_banner_ack_count","get_app_banner_seen_count","get_app_mobile_dialog_ack_count","guided_learning_banner_dismissal_count","guided_learning_banner_last_dismissed","has_accepted_agent_mode_fre_disclaimer","has_received_streaming_response","has_seen_agent_mode_tooltip","has_seen_bespoke_tooltip","has_seen_deepthink_mustard_tooltip","has_seen_deepthink_v2_tooltip","has_seen_deep_think_tooltip","has_seen_first_youtube_video_disclaimer","has_seen_ggo_tooltip","has_seen_image_grams_discovery_banner","has_seen_image_preview_in_input_area_tooltip","has_seen_kallo_discovery_banner","has_seen_kallo_tooltip","has_seen_model_picker_in_input_area_tooltip","has_seen_model_tooltip_in_input_area_for_gempix","has_seen_redo_with_gempix2_tooltip","has_seen_veograms_discovery_banner","has_seen_video_generation_discovery_banner","is_imported_chats_panel_open_by_default","jumpstart_onboarding_dismissal_count","last_dismissed_deep_research_implicit_invite","last_dismissed_discovery_feature_implicit_invites","last_dismissed_immersives_canvas_implicit_invite","last_dismissed_immersive_share_disclaimer_sec","last_dismissed_strike_timestamp_sec","last_dismissed_zs_student_aip_banner_sec","last_get_app_banner_ack_timestamp_sec","last_get_app_mobile_dialog_ack_timestamp_sec","last_human_review_disclosure_ack","last_selected_mode_id_in_embedded","last_selected_mode_id_on_web","last_two_up_activation_timestamp_sec","last_winter_olympics_interaction_timestamp_sec","memory_extracted_greeting_name","mini_gemini_tos_closed","mode_switcher_soft_badge_disabled_ids","mode_switcher_soft_badge_seen_count","personalization_first_party_onboarding_cross_surface_clicked","personalization_first_party_onboarding_cross_surface_seen_count","personalization_one_p_discovery_card_seen_count","personalization_one_p_discovery_last_consented","personalization_zero_state_card_last_interacted","personalization_zero_state_card_seen_count","popup_zs_visits_cooldown","require_reconsent_setting_for_personalization_banner_seen_count","show_debug_info","side_nav_open_by_default","student_verification_dismissal_count","student_verification_last_dismissed","task_viewer_cc_banner_dismissed_count","task_viewer_cc_banner_dismissed_time_sec","tool_menu_new_badge_disabled_ids","tool_menu_new_badge_impression_counts","tool_menu_soft_badge_disabled_ids","tool_menu_soft_badge_impression_counts","upload_disclaimer_last_consent_time_sec","viewed_student_aip_upsell_campaign_ids","voice_language","voice_name","web_and_app_activity_enabled","wellbeing_nudge_notice_last_dismissed_sec","zs_student_aip_banner_dismissal_count"]]]',
                 )
             ]
         )
 
-        await self._warmup()
-
-    async def _warmup(self) -> None:
+    async def _send_bard_activity(self) -> None:
         """
         Send warmup RPC calls before querying.
         """
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.BARD_ACTIVITY,
+                    rpcid=GRPC.BARD_SETTINGS,
                     payload='[[["bard_activity_enabled"]]]',
                 )
             ]
@@ -443,7 +505,7 @@ class GeminiClient(GemMixin):
 
         file_data = None
         if files:
-            await self._warmup()
+            await self._send_bard_activity()
 
             uploaded_urls = await asyncio.gather(
                 *(
@@ -457,7 +519,7 @@ class GeminiClient(GemMixin):
             ]
 
         try:
-            await self._warmup()
+            await self._send_bard_activity()
 
             session_state = {
                 "last_texts": {},
@@ -465,6 +527,7 @@ class GeminiClient(GemMixin):
                 "last_progress_time": time.time(),
                 "is_thinking": False,
                 "is_queueing": False,
+                "title": None,
             }
             output = None
             async for output in self._generate(
@@ -545,7 +608,7 @@ class GeminiClient(GemMixin):
 
         file_data = None
         if files:
-            await self._warmup()
+            await self._send_bard_activity()
 
             uploaded_urls = await asyncio.gather(
                 *(
@@ -559,7 +622,7 @@ class GeminiClient(GemMixin):
             ]
 
         try:
-            await self._warmup()
+            await self._send_bard_activity()
 
             session_state = {
                 "last_texts": {},
@@ -567,6 +630,7 @@ class GeminiClient(GemMixin):
                 "last_progress_time": time.time(),
                 "is_thinking": False,
                 "is_queueing": False,
+                "title": None,
             }
             output = None
             async for output in self._generate(
@@ -642,6 +706,7 @@ class GeminiClient(GemMixin):
                 "last_progress_time": time.time(),
                 "is_thinking": False,
                 "is_queueing": False,
+                "title": None,
             }
 
         has_generated_text = False
@@ -797,6 +862,10 @@ class GeminiClient(GemMixin):
                                         if isinstance(chat, ChatSession):
                                             chat.metadata = [None] * 9 + [context_str]
 
+                                    title = get_nested_value(part_json, [10, 0])
+                                    if title:
+                                        session_state["title"] = title
+
                                     candidates_list = get_nested_value(
                                         part_json, [4], []
                                     )
@@ -897,6 +966,47 @@ class GeminiClient(GemMixin):
                                                 )
                                                 == 2
                                             )
+
+                                            if is_final_chunk:
+                                                cid = get_nested_value(
+                                                    part_json, [1, 0]
+                                                )
+                                                if cid and isinstance(
+                                                    self._recent_chats, list
+                                                ):
+                                                    chat_title = session_state.get(
+                                                        "title"
+                                                    )
+                                                    if not chat_title:
+                                                        for c in self._recent_chats:
+                                                            if c.cid == cid:
+                                                                chat_title = c.title
+                                                                break
+
+                                                    if chat_title:
+                                                        if not (
+                                                            self._recent_chats
+                                                            and self._recent_chats[
+                                                                0
+                                                            ].cid
+                                                            == cid
+                                                            and self._recent_chats[
+                                                                0
+                                                            ].title
+                                                            == chat_title
+                                                        ):
+                                                            self._recent_chats = [
+                                                                c
+                                                                for c in self._recent_chats
+                                                                if c.cid != cid
+                                                            ]
+                                                            self._recent_chats.insert(
+                                                                0,
+                                                                ChatInfo(
+                                                                    cid=cid,
+                                                                    title=chat_title,
+                                                                ),
+                                                            )
 
                                             last_sent_text = last_texts.get(
                                                 rcid
@@ -1196,6 +1306,17 @@ class GeminiClient(GemMixin):
                 ),
             ]
         )
+
+    def list_chats(self) -> list[ChatInfo] | None:
+        """
+        List all conversations.
+
+        Returns
+        -------
+        `list[gemini_webapi.types.ChatInfo] | None`
+            The list of conversations. Returns `None` if the client holds no session cache.
+        """
+        return self._recent_chats
 
     async def read_chat(self, cid: str) -> ModelOutput | None:
         """
