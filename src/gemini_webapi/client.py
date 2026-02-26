@@ -1006,6 +1006,18 @@ class GeminiClient(GemMixin):
                         sleep_time = min(2 * poll_count, 10)
 
                         if chat and getattr(chat, "cid", None):
+                            prev_rcid = chat_backup["rcid"] if chat_backup else ""
+                            current_rcid = getattr(chat, "rcid", "")
+
+                            if not current_rcid or current_rcid == prev_rcid:
+                                logger.debug(
+                                    "[Recovery] Stream suspended before the response started. "
+                                    "Re-initiating the request..."
+                                )
+                                raise APIError(
+                                    "Stream disconnected before candidate generated."
+                                )
+
                             logger.debug(
                                 f"Stream suspended. Checking conversation history for {chat.cid}..."
                             )
@@ -1033,14 +1045,24 @@ class GeminiClient(GemMixin):
                                         or recovered.candidates[0].web_images
                                     )
                                 ):
-                                    logger.debug(
-                                        f"[Recovery] Successfully recovered response for CID: {chat.cid}"
-                                    )
-                                    recovered.metadata = chat.metadata
-                                    if isinstance(chat, ChatSession):
-                                        chat.rcid = recovered.candidates[0].rcid
-                                    yield recovered
-                                    break
+                                    rec_rcid = recovered.candidates[0].rcid
+                                    current_expected_rcid = getattr(chat, "rcid", "")
+
+                                    is_new_turn = rec_rcid == current_expected_rcid
+
+                                    if is_new_turn:
+                                        logger.debug(
+                                            f"[Recovery] Successfully recovered response for CID: {chat.cid} (RCID: {rec_rcid})"
+                                        )
+                                        recovered.metadata = chat.metadata
+                                        if isinstance(chat, ChatSession):
+                                            chat.rcid = rec_rcid
+                                        yield recovered
+                                        break
+                                    else:
+                                        logger.debug(
+                                            f"[Recovery] Recovered turn is not the target turn (target: {current_expected_rcid}, got {rec_rcid}). Waiting..."
+                                        )
 
                                 poll_count += 1
                                 sleep_time = min(2 * poll_count, 10)
