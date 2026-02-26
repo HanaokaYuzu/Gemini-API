@@ -847,13 +847,7 @@ class GeminiClient(GemMixin):
 
                                             # Determine if this frame represents the final state of the message
                                             is_final_chunk = (
-                                                isinstance(
-                                                    get_nested_value(
-                                                        candidate_data, [2]
-                                                    ),
-                                                    list,
-                                                )
-                                                or get_nested_value(
+                                                get_nested_value(
                                                     candidate_data, [8, 0], 1
                                                 )
                                                 == 2
