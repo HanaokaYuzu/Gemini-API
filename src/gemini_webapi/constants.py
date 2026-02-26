@@ -31,6 +31,8 @@ class GRPC(StrEnum):
 
     LIST_MODELS = "otAQ7b"
 
+    IMAGE_FULL_SIZE = "c8o8Fe"
+
 
 class Headers(Enum):
     GEMINI = {

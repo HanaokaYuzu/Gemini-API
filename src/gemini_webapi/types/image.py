@@ -145,6 +145,11 @@ class GeneratedImage(Image):
     """
 
     cookies: Any
+    client_ref: Any = None
+    cid: str = ""
+    rid: str = ""
+    rcid: str = ""
+    image_id: str = ""
 
     @field_validator("cookies")
     @classmethod
@@ -190,8 +195,36 @@ class GeneratedImage(Image):
         `str | None`
             Absolute path of the saved image if successfully saved.
         """
-
         if full_size:
+            if (
+                self.client_ref
+                and self.cid
+                and self.rid
+                and self.rcid
+                and self.image_id
+            ):
+                try:
+                    original_url = await self.client_ref._get_image_full_size(
+                        cid=self.cid,
+                        rid=self.rid,
+                        rcid=self.rcid,
+                        image_id=self.image_id,
+                    )
+                    if original_url:
+                        self.url = original_url
+                        return await super().save(
+                            path=path,
+                            filename=filename,
+                            cookies=cookies,
+                            verbose=verbose,
+                            skip_invalid_filename=skip_invalid_filename,
+                        )
+                except Exception:
+                    logger.debug(
+                        "Failed to fetch full size image URL via RPC, falling back to URL parameter."
+                    )
+
+            # Fallback if RPC metadata missing or RPC call failed/returned None
             self.url += "=s2048"
 
         return await super().save(

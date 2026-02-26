@@ -850,6 +850,8 @@ class GeminiClient(GemMixin):
                                 try:
                                     part_json = json.loads(inner_json_str)
                                     m_data = get_nested_value(part_json, [1])
+                                    cid = get_nested_value(m_data, [0], "")
+                                    rid = get_nested_value(m_data, [1], "")
                                     if m_data and isinstance(chat, ChatSession):
                                         chat.metadata = m_data
 
@@ -908,9 +910,14 @@ class GeminiClient(GemMixin):
                                                     or text
                                                 )
 
-                                            # Cleanup googleusercontent artifacts
+                                            # Prettify image placeholders and cleanup other artifacts
                                             text = re.sub(
-                                                r"http://googleusercontent\.com/\w+/\d+\n*",
+                                                r"http://googleusercontent\.com/image_generation_content/(\d+)\n*",
+                                                lambda m: f"[Generated Image {int(m.group(1)) + 1}]\n",
+                                                text,
+                                            )
+                                            text = re.sub(
+                                                r"http://googleusercontent\.com/(?!image_generation_content)\w+/\d+\n*",
                                                 "",
                                                 text,
                                             )
@@ -945,16 +952,23 @@ class GeminiClient(GemMixin):
                                                     )
 
                                             generated_images = []
-                                            for gen_img_data in get_nested_value(
-                                                candidate_data, [12, 7, 0], []
+                                            for img_idx, gen_img_data in enumerate(
+                                                get_nested_value(
+                                                    candidate_data, [12, 7, 0], []
+                                                )
                                             ):
                                                 url = get_nested_value(
                                                     gen_img_data, [0, 3, 3]
                                                 )
                                                 if url:
-                                                    img_num = get_nested_value(
-                                                        gen_img_data, [3, 6]
+                                                    image_id = get_nested_value(
+                                                        gen_img_data, [1, 0]
                                                     )
+                                                    if not image_id:
+                                                        image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
+
+                                                    img_num = img_idx + 1
+
                                                     generated_images.append(
                                                         GeneratedImage(
                                                             url=url,
@@ -971,6 +985,11 @@ class GeminiClient(GemMixin):
                                                             proxy=self.proxy,
                                                             cookies=self.cookies,
                                                             client=self.client,
+                                                            client_ref=self,
+                                                            cid=cid,
+                                                            rid=rid,
+                                                            rcid=rcid,
+                                                            image_id=image_id,
                                                         )
                                                     )
 
@@ -1400,6 +1419,7 @@ class GeminiClient(GemMixin):
                     continue
 
                 rcid = get_nested_value(candidate_data, [0], "")
+                rid = get_nested_value(conv_turn, [1], "")
                 text = get_nested_value(candidate_data, [1, 0], "")
 
                 if re.match(
@@ -1408,9 +1428,14 @@ class GeminiClient(GemMixin):
                 ):
                     text = get_nested_value(candidate_data, [22, 0]) or text
 
-                # Cleanup googleusercontent artifacts
+                # Prettify image placeholders and cleanup other artifacts
                 text = re.sub(
-                    r"http://googleusercontent\.com/\w+/\d+\n*",
+                    r"http://googleusercontent\.com/image_generation_content/(\d+)\n*",
+                    lambda m: f"[Generated Image {int(m.group(1)) + 1}]\n",
+                    text,
+                )
+                text = re.sub(
+                    r"http://googleusercontent\.com/(?!image_generation_content)\w+/\d+\n*",
                     "",
                     text,
                 )
@@ -1431,10 +1456,17 @@ class GeminiClient(GemMixin):
                         )
 
                 generated_images = []
-                for gen_img_data in get_nested_value(candidate_data, [12, 7, 0], []):
+                for img_idx, gen_img_data in enumerate(
+                    get_nested_value(candidate_data, [12, 7, 0], [])
+                ):
                     url = get_nested_value(gen_img_data, [0, 3, 3])
                     if url:
-                        img_num = get_nested_value(gen_img_data, [3, 6])
+                        image_id = get_nested_value(gen_img_data, [1, 0])
+                        if not image_id:
+                            image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
+
+                        img_num = img_idx + 1
+
                         generated_images.append(
                             GeneratedImage(
                                 url=url,
@@ -1447,6 +1479,11 @@ class GeminiClient(GemMixin):
                                 proxy=self.proxy,
                                 cookies=self.cookies,
                                 client=self.client,
+                                client_ref=self,
+                                cid=cid,
+                                rid=rid,
+                                rcid=rcid,
+                                image_id=image_id,
                             )
                         )
 
@@ -1466,6 +1503,51 @@ class GeminiClient(GemMixin):
         except Exception:
             logger.debug(
                 f"[read_chat] Response data for {cid!r} is still incomplete (model is still processing)..."
+            )
+            return None
+
+    async def _get_image_full_size(
+        self, cid: str, rid: str, rcid: str, image_id: str
+    ) -> str | None:
+        """
+        Get the full size URL of an image.
+        """
+        try:
+            payload = [
+                [
+                    [None, None, None, [None, None, None, None, None, ""]],
+                    [image_id, 0],
+                    None,
+                    [19, ""],
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "",
+                ],
+                [rid, rcid, cid, None, ""],
+                1,
+                0,
+                1,
+            ]
+
+            response = await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.IMAGE_FULL_SIZE,
+                        payload=json.dumps(payload).decode("utf-8"),
+                    ),
+                ]
+            )
+
+            response_data = extract_json_from_response(response.text)
+            return get_nested_value(
+                json.loads(get_nested_value(response_data, [0, 2], "[]")), [0]
+            )
+        except Exception:
+            logger.debug(
+                "[_get_image_full_size] Could not retrieve full size URL via RPC."
             )
             return None
 
