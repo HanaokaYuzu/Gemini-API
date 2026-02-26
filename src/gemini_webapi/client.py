@@ -119,7 +119,7 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 540
         self.refresh_task: Task | None = None
         self.verbose: bool = True
-        self.watchdog_timeout: float = 60
+        self.watchdog_timeout: float = 120
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
         self.kwargs = kwargs
@@ -141,7 +141,7 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
-        watchdog_timeout: float = 60,
+        watchdog_timeout: float = 120,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -1188,6 +1188,14 @@ class GeminiClient(GemMixin):
                 ),
             ]
         )
+        await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.DELETE_CHAT_SECOND,
+                    payload=json.dumps([cid, [1, None, 0, 1]]).decode("utf-8"),
+                ),
+            ]
+        )
 
     async def read_chat(self, cid: str) -> ModelOutput | None:
         """
@@ -1243,6 +1251,19 @@ class GeminiClient(GemMixin):
 
                 rcid = get_nested_value(candidate_data, [0], "")
                 text = get_nested_value(candidate_data, [1, 0], "")
+
+                if re.match(
+                    r"^http://googleusercontent\.com/card_content/\d+",
+                    text,
+                ):
+                    text = get_nested_value(candidate_data, [22, 0]) or text
+
+                # Cleanup googleusercontent artifacts
+                text = re.sub(
+                    r"http://googleusercontent\.com/\w+/\d+\n*",
+                    "",
+                    text,
+                )
 
                 # Image handling
                 web_images = []
