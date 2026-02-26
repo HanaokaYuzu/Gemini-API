@@ -22,7 +22,7 @@ def _generate_random_name(extension: str = ".txt") -> str:
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 async def upload_file(
     file: str | Path | bytes | io.BytesIO,
-    proxy: str | None = None,
+    client: AsyncSession,
     filename: str | None = None,
     verbose: bool = False,
 ) -> str:
@@ -33,8 +33,8 @@ async def upload_file(
     ----------
     file : `str` | `Path` | `bytes` | `io.BytesIO`
         Path to the file or file content to be uploaded.
-    proxy: `str`, optional
-        Proxy URL.
+    client: `curl_cffi.requests.AsyncSession`
+        Shared async session to use for upload.
     filename: `str`, optional
         Name of the file to be uploaded. Required if file is bytes or BytesIO.
     verbose: `bool`, optional
@@ -81,19 +81,18 @@ async def upload_file(
     )
 
     try:
-        async with AsyncSession(impersonate="chrome", proxy=proxy) as client:
-            response = await client.post(
-                url=Endpoint.UPLOAD,
-                headers=Headers.UPLOAD.value,
-                multipart=mp,
-                allow_redirects=True,
+        response = await client.post(
+            url=Endpoint.UPLOAD,
+            headers=Headers.UPLOAD.value,
+            multipart=mp,
+            allow_redirects=True,
+        )
+        if verbose:
+            logger.debug(
+                f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
             )
-            if verbose:
-                logger.debug(
-                    f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
-                )
-            response.raise_for_status()
-            return response.text
+        response.raise_for_status()
+        return response.text
     finally:
         mp.close()
 

@@ -32,17 +32,15 @@ def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
 
 
 async def rotate_1psidts(
-    cookies: dict | Cookies, proxy: str | None = None, verbose: bool = False
+    client: AsyncSession, verbose: bool = False
 ) -> tuple[str | None, Cookies | None]:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
     Parameters
     ----------
-    cookies : `dict | curl_cffi.requests.Cookies`
-        Cookies to be used in the request.
-    proxy: `str`, optional
-        Proxy URL.
+    client : `curl_cffi.requests.AsyncSession`
+        The shared async session to use for the request.
     verbose: `bool`, optional
         If `True`, will print more infomation in logs.
 
@@ -67,10 +65,7 @@ async def rotate_1psidts(
     path.mkdir(parents=True, exist_ok=True)
 
     # Safely get __Secure-1PSID value for filename
-    if isinstance(cookies, Cookies):
-        secure_1psid = _extract_cookie_value(cookies, "__Secure-1PSID")
-    else:
-        secure_1psid = cookies.get("__Secure-1PSID")
+    secure_1psid = _extract_cookie_value(client.cookies, "__Secure-1PSID")
 
     if not secure_1psid:
         return None, None
@@ -82,30 +77,28 @@ async def rotate_1psidts(
     if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
         return path.read_text(), None
 
-    async with AsyncSession(impersonate="chrome", proxy=proxy) as client:
-        response = await client.post(
-            url=Endpoint.ROTATE_COOKIES,
-            headers=Headers.ROTATE_COOKIES.value,
-            cookies=cookies,
-            data='[000,"-0000000000000000000"]',
+    response = await client.post(
+        url=Endpoint.ROTATE_COOKIES,
+        headers=Headers.ROTATE_COOKIES.value,
+        data='[000,"-0000000000000000000"]',
+    )
+    if verbose:
+        logger.debug(
+            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
         )
-        if verbose:
-            logger.debug(
-                f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
-            )
-        if response.status_code == 401:
-            raise AuthError
-        response.raise_for_status()
+    if response.status_code == 401:
+        raise AuthError
+    response.raise_for_status()
 
-        new_1psidts = _extract_cookie_value(client.cookies, "__Secure-1PSIDTS")
+    new_1psidts = _extract_cookie_value(client.cookies, "__Secure-1PSIDTS")
 
-        if new_1psidts:
-            path.write_text(new_1psidts)
-            logger.debug(
-                f"Rotated __Secure-1PSIDTS successfully (length={len(new_1psidts)})."
-            )
-            return new_1psidts, client.cookies
+    if new_1psidts:
+        path.write_text(new_1psidts)
+        logger.debug(
+            f"Rotated __Secure-1PSIDTS successfully (length={len(new_1psidts)})."
+        )
+        return new_1psidts, client.cookies
 
-        cookie_names = [c.name for c in client.cookies.jar]
-        logger.debug(f"Rotation response cookies: {cookie_names}")
-        return None, client.cookies
+    cookie_names = [c.name for c in client.cookies.jar]
+    logger.debug(f"Rotation response cookies: {cookie_names}")
+    return None, client.cookies

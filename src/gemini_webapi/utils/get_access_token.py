@@ -1,4 +1,3 @@
-import asyncio
 import os
 import re
 from pathlib import Path
@@ -13,30 +12,23 @@ from ..exceptions import AuthError
 
 
 async def send_request(
-    cookies: dict | Cookies, proxy: str | None = None, verbose: bool = False
-) -> tuple[Response, AsyncSession]:
+    client: AsyncSession, cookies: dict | Cookies, verbose: bool = False
+) -> Response:
     """
-    Send http request with provided cookies.
-
-    Returns the response and the **live** session (caller owns its lifecycle).
+    Send http request with provided cookies using a shared session.
     """
+    client.cookies.clear()
+    if isinstance(cookies, Cookies):
+        client.cookies.update(cookies)
+    else:
+        for k, v in cookies.items():
+            client.cookies.set(k, v, domain=".google.com")
 
-    client = AsyncSession(
-        impersonate="chrome",
-        proxy=proxy,
-        headers=Headers.GEMINI.value,
-        cookies=cookies,
-        allow_redirects=True,
-    )
-    try:
-        response = await client.get(Endpoint.INIT)
-        if verbose:
-            logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
-        response.raise_for_status()
-        return response, client
-    except Exception:
-        await client.close()
-        raise
+    response = await client.get(Endpoint.INIT, headers=Headers.GEMINI.value)
+    if verbose:
+        logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
+    response.raise_for_status()
+    return response
 
 
 async def get_access_token(
@@ -51,50 +43,29 @@ async def get_access_token(
 
     Returns the **live** AsyncSession that succeeded so the caller can reuse
     the same TLS connection for subsequent requests.
-
-    Possible cookie sources:
-    - Base cookies passed to the function.
-    - __Secure-1PSID from base cookies with __Secure-1PSIDTS from cache.
-    - Local browser cookies (if optional dependency `browser-cookie3` is installed).
-
-    Parameters
-    ----------
-    base_cookies : `dict | curl_cffi.requests.Cookies`
-        Base cookies to be used in the request.
-    proxy: `str`, optional
-        Proxy URL.
-    verbose: `bool`, optional
-        If `True`, will print more infomation in logs.
-    verify: `bool`, optional
-        Whether to verify SSL certificates.
-
-    Returns
-    -------
-    `tuple[str, str | None, str | None, AsyncSession]`
-        By order: access token; build label; session id; the live session.
-
-    Raises
-    ------
-    `gemini_webapi.AuthError`
-        If all requests failed.
     """
 
-    async with AsyncSession(
+    client = AsyncSession(
         impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
-    ) as client:
+    )
+
+    try:
         response = await client.get(Endpoint.GOOGLE)
         if verbose:
             logger.debug(
                 f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]"
             )
-        preflight_cookies = client.cookies
+        preflight_cookies = Cookies(client.cookies)
+    except Exception:
+        await client.close()
+        raise
 
     extra_cookies = Cookies()
     if response.status_code == 200:
         extra_cookies = preflight_cookies
 
-    # Phase 1: Prepare & Try Cache (Highest Priority)
-    cache_tasks = []
+    # Phase 1: Prepare Cache
+    cookie_jars_to_test = []
     tried_psid_ts = set()
 
     if isinstance(base_cookies, Cookies):
@@ -119,9 +90,7 @@ async def get_access_token(
                 jar = Cookies(extra_cookies)
                 jar.update(base_cookies)
                 jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                cache_tasks.append(
-                    asyncio.create_task(send_request(jar, proxy=proxy, verbose=verbose))
-                )
+                cookie_jars_to_test.append((jar, "Cache"))
                 tried_psid_ts.add((base_psid, cached_1psidts))
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
@@ -136,86 +105,24 @@ async def get_access_token(
                 jar = Cookies(extra_cookies)
                 jar.set("__Secure-1PSID", psid, domain=".google.com")
                 jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                cache_tasks.append(
-                    asyncio.create_task(send_request(jar, proxy=proxy, verbose=verbose))
-                )
+                cookie_jars_to_test.append((jar, "Cache"))
                 tried_psid_ts.add((psid, cached_1psidts))
 
-    live_sessions: list[AsyncSession] = []
-
-    async def try_run_group(tasks, group_name):
-        nonlocal current_attempt
-        if not tasks:
-            return None
-
-        for future in asyncio.as_completed(tasks):
-            current_attempt += 1
-            try:
-                res, session = await future
-                live_sessions.append(session)
-                snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', res.text)
-                if snlm0e:
-                    for t in tasks:
-                        if not t.done():
-                            t.cancel()
-
-                    cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
-                    fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
-                    if verbose:
-                        logger.debug(
-                            f"Init attempt ({current_attempt}) from {group_name} succeeded."
-                        )
-
-                    for s in live_sessions:
-                        if s is not session:
-                            await s.close()
-
-                    return (
-                        snlm0e.group(1),
-                        cfb2h.group(1) if cfb2h else None,
-                        fdrfje.group(1) if fdrfje else None,
-                        session,
-                    )
-                else:
-                    pass
-            except asyncio.CancelledError:
-                continue
-            except Exception:
-                if verbose:
-                    logger.debug(
-                        f"Init attempt ({current_attempt}) from {group_name} failed."
-                    )
-        return None
-
-    current_attempt = 0
-
-    result = await try_run_group(cache_tasks, "Cache")
-    if result:
-        return result
-
-    # Phase 2: Base Cookies (If Cache failed)
-    base_tasks = []
+    # Phase 2: Base Cookies
     if base_psid and base_psidts:
         if (base_psid, base_psidts) not in tried_psid_ts:
             jar = Cookies(extra_cookies)
             jar.update(base_cookies)
-            base_tasks.append(
-                asyncio.create_task(send_request(jar, proxy=proxy, verbose=verbose))
-            )
+            cookie_jars_to_test.append((jar, "Base Cookies"))
             tried_psid_ts.add((base_psid, base_psidts))
         elif verbose:
             logger.debug("Skipping base cookies as they match cached cookies.")
-    elif verbose and not cache_tasks:
+    elif verbose and not cookie_jars_to_test:
         logger.debug(
             "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
         )
 
-    result = await try_run_group(base_tasks, "Base Cookies")
-    if result:
-        return result
-
-    # Phase 3: Browser Cookies (Last Resort - Lazy Loaded)
-    browser_tasks = []
+    # Phase 3: Browser Cookies
     try:
         browser_cookies = load_browser_cookies(
             domain_name="google.com", verbose=verbose
@@ -241,16 +148,20 @@ async def get_access_token(
                     if nid := cookies.get("NID"):
                         local_cookies["NID"] = nid
 
-                    browser_tasks.append(
-                        asyncio.create_task(
-                            send_request(local_cookies, proxy=proxy, verbose=verbose)
-                        )
-                    )
+                    jar = Cookies(extra_cookies)
+                    for k, v in local_cookies.items():
+                        jar.set(k, v, domain=".google.com")
+
+                    cookie_jars_to_test.append((jar, f"Browser ({browser})"))
                     tried_psid_ts.add((secure_1psid, secure_1psidts or ""))
                     if verbose:
                         logger.debug(f"Prepared local browser cookies from {browser}")
 
-        if HAS_BC3 and not browser_tasks and verbose:
+        if (
+            HAS_BC3
+            and not any(group.startswith("Browser") for _, group in cookie_jars_to_test)
+            and verbose
+        ):
             logger.debug(
                 "Skipping loading local browser cookies. Login to gemini.google.com in your browser first."
             )
@@ -260,13 +171,32 @@ async def get_access_token(
                 "Skipping loading local browser cookies (Not available or no permission)."
             )
 
-    result = await try_run_group(browser_tasks, "Browser")
-    if result:
-        return result
+    current_attempt = 0
+    for jar, group_name in cookie_jars_to_test:
+        current_attempt += 1
+        try:
+            res = await send_request(client, jar, verbose=verbose)
+            snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', res.text)
+            if snlm0e:
+                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
+                fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
+                if verbose:
+                    logger.debug(
+                        f"Init attempt ({current_attempt}) from {group_name} succeeded."
+                    )
+                return (
+                    snlm0e.group(1),
+                    cfb2h.group(1) if cfb2h else None,
+                    fdrfje.group(1) if fdrfje else None,
+                    client,
+                )
+        except Exception:
+            if verbose:
+                logger.debug(
+                    f"Init attempt ({current_attempt}) from {group_name} failed."
+                )
 
-    for s in live_sessions:
-        await s.close()
-
+    await client.close()
     raise AuthError(
         f"Failed to initialize client after {current_attempt} attempts. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date."
     )

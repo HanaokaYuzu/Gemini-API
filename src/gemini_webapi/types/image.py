@@ -30,6 +30,7 @@ class Image(BaseModel):
     title: str = "[Image]"
     alt: str = ""
     proxy: str | None = None
+    client: Any = None
 
     def __str__(self):
         return (
@@ -44,6 +45,7 @@ class Image(BaseModel):
         cookies: dict | Cookies | None = None,
         verbose: bool = False,
         skip_invalid_filename: bool = False,
+        client: AsyncSession | None = None,
     ) -> str | None:
         """
         Save the image to disk.
@@ -82,13 +84,19 @@ class Image(BaseModel):
             if skip_invalid_filename:
                 return None
 
-        async with AsyncSession(
-            impersonate="chrome",
-            allow_redirects=True,
-            cookies=cookies,
-            proxy=self.proxy,
-        ) as client:
-            response = await client.get(self.url)
+        close_client = False
+        req_client = client or self.client
+        if not req_client:
+            req_client = AsyncSession(
+                impersonate="chrome",
+                allow_redirects=True,
+                cookies=cookies,
+                proxy=self.proxy,
+            )
+            close_client = True
+
+        try:
+            response = await req_client.get(self.url, cookies=cookies)
             if verbose:
                 logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
             if response.status_code == 200:
@@ -98,10 +106,10 @@ class Image(BaseModel):
                         f"Content type of {filename} is not image, but {content_type}."
                     )
 
-                path = Path(path)
-                path.mkdir(parents=True, exist_ok=True)
+                path_obj = Path(path)
+                path_obj.mkdir(parents=True, exist_ok=True)
 
-                dest = path / filename
+                dest = path_obj / filename
                 dest.write_bytes(response.content)
 
                 if verbose:
@@ -112,6 +120,9 @@ class Image(BaseModel):
                 raise HTTPError(
                     f"Error downloading image: {response.status_code} {response.reason}"
                 )
+        finally:
+            if close_client:
+                await req_client.close()
 
 
 class WebImage(Image):
@@ -153,6 +164,7 @@ class GeneratedImage(Image):
         verbose: bool = False,
         skip_invalid_filename: bool = False,
         full_size: bool = True,
+        client: AsyncSession | None = None,
     ) -> str | None:
         """
         Save the image to disk.
@@ -189,4 +201,5 @@ class GeneratedImage(Image):
             cookies=cookies or self.cookies,
             verbose=verbose,
             skip_invalid_filename=skip_invalid_filename,
+            client=client,
         )

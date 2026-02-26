@@ -278,7 +278,7 @@ class GeminiClient(GemMixin):
                 async with self._lock:
                     # Refresh all cookies in the background to keep the session alive.
                     new_1psidts, rotated_cookies = await rotate_1psidts(
-                        self.cookies, self.proxy, self.verbose
+                        self.client, self.verbose
                     )
                     if rotated_cookies:
                         self.cookies.update(rotated_cookies)
@@ -522,7 +522,7 @@ class GeminiClient(GemMixin):
 
             uploaded_urls = await asyncio.gather(
                 *(
-                    upload_file(file, proxy=self.proxy, verbose=self.verbose)
+                    upload_file(file, client=self.client, verbose=self.verbose)
                     for file in files
                 )
             )
@@ -625,7 +625,7 @@ class GeminiClient(GemMixin):
 
             uploaded_urls = await asyncio.gather(
                 *(
-                    upload_file(file, proxy=self.proxy, verbose=self.verbose)
+                    upload_file(file, client=self.client, verbose=self.verbose)
                     for file in files
                 )
             )
@@ -723,7 +723,7 @@ class GeminiClient(GemMixin):
             }
 
         has_generated_text = False
-        poll_count = 0
+        sleep_time = 6
 
         message_content = [
             prompt,
@@ -940,6 +940,7 @@ class GeminiClient(GemMixin):
                                                                 web_img_data, [0, 4], ""
                                                             ),
                                                             proxy=self.proxy,
+                                                            client=self.client,
                                                         )
                                                     )
 
@@ -969,6 +970,7 @@ class GeminiClient(GemMixin):
                                                             ),
                                                             proxy=self.proxy,
                                                             cookies=self.cookies,
+                                                            client=self.client,
                                                         )
                                                     )
 
@@ -1189,9 +1191,6 @@ class GeminiClient(GemMixin):
                                     "[Watchdog] Stream finished but model is still thinking. Polling again..."
                                 )
 
-                        poll_count += 1
-                        sleep_time = min(2 * poll_count, 10)
-
                         if chat and getattr(chat, "cid", None):
                             prev_rcid = chat_backup["rcid"] if chat_backup else ""
                             current_rcid = getattr(chat, "rcid", "")
@@ -1221,7 +1220,7 @@ class GeminiClient(GemMixin):
                                         "read_chat polling timed out waiting for the model to finish. "
                                         "The original request may have been silently aborted by Google."
                                     )
-
+                                await self._send_bard_activity()
                                 recovered = await self.read_chat(chat.cid)
                                 if (
                                     recovered
@@ -1251,8 +1250,6 @@ class GeminiClient(GemMixin):
                                             f"[Recovery] Recovered turn is not the target turn (target: {current_expected_rcid}, got {rec_rcid}). Waiting..."
                                         )
 
-                                poll_count += 1
-                                sleep_time = min(2 * poll_count, 10)
                                 logger.debug(
                                     f"[Recovery] Response not ready, waiting {sleep_time}s..."
                                 )
@@ -1429,6 +1426,7 @@ class GeminiClient(GemMixin):
                                 title=get_nested_value(web_img_data, [7, 0], ""),
                                 alt=get_nested_value(web_img_data, [0, 4], ""),
                                 proxy=self.proxy,
+                                client=self.client,
                             )
                         )
 
@@ -1448,6 +1446,7 @@ class GeminiClient(GemMixin):
                                 alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
                                 proxy=self.proxy,
                                 cookies=self.cookies,
+                                client=self.client,
                             )
                         )
 
