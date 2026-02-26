@@ -33,8 +33,16 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].text
 
     @property
+    def text_delta(self) -> str:
+        return self.candidates[self.chosen].text_delta or ""
+
+    @property
     def thoughts(self) -> str | None:
         return self.candidates[self.chosen].thoughts
+
+    @property
+    def thoughts_delta(self) -> str:
+        return self.candidates[self.chosen].thoughts_delta or ""
 
     @property
     def images(self) -> list[Image]:

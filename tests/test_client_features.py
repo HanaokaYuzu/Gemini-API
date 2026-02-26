@@ -26,9 +26,24 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_successful_request(self):
         response = await self.geminiclient.generate_content(
             "Tell me a fact about today in history and illustrate it with a youtube video",
-            model=Model.G_2_5_FLASH,
+            model=Model.G_3_0_FLASH,
         )
         logger.debug(response.text)
+
+    @logger.catch(reraise=True)
+    async def test_streaming_mode(self):
+        full_text = ""
+        chunk_count = 0
+
+        async for chunk in self.geminiclient.generate_content_stream(
+            "What's the difference between 'await' and 'async for'?"
+        ):
+            full_text += chunk.text_delta
+            chunk_count += 1
+            print(chunk.text_delta, end="", flush=True)
+        print()
+
+        logger.debug(f"Total chunks: {chunk_count}")
 
     @logger.catch(reraise=True)
     async def test_switch_model(self):
@@ -99,7 +114,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_generation_with_gem(self):
         response = await self.geminiclient.generate_content(
             "What's your system prompt?",
-            model=Model.G_2_5_FLASH,
+            model=Model.G_3_0_FLASH,
             gem=Gem(id="coding-partner", name="Coding partner", predefined=True),
         )
         logger.debug(response.text)
@@ -108,7 +123,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
             "1+1=?",
-            model=Model.G_2_5_PRO,
+            model=Model.G_3_0_PRO,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)
@@ -137,6 +152,14 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
         logger.debug(response2.text)
         logger.debug(response2.images)
+
+    @logger.catch(reraise=True)
+    async def test_delete_chat(self):
+        chat = self.geminiclient.start_chat()
+        await chat.send_message("This is a temporary conversation.")
+        self.assertIsNotNone(chat.cid)
+        await self.geminiclient.delete_chat(chat.cid)
+        logger.debug(f"Chat deleted: {chat.cid}")
 
     @logger.catch(reraise=True)
     async def test_card_content(self):

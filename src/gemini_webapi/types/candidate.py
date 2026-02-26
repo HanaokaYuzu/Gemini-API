@@ -24,7 +24,9 @@ class Candidate(BaseModel):
 
     rcid: str
     text: str
+    text_delta: str | None = None
     thoughts: str | None = None
+    thoughts_delta: str | None = None
     web_images: list[WebImage] = []
     generated_images: list[GeneratedImage] = []
 

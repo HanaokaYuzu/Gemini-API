@@ -4,7 +4,7 @@ import asyncio
 from asyncio import Task
 from pathlib import Path
 
-from httpx import AsyncClient, Response
+from httpx import AsyncClient, Cookies, Response
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
@@ -13,27 +13,30 @@ from .logger import logger
 
 
 async def send_request(
-    cookies: dict, proxy: str | None = None
-) -> tuple[Response | None, dict]:
+    cookies: dict | Cookies, proxy: str | None = None
+) -> tuple[Response | None, Cookies]:
     """
     Send http request with provided cookies.
     """
 
     async with AsyncClient(
+        http2=True,
         proxy=proxy,
         headers=Headers.GEMINI.value,
         cookies=cookies,
         follow_redirects=True,
-        verify=False,
     ) as client:
-        response = await client.get(Endpoint.INIT.value)
+        response = await client.get(Endpoint.INIT)
         response.raise_for_status()
-        return response, cookies
+        return response, client.cookies
 
 
 async def get_access_token(
-    base_cookies: dict, proxy: str | None = None, verbose: bool = False
-) -> tuple[str, dict]:
+    base_cookies: dict | Cookies,
+    proxy: str | None = None,
+    verbose: bool = False,
+    verify: bool = True,
+) -> tuple[str, Cookies, str | None, str | None]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -45,19 +48,19 @@ async def get_access_token(
 
     Parameters
     ----------
-    base_cookies : `dict`
+    base_cookies : `dict | httpx.Cookies`
         Base cookies to be used in the request.
     proxy: `str`, optional
         Proxy URL.
     verbose: `bool`, optional
         If `True`, will print more infomation in logs.
+    verify: `bool`, optional
+        Whether to verify SSL certificates.
 
     Returns
     -------
-    `str`
-        Access token.
-    `dict`
-        Cookies of the successful request.
+    `tuple[str, str | None, str | None, Cookies]`
+        By order: access token; build label; session id; cookies of the successful request.
 
     Raises
     ------
@@ -65,18 +68,23 @@ async def get_access_token(
         If all requests failed.
     """
 
-    async with AsyncClient(proxy=proxy, follow_redirects=True, verify=False) as client:
-        response = await client.get(Endpoint.GOOGLE.value)
+    async with AsyncClient(
+        http2=True, proxy=proxy, follow_redirects=True, verify=verify
+    ) as client:
+        response = await client.get(Endpoint.GOOGLE)
 
-    extra_cookies = {}
+    extra_cookies = Cookies()
     if response.status_code == 200:
         extra_cookies = response.cookies
 
     tasks = []
 
     # Base cookies passed directly on initializing client
+    # We use a Jar to merge extra_cookies and base_cookies safely (preserving domains)
     if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
-        tasks.append(Task(send_request({**extra_cookies, **base_cookies}, proxy=proxy)))
+        jar = Cookies(extra_cookies)
+        jar.update(base_cookies)
+        tasks.append(Task(send_request(jar, proxy=proxy)))
     elif verbose:
         logger.debug(
             "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
@@ -88,18 +96,25 @@ async def get_access_token(
         and Path(GEMINI_COOKIE_PATH)
         or (Path(__file__).parent / "temp")
     )
-    if "__Secure-1PSID" in base_cookies:
-        filename = f".cached_1psidts_{base_cookies['__Secure-1PSID']}.txt"
+
+    # Safely get __Secure-1PSID value
+    if isinstance(base_cookies, Cookies):
+        secure_1psid = base_cookies.get(
+            "__Secure-1PSID", domain=".google.com"
+        ) or base_cookies.get("__Secure-1PSID")
+    else:
+        secure_1psid = base_cookies.get("__Secure-1PSID")
+
+    if secure_1psid:
+        filename = f".cached_1psidts_{secure_1psid}.txt"
         cache_file = cache_dir / filename
         if cache_file.is_file():
             cached_1psidts = cache_file.read_text()
             if cached_1psidts:
-                cached_cookies = {
-                    **extra_cookies,
-                    **base_cookies,
-                    "__Secure-1PSIDTS": cached_1psidts,
-                }
-                tasks.append(Task(send_request(cached_cookies, proxy=proxy)))
+                jar = Cookies(extra_cookies)
+                jar.update(base_cookies)
+                jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
+                tasks.append(Task(send_request(jar, proxy=proxy)))
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
         elif verbose:
@@ -110,12 +125,11 @@ async def get_access_token(
         for cache_file in cache_files:
             cached_1psidts = cache_file.read_text()
             if cached_1psidts:
-                cached_cookies = {
-                    **extra_cookies,
-                    "__Secure-1PSID": cache_file.stem[16:],
-                    "__Secure-1PSIDTS": cached_1psidts,
-                }
-                tasks.append(Task(send_request(cached_cookies, proxy=proxy)))
+                jar = Cookies(extra_cookies)
+                psid = cache_file.stem[16:]
+                jar.set("__Secure-1PSID", psid, domain=".google.com")
+                jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
+                tasks.append(Task(send_request(jar, proxy=proxy)))
                 valid_caches += 1
 
         if valid_caches == 0 and verbose:
@@ -174,13 +188,20 @@ async def get_access_token(
     for i, future in enumerate(asyncio.as_completed(tasks)):
         try:
             response, request_cookies = await future
-            match = re.search(r'"SNlM0e":"(.*?)"', response.text)
-            if match:
+            snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
+            if snlm0e:
+                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
+                fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
                 if verbose:
                     logger.debug(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
                     )
-                return match.group(1), request_cookies
+                return (
+                    snlm0e.group(1),
+                    cfb2h.group(1) if cfb2h else None,
+                    fdrfje.group(1) if fdrfje else None,
+                    request_cookies,
+                )
             elif verbose:
                 logger.debug(
                     f"Init attempt ({i + 1}/{len(tasks)}) failed. Cookies invalid."

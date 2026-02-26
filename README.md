@@ -33,6 +33,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - **System Prompt** - Supports customizing model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating contents with [Gemini extensions](https://gemini.google.com/extensions) on, like YouTube and Gmail.
 - **Classified Outputs** - Categorizes texts, thoughts, web images and AI generated images in the response.
+- **Streaming Mode** - Supports stream generation, yielding partial outputs as they are generated.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generating tasks and return outputs efficiently.
 
@@ -48,6 +49,8 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Generate contents with files](#generate-contents-with-files)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
+  - [Delete previous conversations from Gemini history](#delete-previous-conversations-from-gemini-history)
+  - [Streaming mode](#streaming-mode)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Manage Custom Gems](#manage-custom-gems)
@@ -217,6 +220,45 @@ async def main():
 asyncio.run(main())
 ```
 
+### Delete previous conversations from Gemini history
+
+You can delete a specific chat from Gemini history on the server by calling `GeminiClient.delete_chat` with the chat id.
+
+```python
+async def main():
+    # Start a new chat session
+    chat = client.start_chat()
+    await chat.send_message("This is a temporary conversation.")
+
+    # Delete the chat
+    await client.delete_chat(chat.cid)
+    print(f"Chat deleted: {chat.cid}")
+
+asyncio.run(main())
+```
+
+### Streaming mode
+
+For longer responses, you can use streaming mode to receive partial outputs as they are generated. This provides a more responsive user experience, especially for real-time applications like chatbots.
+
+The `generate_content_stream` method yields `ModelOutput` objects where the `text_delta` attribute contains only the **new characters** received since the last yield, making it easy to display incremental updates.
+
+```python
+async def main():
+    async for chunk in client.generate_content_stream(
+        "What's the difference between 'await' and 'async for'?"
+    ):
+        print(chunk.text_delta, end="", flush=True)
+
+    print()
+
+asyncio.run(main())
+```
+
+> [!TIP]
+>
+> You can also use streaming mode in multi-turn conversations with `ChatSession.send_message_stream`.
+
 ### Select language model
 
 You can specify which language model to use by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
@@ -225,8 +267,8 @@ Currently available models (as of November 20, 2025):
 
 - `unspecified` - Default model
 - `gemini-3.0-pro` - Gemini 3.0 Pro
-- `gemini-2.5-pro` - Gemini 2.5 Pro
-- `gemini-2.5-flash` - Gemini 2.5 Flash
+- `gemini-3.0-flash` - Gemini 3.0 Flash
+- `gemini-3.0-flash-thinking` - Gemini 3.0 Flash Thinking
 
 ```python
 from gemini_webapi.constants import Model
@@ -234,9 +276,9 @@ from gemini_webapi.constants import Model
 async def main():
     response1 = await client.generate_content(
         "What's you language model version? Reply version number only.",
-        model=Model.G_2_5_FLASH,
+        model=Model.G_3_0_FLASH,
     )
-    print(f"Model version ({Model.G_2_5_FLASH.model_name}): {response1.text}")
+    print(f"Model version ({Model.G_3_0_FLASH.model_name}): {response1.text}")
 
     chat = client.start_chat(model="gemini-2.5-pro")
     response2 = await chat.send_message("What's you language model version? Reply version number only.")
@@ -273,7 +315,7 @@ System prompt can be applied to conversations via [Gemini Gems](https://gemini.g
 ```python
 async def main():
     # Fetch all gems for the current account, including both predefined and user-created ones
-    await client.fetch_gems(include_hidden=False)
+    await client.fetch_gems(include_hidden=False, language="en")
 
     # Once fetched, gems will be cached in `GeminiClient.gems`
     gems = client.gems
@@ -284,7 +326,7 @@ async def main():
 
     response1 = await client.generate_content(
         "what's your system prompt?",
-        model=Model.G_2_5_FLASH,
+        model=Model.G_3_0_FLASH,
         gem=coding_partner,
     )
     print(response1.text)
