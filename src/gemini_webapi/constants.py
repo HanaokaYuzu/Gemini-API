@@ -26,8 +26,9 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    # Activity methods
     BARD_ACTIVITY = "ESY5D"
+
+    LIST_MODELS = "otAQ7b"
 
 
 class Headers(Enum):

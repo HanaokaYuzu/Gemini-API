@@ -185,10 +185,9 @@ def parse_response_by_frame(content: str) -> tuple[list[Any], str]:
         )
 
         if units_found < length:
-            # Incomplete frame — don't advance pos so remainder includes it
             logger.debug(
-                f"Incomplete frame at pos {consumed_pos}: expected {length} UTF-16 units, "
-                f"got {units_found}"
+                f"Incomplete frame at position {consumed_pos}: expected {length} UTF-16 units, "
+                f"but received {units_found}. Waiting for additional data..."
             )
             break
 
