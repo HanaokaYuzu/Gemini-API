@@ -118,15 +118,15 @@ class GeminiClient(GemMixin):
         self.access_token: str | None = None
         self.build_label: str | None = None
         self.session_id: str | None = None
-        self.timeout: float = 300
+        self.timeout: float = 600
         self.auto_close: bool = False
-        self.close_delay: float = 300
+        self.close_delay: float = 600
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
-        self.refresh_interval: float = 540
+        self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
         self.verbose: bool = True
-        self.watchdog_timeout: float = 180
+        self.watchdog_timeout: float = 300
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
 
@@ -149,13 +149,13 @@ class GeminiClient(GemMixin):
 
     async def init(
         self,
-        timeout: float = 300,
+        timeout: float = 600,
         auto_close: bool = False,
-        close_delay: float = 300,
+        close_delay: float = 600,
         auto_refresh: bool = True,
-        refresh_interval: float = 540,
+        refresh_interval: float = 600,
         verbose: bool = True,
-        watchdog_timeout: float = 180,
+        watchdog_timeout: float = 300,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -724,6 +724,11 @@ class GeminiClient(GemMixin):
                 "is_queueing": False,
                 "title": None,
             }
+        else:
+            # Reset connection-specific states during a retry attempt
+            session_state["last_progress_time"] = time.time()
+            session_state["is_thinking"] = False
+            session_state["is_queueing"] = False
 
         has_generated_text = False
         sleep_time = 6
@@ -1091,10 +1096,10 @@ class GeminiClient(GemMixin):
                                 else:
                                     logger.debug(
                                         f"[Watchdog] Connection idle for {stall_threshold}s (queueing={is_queueing}). "
-                                        "Refreshing connection..."
+                                        "Attempting recovery..."
                                     )
                                     await self.close()
-                                    raise APIError("Connection refresh triggered.")
+                                    break
 
                     # Final flush
                     buffer += decoder.decode(b"", final=True)
@@ -1116,9 +1121,8 @@ class GeminiClient(GemMixin):
                         if (time.time() - last_progress_time) > stall_threshold:
                             if not is_thinking:
                                 logger.debug(
-                                    f"[Watchdog] Stream ended after {stall_threshold}s without completing. Reconnecting..."
+                                    f"[Watchdog] Stream ended after {stall_threshold}s without completing. Triggering recovery..."
                                 )
-                                raise APIError("Connection refresh triggered.")
                             else:
                                 logger.debug(
                                     "[Watchdog] Stream finished but model is still thinking. Polling again..."
@@ -1149,10 +1153,16 @@ class GeminiClient(GemMixin):
                                     logger.warning(
                                         f"[Recovery] Polling for {chat.cid} timed out after {poll_timeout}s."
                                     )
-                                    raise APIError(
-                                        "read_chat polling timed out waiting for the model to finish. "
-                                        "The original request may have been silently aborted by Google."
-                                    )
+                                    if has_generated_text:
+                                        raise GeminiError(
+                                            "The connection to Gemini was lost while generating the response, and recovery timed out. "
+                                            "Please try sending your prompt again."
+                                        )
+                                    else:
+                                        raise APIError(
+                                            "read_chat polling timed out waiting for the model to finish. "
+                                            "The original request may have been silently aborted by Google."
+                                        )
                                 await self._send_bard_activity()
                                 recovered = await self.read_chat(chat.cid)
                                 if (
