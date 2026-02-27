@@ -211,7 +211,7 @@ class GeneratedImage(Image):
                         image_id=self.image_id,
                     )
                     if original_url:
-                        self.url = original_url
+                        self.url = original_url + "=d-I?alr=yes"
                         return await super().save(
                             path=path,
                             filename=filename,

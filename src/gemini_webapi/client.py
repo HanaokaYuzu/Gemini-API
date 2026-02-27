@@ -910,12 +910,7 @@ class GeminiClient(GemMixin):
                                                     or text
                                                 )
 
-                                            # Prettify image placeholders and cleanup other artifacts
-                                            text = re.sub(
-                                                r"http://googleusercontent\.com/image_generation_content/(\d+)\n*",
-                                                lambda m: f"[Generated Image {int(m.group(1)) + 1}]\n",
-                                                text,
-                                            )
+                                            # Cleanup googleusercontent artifacts
                                             text = re.sub(
                                                 r"http://googleusercontent\.com/(?!image_generation_content)\w+/\d+\n*",
                                                 "",
@@ -1428,12 +1423,7 @@ class GeminiClient(GemMixin):
                 ):
                     text = get_nested_value(candidate_data, [22, 0]) or text
 
-                # Prettify image placeholders and cleanup other artifacts
-                text = re.sub(
-                    r"http://googleusercontent\.com/image_generation_content/(\d+)\n*",
-                    lambda m: f"[Generated Image {int(m.group(1)) + 1}]\n",
-                    text,
-                )
+                # Cleanup googleusercontent artifacts
                 text = re.sub(
                     r"http://googleusercontent\.com/(?!image_generation_content)\w+/\d+\n*",
                     "",
