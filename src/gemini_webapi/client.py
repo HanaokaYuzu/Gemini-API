@@ -48,6 +48,9 @@ from .utils import (
 
 DEFAULT_METADATA: list[Any] = ["", "", "", None, None, None, None, None, None, ""]
 
+_CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
+_ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
+
 
 class GeminiClient(GemMixin):
     """
@@ -895,98 +898,14 @@ class GeminiClient(GemMixin):
                                             if isinstance(chat, ChatSession):
                                                 chat.rcid = rcid
 
-                                            # Text output and thoughts
-                                            text = get_nested_value(
-                                                candidate_data, [1, 0], ""
-                                            )
-                                            if re.match(
-                                                r"^http://googleusercontent\.com/card_content/\d+",
+                                            (
                                                 text,
-                                            ):
-                                                text = (
-                                                    get_nested_value(
-                                                        candidate_data, [22, 0]
-                                                    )
-                                                    or text
-                                                )
-
-                                            # Cleanup googleusercontent artifacts
-                                            text = re.sub(
-                                                r"http://googleusercontent\.com/(?!image_generation_content)\w+/\d+\n*",
-                                                "",
-                                                text,
+                                                thoughts,
+                                                web_images,
+                                                generated_images,
+                                            ) = self._parse_candidate(
+                                                candidate_data, cid, rid, rcid
                                             )
-
-                                            thoughts = (
-                                                get_nested_value(
-                                                    candidate_data, [37, 0, 0]
-                                                )
-                                                or ""
-                                            )
-                                            # Image handling
-                                            web_images = []
-                                            for web_img_data in get_nested_value(
-                                                candidate_data, [12, 1], []
-                                            ):
-                                                url = get_nested_value(
-                                                    web_img_data, [0, 0, 0]
-                                                )
-                                                if url:
-                                                    web_images.append(
-                                                        WebImage(
-                                                            url=url,
-                                                            title=get_nested_value(
-                                                                web_img_data, [7, 0], ""
-                                                            ),
-                                                            alt=get_nested_value(
-                                                                web_img_data, [0, 4], ""
-                                                            ),
-                                                            proxy=self.proxy,
-                                                            client=self.client,
-                                                        )
-                                                    )
-
-                                            generated_images = []
-                                            for img_idx, gen_img_data in enumerate(
-                                                get_nested_value(
-                                                    candidate_data, [12, 7, 0], []
-                                                )
-                                            ):
-                                                url = get_nested_value(
-                                                    gen_img_data, [0, 3, 3]
-                                                )
-                                                if url:
-                                                    image_id = get_nested_value(
-                                                        gen_img_data, [1, 0]
-                                                    )
-                                                    if not image_id:
-                                                        image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
-
-                                                    img_num = img_idx + 1
-
-                                                    generated_images.append(
-                                                        GeneratedImage(
-                                                            url=url,
-                                                            title=(
-                                                                f"[Generated Image {img_num}]"
-                                                                if img_num
-                                                                else "[Generated Image]"
-                                                            ),
-                                                            alt=get_nested_value(
-                                                                gen_img_data,
-                                                                [3, 5, 0],
-                                                                "",
-                                                            ),
-                                                            proxy=self.proxy,
-                                                            cookies=self.cookies,
-                                                            client=self.client,
-                                                            client_ref=self,
-                                                            cid=cid,
-                                                            rid=rid,
-                                                            rcid=rcid,
-                                                            image_id=image_id,
-                                                        )
-                                                    )
 
                                             # Determine if this frame represents the final state of the message
                                             is_final_chunk = (
@@ -1350,6 +1269,68 @@ class GeminiClient(GemMixin):
             ]
         )
 
+    def _parse_candidate(
+        self, candidate_data: list[Any], cid: str, rid: str, rcid: str
+    ) -> tuple[str, str, list[WebImage], list[GeneratedImage]]:
+        """Parses individual candidate data into text, thoughts, web_images, and generated_images."""
+        text = get_nested_value(candidate_data, [1, 0], "")
+        if _CARD_CONTENT_RE.match(text):
+            text = get_nested_value(candidate_data, [22, 0]) or text
+
+        # Cleanup googleusercontent artifacts
+        text = _ARTIFACTS_RE.sub("", text)
+
+        thoughts = get_nested_value(candidate_data, [37, 0, 0]) or ""
+
+        # Image handling
+        web_images = []
+        for web_img_data in get_nested_value(candidate_data, [12, 1], []):
+            url = get_nested_value(web_img_data, [0, 0, 0])
+            if url:
+                web_images.append(
+                    WebImage(
+                        url=url,
+                        title=get_nested_value(web_img_data, [7, 0], ""),
+                        alt=get_nested_value(web_img_data, [0, 4], ""),
+                        proxy=self.proxy,
+                        client=self.client,
+                    )
+                )
+
+        generated_images = []
+        for img_idx, gen_img_data in enumerate(
+            get_nested_value(candidate_data, [12, 7, 0], [])
+        ):
+            url = get_nested_value(gen_img_data, [0, 3, 3])
+            if url:
+                image_id = get_nested_value(gen_img_data, [1, 0])
+                if not image_id:
+                    image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
+
+                img_num = img_idx + 1
+
+                generated_images.append(
+                    GeneratedImage(
+                        url=url,
+                        title=(
+                            f"[Generated Image {img_num}]"
+                            if img_num
+                            else "[Generated Image]"
+                        ),
+                        alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
+                        proxy=self.proxy,
+                        cookies=self.cookies,
+                        client=self.client,
+                        client_ref=self,
+                        cid=cid,
+                        rid=rid,
+                        rcid=rcid,
+                        image_id=image_id,
+                    )
+                )
+
+        return text, thoughts, web_images, generated_images
+
     def list_chats(self) -> list[ChatInfo] | None:
         """
         List all conversations.
@@ -1415,67 +1396,9 @@ class GeminiClient(GemMixin):
 
                 rcid = get_nested_value(candidate_data, [0], "")
                 rid = get_nested_value(conv_turn, [1], "")
-                text = get_nested_value(candidate_data, [1, 0], "")
-
-                if re.match(
-                    r"^http://googleusercontent\.com/card_content/\d+",
-                    text,
-                ):
-                    text = get_nested_value(candidate_data, [22, 0]) or text
-
-                # Cleanup googleusercontent artifacts
-                text = re.sub(
-                    r"http://googleusercontent\.com/(?!image_generation_content)\w+/\d+\n*",
-                    "",
-                    text,
+                text, thoughts, web_images, generated_images = self._parse_candidate(
+                    candidate_data, cid, rid, rcid
                 )
-
-                # Image handling
-                web_images = []
-                for web_img_data in get_nested_value(candidate_data, [12, 1], []):
-                    url = get_nested_value(web_img_data, [0, 0, 0])
-                    if url:
-                        web_images.append(
-                            WebImage(
-                                url=url,
-                                title=get_nested_value(web_img_data, [7, 0], ""),
-                                alt=get_nested_value(web_img_data, [0, 4], ""),
-                                proxy=self.proxy,
-                                client=self.client,
-                            )
-                        )
-
-                generated_images = []
-                for img_idx, gen_img_data in enumerate(
-                    get_nested_value(candidate_data, [12, 7, 0], [])
-                ):
-                    url = get_nested_value(gen_img_data, [0, 3, 3])
-                    if url:
-                        image_id = get_nested_value(gen_img_data, [1, 0])
-                        if not image_id:
-                            image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
-
-                        img_num = img_idx + 1
-
-                        generated_images.append(
-                            GeneratedImage(
-                                url=url,
-                                title=(
-                                    f"[Generated Image {img_num}]"
-                                    if img_num
-                                    else "[Generated Image]"
-                                ),
-                                alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
-                                proxy=self.proxy,
-                                cookies=self.cookies,
-                                client=self.client,
-                                client_ref=self,
-                                cid=cid,
-                                rid=rid,
-                                rcid=rcid,
-                                image_id=image_id,
-                            )
-                        )
 
                 return ModelOutput(
                     metadata=[cid],
@@ -1483,6 +1406,7 @@ class GeminiClient(GemMixin):
                         Candidate(
                             rcid=rcid,
                             text=text,
+                            thoughts=thoughts,
                             web_images=web_images,
                             generated_images=generated_images,
                         )
