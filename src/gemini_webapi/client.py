@@ -126,7 +126,7 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 540
         self.refresh_task: Task | None = None
         self.verbose: bool = True
-        self.watchdog_timeout: float = 120
+        self.watchdog_timeout: float = 180
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
 
@@ -155,7 +155,7 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
-        watchdog_timeout: float = 120,
+        watchdog_timeout: float = 180,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
