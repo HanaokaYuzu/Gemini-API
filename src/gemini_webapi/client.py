@@ -328,7 +328,8 @@ class GeminiClient(GemMixin):
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
         temporary: `bool`, optional
-            If True, request a temporary single-turn response that will not be saved to history.
+            If True, mark this request as temporary.
+            Temporary can be used in both single-call and chat-session requests.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
@@ -452,7 +453,8 @@ class GeminiClient(GemMixin):
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history.
         temporary: `bool`, optional
-            If True, request a temporary single-turn response that will not be saved to history.
+            If True, mark this request as temporary.
+            Temporary can be used in both single-call and chat-session requests.
         kwargs: `dict`, optional
             Additional arguments passed to `httpx.AsyncClient.stream`.
 
