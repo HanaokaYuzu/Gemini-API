@@ -25,7 +25,6 @@ from .exceptions import (
     AuthError,
     GeminiError,
     ModelInvalid,
-    TemporaryChatNotSupported,
     TemporarilyBlocked,
     TimeoutError,
     UsageLimitExceeded,
@@ -356,11 +355,6 @@ class GeminiClient(GemMixin):
         if self.auto_close:
             await self.reset_close_task()
 
-        if chat and temporary:
-            raise TemporaryChatNotSupported(
-                "Temporary chat is not supported in chat sessions."
-            )
-
         if not (isinstance(chat, ChatSession) and chat.cid):
             self._reqid = random.randint(10000, 99999)
 
@@ -393,43 +387,28 @@ class GeminiClient(GemMixin):
                 ]
             )
 
-            async def _run_generate(temporary_flag: bool) -> ModelOutput:
-                session_state = {
-                    "last_texts": {},
-                    "last_thoughts": {},
-                    "last_progress_time": time.time(),
-                }
-                output = None
-                async for output in self._generate(
-                    prompt=prompt,
-                    req_file_data=file_data,
-                    model=model,
-                    gem=gem,
-                    chat=chat,
-                    temporary=temporary_flag,
-                    session_state=session_state,
-                    **kwargs,
-                ):
-                    pass
+            session_state = {
+                "last_texts": {},
+                "last_thoughts": {},
+                "last_progress_time": time.time(),
+            }
+            output = None
+            async for output in self._generate(
+                prompt=prompt,
+                req_file_data=file_data,
+                model=model,
+                gem=gem,
+                chat=chat,
+                temporary=temporary,
+                session_state=session_state,
+                **kwargs,
+            ):
+                pass
 
-                if output is None:
-                    raise GeminiError(
-                        "Failed to generate contents. No output data found in response."
-                    )
-
-                return output
-
-            if temporary:
-                try:
-                    output = await _run_generate(temporary_flag=True)
-                except (APIError, GeminiError) as exc:
-                    logger.warning(
-                        "Temporary mode failed; falling back to normal chat. "
-                        f"Reason: {type(exc).__name__}"
-                    )
-                    output = await _run_generate(temporary_flag=False)
-            else:
-                output = await _run_generate(temporary_flag=False)
+            if output is None:
+                raise GeminiError(
+                    "Failed to generate contents. No output data found in response."
+                )
 
             if isinstance(chat, ChatSession):
                 output.metadata = chat.metadata
@@ -450,6 +429,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -471,6 +451,8 @@ class GeminiClient(GemMixin):
             Specify a gem to use as system prompt for the chat session.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history.
+        temporary: `bool`, optional
+            If True, request a temporary single-turn response that will not be saved to history.
         kwargs: `dict`, optional
             Additional arguments passed to `httpx.AsyncClient.stream`.
 
@@ -535,6 +517,7 @@ class GeminiClient(GemMixin):
                 model=model,
                 gem=gem,
                 chat=chat,
+                temporary=temporary,
                 session_state=session_state,
                 **kwargs,
             ):
@@ -567,10 +550,6 @@ class GeminiClient(GemMixin):
         """
 
         assert prompt, "Prompt cannot be empty."
-        if chat and temporary:
-            raise TemporaryChatNotSupported(
-                "Temporary chat is not supported in chat sessions."
-            )
 
         if isinstance(model, str):
             model = Model.from_name(model)
@@ -998,7 +977,6 @@ class GeminiClient(GemMixin):
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
-            Temporary mode is not supported in chat sessions.
 
         Returns
         -------
@@ -1139,7 +1117,7 @@ class ChatSession:
     ) -> ModelOutput:
         """
         Generates contents with prompt.
-        Use as a shortcut for `GeminiClient.generate_content(prompt, image, self)`.
+        Use as a shortcut for `GeminiClient.generate_content(prompt, files, self)`.
 
         Parameters
         ----------
@@ -1169,11 +1147,6 @@ class ChatSession:
             - If request failed with status code other than 200.
             - If response structure is invalid and failed to parse.
         """
-
-        if kwargs.get("temporary"):
-            raise TemporaryChatNotSupported(
-                "Temporary chat is not supported in chat sessions."
-            )
 
         return await self.geminiclient.generate_content(
             prompt=prompt,
