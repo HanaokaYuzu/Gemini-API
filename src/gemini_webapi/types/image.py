@@ -239,8 +239,15 @@ class GeneratedImage(Image):
                         f"Failed to fetch full size image URL via RPC: {e}, falling back to default URL suffix."
                     )
 
-            if "=s2048-rj" not in self.url:
+            if "=s1024-rj" in self.url:
+                self.url = self.url.replace("=s1024-rj", "=s2048-rj")
+            elif "=s2048-rj" not in self.url:
                 self.url += "=s2048-rj"
+        else:
+            if "=s2048-rj" in self.url:
+                self.url = self.url.replace("=s2048-rj", "=s1024-rj")
+            elif "=s1024-rj" not in self.url:
+                self.url += "=s1024-rj"
 
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
