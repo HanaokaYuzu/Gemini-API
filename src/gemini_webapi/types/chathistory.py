@@ -1,6 +1,8 @@
 import reprlib
-from typing import List, Optional, Union
+from typing import List, Optional
+
 from pydantic import BaseModel
+
 from .modeloutput import ModelOutput
 
 
