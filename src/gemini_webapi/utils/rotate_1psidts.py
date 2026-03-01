@@ -31,9 +31,7 @@ def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
     return None
 
 
-async def rotate_1psidts(
-    client: AsyncSession, verbose: bool = False
-) -> tuple[str | None, Cookies | None]:
+async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | None:
     """
     Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
@@ -46,8 +44,8 @@ async def rotate_1psidts(
 
     Returns
     -------
-    `tuple[str | None, curl_cffi.requests.Cookies | None]`
-        New value of the __Secure-1PSIDTS cookie and the full updated cookies jar.
+    `str | None`
+        New value of the __Secure-1PSIDTS cookie if rotation was successful.
 
     Raises
     ------
@@ -68,14 +66,14 @@ async def rotate_1psidts(
     secure_1psid = _extract_cookie_value(client.cookies, "__Secure-1PSID")
 
     if not secure_1psid:
-        return None, None
+        return None
 
     filename = f".cached_1psidts_{secure_1psid}.txt"
     path = path / filename
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
     if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
-        return path.read_text(), None
+        return path.read_text()
 
     response = await client.post(
         url=Endpoint.ROTATE_COOKIES,
@@ -97,8 +95,8 @@ async def rotate_1psidts(
         logger.debug(
             f"Rotated __Secure-1PSIDTS successfully (length={len(new_1psidts)})."
         )
-        return new_1psidts, client.cookies
+        return new_1psidts
 
     cookie_names = [c.name for c in client.cookies.jar]
     logger.debug(f"Rotation response cookies: {cookie_names}")
-    return None, client.cookies
+    return None

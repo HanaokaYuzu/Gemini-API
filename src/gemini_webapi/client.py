@@ -80,7 +80,7 @@ class GeminiClient(GemMixin):
     """
 
     __slots__ = [
-        "cookies",
+        "_cookies",
         "proxy",
         "_running",
         "client",
@@ -108,12 +108,11 @@ class GeminiClient(GemMixin):
         self,
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
-        cookies: dict | Cookies | None = None,
         proxy: str | None = None,
         **kwargs,
     ):
         super().__init__()
-        self.cookies = Cookies()
+        self._cookies = Cookies()
         self.proxy = proxy
         self._running: bool = False
         self.client: AsyncSession | None = None
@@ -137,17 +136,29 @@ class GeminiClient(GemMixin):
         self.kwargs = kwargs
 
         if secure_1psid:
-            self.cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
+            self._cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
             if secure_1psidts:
-                self.cookies.set(
+                self._cookies.set(
                     "__Secure-1PSIDTS", secure_1psidts, domain=".google.com"
                 )
 
-        if isinstance(cookies, dict):
-            for k, v in cookies.items():
-                self.cookies.set(k, v, domain=".google.com")
-        elif isinstance(cookies, Cookies):
-            self.cookies.update(cookies)
+    @property
+    def cookies(self) -> Cookies:
+        """
+        Returns the cookies used for the current session.
+        """
+        return self.client.cookies if self.client else self._cookies
+
+    @cookies.setter
+    def cookies(self, value: Cookies | dict):
+        if isinstance(value, Cookies):
+            self._cookies.update(value)
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                self._cookies.set(k, v, domain=".google.com")
+
+        if self.client:
+            self.client.cookies.update(self._cookies)
 
     async def init(
         self,
@@ -198,7 +209,7 @@ class GeminiClient(GemMixin):
 
                 session.timeout = timeout
                 self.client = session
-                self.cookies = self.client.cookies
+                self._cookies.update(self.client.cookies)
                 self.access_token = access_token
                 self.build_label = build_label
                 self.session_id = session_id
@@ -253,7 +264,9 @@ class GeminiClient(GemMixin):
             self.refresh_task = None
 
         if self.client:
+            self._cookies.update(self.client.cookies)
             await self.client.close()
+            self.client = None
 
     async def reset_close_task(self) -> None:
         """
@@ -282,19 +295,10 @@ class GeminiClient(GemMixin):
             try:
                 async with self._lock:
                     # Refresh all cookies in the background to keep the session alive.
-                    new_1psidts, rotated_cookies = await rotate_1psidts(
-                        self.client, self.verbose
-                    )
-                    if rotated_cookies:
-                        self.cookies.update(rotated_cookies)
-                        if self.client:
-                            self.client.cookies.update(rotated_cookies)
+                    new_1psidts = await rotate_1psidts(self.client, self.verbose)
 
                     if new_1psidts:
-                        if rotated_cookies:
-                            logger.debug("Cookies refreshed (network update).")
-                        else:
-                            logger.debug("Cookies are up to date (cached).")
+                        logger.debug("Cookies refreshed (network update).")
                     else:
                         logger.warning(
                             "Rotation response did not contain a new __Secure-1PSIDTS. "
@@ -788,9 +792,6 @@ class GeminiClient(GemMixin):
                             f"Failed to generate contents. Status: {response.status_code}"
                         )
 
-                    if self.client:
-                        self.cookies.update(self.client.cookies)
-
                     buffer = ""
                     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
@@ -1238,7 +1239,7 @@ class GeminiClient(GemMixin):
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
                 logger.debug(
-                    "Unexpected parsing error encountered during stream processing."
+                    "Stream parsing interrupted. Attempting to recover conversation context..."
                 )
                 raise APIError(
                     "Failed to parse response body from Google. This might be a temporary API change or invalid data."
@@ -1339,7 +1340,6 @@ class GeminiClient(GemMixin):
                         ),
                         alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
                         proxy=self.proxy,
-                        cookies=self.cookies,
                         client=self.client,
                         client_ref=self,
                         cid=cid,
@@ -1559,9 +1559,6 @@ class GeminiClient(GemMixin):
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )
-
-        if self.client:
-            self.cookies.update(self.client.cookies)
 
         return response
 

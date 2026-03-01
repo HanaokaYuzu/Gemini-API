@@ -5,9 +5,9 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
-from curl_cffi.requests import AsyncSession, Cookies
+from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from ..utils import logger
 
@@ -36,7 +36,6 @@ class Image(BaseModel):
         self,
         path: str = "temp",
         filename: str | None = None,
-        cookies: dict | Cookies | None = None,
         verbose: bool = False,
         skip_invalid_filename: bool = False,
         client: AsyncSession | None = None,
@@ -47,8 +46,6 @@ class Image(BaseModel):
             path (str, optional): Path to save the image. Defaults to "./temp".
             filename (str | None, optional): File name to save the image. Defaults to
                 the original file name from the URL.
-            cookies (dict | Cookies | None, optional): Cookies used for requesting
-                the content of the image.
             verbose (bool, optional): If True, will print the path of the saved file
                 or warning for invalid file name. Defaults to False.
             skip_invalid_filename (bool, optional): If True, will only save the image
@@ -83,13 +80,12 @@ class Image(BaseModel):
             req_client = AsyncSession(
                 impersonate="chrome",
                 allow_redirects=True,
-                cookies=cookies,
                 proxy=self.proxy,
             )
             close_client = True
 
         try:
-            response = await req_client.get(self.url, cookies=cookies)
+            response = await req_client.get(self.url)
             if verbose:
                 logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
             if response.status_code == 200:
@@ -133,9 +129,6 @@ class GeneratedImage(Image):
     Returned when asking Gemini to "GENERATE an image of [something]".
 
     Attributes:
-        cookies (dict | Any): Cookies used for requesting the content of the generated
-            image, inherited from GeminiClient object or manually set. Should
-            contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values.
         client_ref (Any, optional): Reference to the GeminiClient instance.
         cid (str, optional): Chat ID.
         rid (str, optional): Response ID.
@@ -143,28 +136,17 @@ class GeneratedImage(Image):
         image_id (str, optional): Image ID generated.
     """
 
-    cookies: Any
     client_ref: Any = None
     cid: str = ""
     rid: str = ""
     rcid: str = ""
     image_id: str = ""
 
-    @field_validator("cookies")
-    @classmethod
-    def validate_cookies(cls, v: Any) -> Any:
-        if len(v) == 0:
-            raise ValueError(
-                "GeneratedImage is designed to be initialized with same cookies as GeminiClient."
-            )
-        return v
-
     # @override
     async def save(
         self,
         path: str = "temp",
         filename: str | None = None,
-        cookies: dict | Cookies | None = None,
         verbose: bool = False,
         skip_invalid_filename: bool = False,
         full_size: bool = True,
@@ -177,8 +159,6 @@ class GeneratedImage(Image):
             filename (str | None, optional): Filename to save the image. Generated images
                 are always in .png format, but the file extension is not included in the URL.
                 Defaults to timestamp + the end of the URL hash.
-            cookies (dict | Cookies | None, optional): Cookies used for requesting the
-                image context. If omitted, uses cookies from the GeneratedImage instance.
             verbose (bool, optional): Prints the path of the saved file or warning if True. Defaults to False.
             skip_invalid_filename (bool, optional): Saves the image only if the file name is valid. Defaults to False.
             full_size (bool, optional): Modifies preview URLs to fetch full-size images if True. Defaults to True.
@@ -187,8 +167,6 @@ class GeneratedImage(Image):
         Returns:
             str | None: Absolute path of the saved image if successfully saved, None otherwise.
         """
-        req_cookies = cookies or self.cookies
-
         if full_size:
             if all([self.client_ref, self.cid, self.rid, self.rcid, self.image_id]):
                 try:
@@ -208,7 +186,9 @@ class GeneratedImage(Image):
                             req_client = AsyncSession(
                                 impersonate="chrome",
                                 allow_redirects=True,
-                                cookies=req_cookies,
+                                cookies=(
+                                    self.client_ref.cookies if self.client_ref else None
+                                ),
                                 proxy=self.proxy,
                             )
                             close_client = True
@@ -225,7 +205,6 @@ class GeneratedImage(Image):
                             return await super().save(
                                 path=path,
                                 filename=filename,
-                                cookies=req_cookies,
                                 verbose=verbose,
                                 skip_invalid_filename=skip_invalid_filename,
                                 client=req_client,
@@ -257,7 +236,6 @@ class GeneratedImage(Image):
         return await super().save(
             path=path,
             filename=filename,
-            cookies=req_cookies,
             verbose=verbose,
             skip_invalid_filename=skip_invalid_filename,
             client=client,
