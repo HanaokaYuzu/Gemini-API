@@ -1,4 +1,6 @@
 import html
+import reprlib
+
 from pydantic import BaseModel, field_validator
 
 from .image import Image, WebImage, GeneratedImage
@@ -34,7 +36,7 @@ class Candidate(BaseModel):
         return self.text
 
     def __repr__(self):
-        return f"Candidate(rcid='{self.rcid}', text='{len(self.text) <= 20 and self.text or self.text[:20] + '...'}', images={self.images})"
+        return f"Candidate(rcid='{self.rcid}', text='{reprlib.repr(self.text)}', images={self.images})"
 
     @field_validator("text", "thoughts")
     @classmethod

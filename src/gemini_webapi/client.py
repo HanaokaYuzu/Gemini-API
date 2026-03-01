@@ -32,6 +32,8 @@ from .types import (
     WebImage,
     AvailableModel,
     ChatInfo,
+    ChatTurn,
+    ChatHistory,
 )
 from .utils import (
     extract_json_from_response,
@@ -731,7 +733,7 @@ class GeminiClient(GemMixin):
             session_state["is_queueing"] = False
 
         has_generated_text = False
-        sleep_time = 6
+        sleep_time = 10
 
         message_content = [
             prompt,
@@ -1164,34 +1166,42 @@ class GeminiClient(GemMixin):
                                             "The original request may have been silently aborted by Google."
                                         )
                                 await self._send_bard_activity()
-                                recovered = await self.read_chat(chat.cid)
+                                recovered_history = await self.read_chat(chat.cid)
                                 if (
-                                    recovered
-                                    and recovered.candidates
-                                    and (
-                                        recovered.candidates[0].text.strip()
-                                        or recovered.candidates[0].generated_images
-                                        or recovered.candidates[0].web_images
-                                    )
+                                    recovered_history
+                                    and recovered_history.turns
+                                    and recovered_history.turns[-1].role == "model"
                                 ):
-                                    rec_rcid = recovered.candidates[0].rcid
-                                    current_expected_rcid = getattr(chat, "rcid", "")
-
-                                    is_new_turn = rec_rcid == current_expected_rcid
-
-                                    if is_new_turn:
-                                        logger.debug(
-                                            f"[Recovery] Successfully recovered response for CID: {chat.cid} (RCID: {rec_rcid})"
+                                    recovered = recovered_history.turns[-1].info
+                                    if (
+                                        recovered
+                                        and recovered.candidates
+                                        and (
+                                            recovered.candidates[0].text.strip()
+                                            or recovered.candidates[0].generated_images
+                                            or recovered.candidates[0].web_images
                                         )
-                                        recovered.metadata = chat.metadata
-                                        if isinstance(chat, ChatSession):
-                                            chat.rcid = rec_rcid
-                                        yield recovered
-                                        break
-                                    else:
-                                        logger.debug(
-                                            f"[Recovery] Recovered turn is not the target turn (target: {current_expected_rcid}, got {rec_rcid}). Waiting..."
+                                    ):
+                                        rec_rcid = recovered.candidates[0].rcid
+                                        current_expected_rcid = getattr(
+                                            chat, "rcid", ""
                                         )
+
+                                        is_new_turn = rec_rcid == current_expected_rcid
+
+                                        if is_new_turn:
+                                            logger.debug(
+                                                f"[Recovery] Successfully recovered response for CID: {chat.cid} (RCID: {rec_rcid})"
+                                            )
+                                            recovered.metadata = chat.metadata
+                                            if isinstance(chat, ChatSession):
+                                                chat.rcid = rec_rcid
+                                            yield recovered
+                                            break
+                                        else:
+                                            logger.debug(
+                                                f"[Recovery] Recovered turn is not the target turn (target: {current_expected_rcid}, got {rec_rcid}). Waiting..."
+                                            )
 
                                 logger.debug(
                                     f"[Recovery] Response not ready, waiting {sleep_time}s..."
@@ -1352,22 +1362,21 @@ class GeminiClient(GemMixin):
         """
         return self._recent_chats
 
-    async def read_chat(self, cid: str) -> ModelOutput | None:
+    async def read_chat(self, cid: str, limit: int = 10) -> ChatHistory | None:
         """
-        Fetch the last assistant response from a conversation by chat id.
-
-        Used for recovery when a stream fails after Gemini assigned a cid
-        mid-stream. Returns None on any failure (network, parsing, empty response).
+        Fetch the full conversation history by chat id.
 
         Parameters
         ----------
         cid: `str`
             The ID of the conversation to read (e.g. "c_...").
+        limit: `int`, optional
+            The maximum number of turns to fetch, by default 10.
 
         Returns
         -------
-        :class:`ModelOutput` | None
-            The recovered response, or None if recovery failed.
+        :class:`ChatHistory` | None
+            The conversation history, or None if reading failed.
         """
         try:
             response = await self._batch_execute(
@@ -1375,7 +1384,7 @@ class GeminiClient(GemMixin):
                     RPCData(
                         rpcid=GRPC.READ_CHAT,
                         payload=json.dumps(
-                            [cid, 10, None, 1, [1], [4], None, 1]
+                            [cid, limit, None, 1, [1], [4], None, 1]
                         ).decode("utf-8"),
                     ),
                 ]
@@ -1389,39 +1398,54 @@ class GeminiClient(GemMixin):
                     continue
 
                 part_body = json.loads(part_body_str)
-                turns = get_nested_value(part_body, [0])
-                if not turns:
-                    continue
-                conv_turn = turns[-1]
-                if not conv_turn:
+                turns_data = get_nested_value(part_body, [0])
+                if not turns_data:
                     continue
 
-                candidates_list = get_nested_value(conv_turn, [3, 0])
-                if not candidates_list:
-                    continue
+                chat_turns = []
+                for conv_turn in turns_data:
+                    # User turn
+                    user_text = get_nested_value(conv_turn, [2, 0, 0], "")
+                    if user_text:
+                        chat_turns.append(ChatTurn(role="user", text=user_text))
 
-                candidate_data = get_nested_value(candidates_list, [0])
-                if not candidate_data:
-                    continue
+                    # Model turn
+                    candidates_list = get_nested_value(conv_turn, [3, 0])
+                    if candidates_list:
+                        output_candidates = []
+                        rid = get_nested_value(conv_turn, [1], "")
+                        for candidate_data in candidates_list:
+                            rcid = get_nested_value(candidate_data, [0], "")
+                            (
+                                text,
+                                thoughts,
+                                web_images,
+                                generated_images,
+                            ) = self._parse_candidate(candidate_data, cid, rid, rcid)
+                            output_candidates.append(
+                                Candidate(
+                                    rcid=rcid,
+                                    text=text,
+                                    thoughts=thoughts,
+                                    web_images=web_images,
+                                    generated_images=generated_images,
+                                )
+                            )
 
-                rcid = get_nested_value(candidate_data, [0], "")
-                rid = get_nested_value(conv_turn, [1], "")
-                text, thoughts, web_images, generated_images = self._parse_candidate(
-                    candidate_data, cid, rid, rcid
-                )
+                        if output_candidates:
+                            model_output = ModelOutput(
+                                metadata=[cid, rid, output_candidates[0].rcid],
+                                candidates=output_candidates,
+                            )
+                            chat_turns.append(
+                                ChatTurn(
+                                    role="model",
+                                    text=output_candidates[0].text,
+                                    info=model_output,
+                                )
+                            )
 
-                return ModelOutput(
-                    metadata=[cid],
-                    candidates=[
-                        Candidate(
-                            rcid=rcid,
-                            text=text,
-                            thoughts=thoughts,
-                            web_images=web_images,
-                            generated_images=generated_images,
-                        )
-                    ],
-                )
+                return ChatHistory(cid=cid, metadata=[cid], turns=chat_turns)
 
             return None
         except Exception:
@@ -1728,6 +1752,24 @@ class ChatSession:
         self.last_output.chosen = index
         self.rcid = self.last_output.rcid
         return self.last_output
+
+    async def read_history(self, limit: int = 10) -> ChatHistory | None:
+        """
+        Fetch the conversation history for this session.
+
+        Parameters
+        ----------
+        limit: `int`, optional
+            The maximum number of turns to fetch, by default 10.
+
+        Returns
+        -------
+        :class:`ChatHistory` | None
+            The conversation history, or None if reading failed or cid is missing.
+        """
+        if not self.cid:
+            return None
+        return await self.geminiclient.read_chat(self.cid, limit=limit)
 
     @property
     def metadata(self):
