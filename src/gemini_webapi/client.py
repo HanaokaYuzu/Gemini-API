@@ -4,6 +4,7 @@ import io
 import time
 import random
 import re
+import uuid
 from asyncio import Task
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -57,6 +58,11 @@ class GeminiClient(GemMixin):
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
         __Secure-1PSIDTS cookie value, some Google accounts don't require this value, provide only if it's in the cookie list.
+    cookies: `dict[str, str]`, optional
+        Full Google cookie dict for browser-parity (SID, HSID, SSID, etc.).
+        Values are set on the ``.google.com`` domain. If both ``cookies``
+        and ``secure_1psid`` provide ``__Secure-1PSID``, the explicit
+        ``secure_1psid`` parameter takes precedence.
     proxy: `str`, optional
         Proxy URL.
     kwargs: `dict`, optional
@@ -97,6 +103,7 @@ class GeminiClient(GemMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        cookies: dict[str, str] | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -119,6 +126,15 @@ class GeminiClient(GemMixin):
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
         self.kwargs = kwargs
+
+        # Forward caller-supplied cookies to .google.com domain.
+        # secure_1psid/secure_1psidts below override matching keys.
+        if cookies:
+            for name, value in cookies.items():
+                if value:
+                    self.cookies.set(name, value, domain=".google.com")
+                else:
+                    logger.debug(f"Skipping cookie {name!r} with empty value")
 
         if secure_1psid:
             self.cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
@@ -600,6 +616,28 @@ class GeminiClient(GemMixin):
             if gem_id:
                 inner_req_list[19] = gem_id
 
+            # Browser-parity: fixed slots observed in Chrome network traces
+            inner_req_list[1] = ['en']
+            inner_req_list[6] = [0]
+            inner_req_list[10] = 1
+            inner_req_list[11] = 0
+            inner_req_list[17] = [[0]]
+            inner_req_list[18] = 0
+            inner_req_list[27] = 1
+            inner_req_list[30] = [4]
+            inner_req_list[41] = [1]
+            inner_req_list[53] = 0
+            inner_req_list[61] = []
+            inner_req_list[68] = 1
+
+            # Per-request UUID shared between inner_req_list[59] and header
+            uuid_val = str(uuid.uuid4())
+            inner_req_list[59] = uuid_val
+            request_headers = {
+                **model.model_header,
+                "x-goog-ext-525005358-jspb": f'["{uuid_val}",1]',
+            }
+
             request_data = {
                 "at": self.access_token,
                 "f.req": json.dumps(
@@ -669,7 +707,7 @@ class GeminiClient(GemMixin):
                 "POST",
                 Endpoint.GENERATE,
                 params=params,
-                headers=model.model_header,
+                headers=request_headers,
                 data=request_data,
                 **kwargs,
             ) as response:
@@ -695,9 +733,10 @@ class GeminiClient(GemMixin):
 
                 last_texts: dict[str, str] = session_state["last_texts"]
                 last_thoughts: dict[str, str] = session_state["last_thoughts"]
-                last_progress_time = session_state.get(
-                    "last_progress_time", time.time()
-                )
+                # Reset watchdog timer per stream attempt; stale values from
+                # previous retries would cause immediate false stall detection.
+                last_progress_time = time.time()
+                session_state["last_progress_time"] = last_progress_time
 
                 is_thinking = False
                 is_queueing = False
@@ -949,7 +988,9 @@ class GeminiClient(GemMixin):
                         yield out
                         got_update = True
 
-                    if got_update or is_thinking:
+                    # Reset watchdog when genuine progress occurs: content
+                    # yielded, model thinking, or server actively queueing.
+                    if got_update or is_thinking or is_queueing:
                         last_progress_time = time.time()
                         session_state["last_progress_time"] = last_progress_time
                     else:
