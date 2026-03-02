@@ -804,12 +804,13 @@ class GeminiClient(GemMixin):
                     has_candidates = False
                     is_completed = False
                     is_final_chunk = False
-                    current_cid = ""
+                    cid = chat.cid if chat else ""
+                    rid = chat.rid if chat else ""
 
                     async def _process_parts(
                         parts: list[Any],
                     ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, current_cid
+                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, cid, rid
                         for part in parts:
                             # Check for fatal error codes
                             error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -1049,7 +1050,6 @@ class GeminiClient(GemMixin):
                                                 ),
                                                 candidates=output_candidates,
                                             )
-                                    current_cid = cid
                                 except json.JSONDecodeError:
                                     continue
 
@@ -1133,21 +1133,9 @@ class GeminiClient(GemMixin):
                                     "[Watchdog] Stream finished but model is still thinking. Polling again..."
                                 )
 
-                        if chat and getattr(chat, "cid", None):
-                            prev_rcid = chat_backup["rcid"] if chat_backup else ""
-                            current_rcid = getattr(chat, "rcid", "")
-
-                            if not current_rcid or current_rcid == prev_rcid:
-                                logger.debug(
-                                    "[Recovery] Stream suspended before the response started. "
-                                    "Re-initiating the request..."
-                                )
-                                raise APIError(
-                                    "Stream disconnected before candidate generated."
-                                )
-
+                        if cid:
                             logger.debug(
-                                f"Stream suspended. Checking conversation history for {chat.cid}..."
+                                f"Stream suspended. Checking conversation history for {cid}..."
                             )
 
                             poll_start_time = time.time()
@@ -1156,7 +1144,7 @@ class GeminiClient(GemMixin):
                             while True:
                                 if (time.time() - poll_start_time) > poll_timeout:
                                     logger.warning(
-                                        f"[Recovery] Polling for {chat.cid} timed out after {poll_timeout}s."
+                                        f"[Recovery] Polling for {cid} timed out after {poll_timeout}s."
                                     )
                                     if has_generated_text:
                                         raise GeminiError(
@@ -1169,7 +1157,7 @@ class GeminiClient(GemMixin):
                                             "The original request may have been silently aborted by Google."
                                         )
                                 await self._send_bard_activity()
-                                recovered_history = await self.read_chat(chat.cid)
+                                recovered_history = await self.read_chat(cid)
                                 if (
                                     recovered_history
                                     and recovered_history.turns
@@ -1186,24 +1174,31 @@ class GeminiClient(GemMixin):
                                         )
                                     ):
                                         rec_rcid = recovered.candidates[0].rcid
-                                        current_expected_rcid = getattr(
-                                            chat, "rcid", ""
+                                        prev_rcid = (
+                                            chat_backup["rcid"] if chat_backup else ""
+                                        )
+                                        current_expected_rcid = (
+                                            getattr(chat, "rcid", "") if chat else ""
                                         )
 
-                                        is_new_turn = rec_rcid == current_expected_rcid
+                                        is_new_turn = (
+                                            rec_rcid == current_expected_rcid
+                                            if current_expected_rcid
+                                            else rec_rcid != prev_rcid
+                                        )
 
                                         if is_new_turn:
                                             logger.debug(
-                                                f"[Recovery] Successfully recovered response for CID: {chat.cid} (RCID: {rec_rcid})"
+                                                f"[Recovery] Successfully recovered response for CID: {cid} (RCID: {rec_rcid})"
                                             )
-                                            recovered.metadata = chat.metadata
-                                            if isinstance(chat, ChatSession):
+                                            if chat:
+                                                recovered.metadata = chat.metadata
                                                 chat.rcid = rec_rcid
                                             yield recovered
                                             break
                                         else:
                                             logger.debug(
-                                                f"[Recovery] Recovered turn is not the target turn (target: {current_expected_rcid}, got {rec_rcid}). Waiting..."
+                                                f"[Recovery] Recovered turn is not the target turn (target: {current_expected_rcid or 'NEW'}, got {rec_rcid}). Waiting..."
                                             )
 
                                 logger.debug(
@@ -1214,14 +1209,11 @@ class GeminiClient(GemMixin):
                         else:
                             logger.debug(
                                 f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
-                                f"Polling again for results in {sleep_time}s..."
+                                f"No CID found to recover. (Request ID: {_reqid})"
                             )
-                            await asyncio.sleep(sleep_time)
-                            if is_queueing and not current_cid:
-                                raise APIError(
-                                    "The original request may have been silently aborted by Google."
-                                )
-                            continue
+                            raise APIError(
+                                "The original request may have been silently aborted by Google."
+                            )
 
                 break
 
