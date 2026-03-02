@@ -804,11 +804,12 @@ class GeminiClient(GemMixin):
                     has_candidates = False
                     is_completed = False
                     is_final_chunk = False
+                    current_cid = ""
 
                     async def _process_parts(
                         parts: list[Any],
                     ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk
+                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, current_cid
                         for part in parts:
                             # Check for fatal error codes
                             error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -1048,6 +1049,7 @@ class GeminiClient(GemMixin):
                                                 ),
                                                 candidates=output_candidates,
                                             )
+                                    current_cid = cid
                                 except json.JSONDecodeError:
                                     continue
 
@@ -1212,10 +1214,13 @@ class GeminiClient(GemMixin):
                         else:
                             logger.debug(
                                 f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
-                                f"Polling again for results in {sleep_time}s... (Request ID: {_reqid})"
+                                f"Polling again for results in {sleep_time}s..."
                             )
-
                             await asyncio.sleep(sleep_time)
+                            if is_queueing and not current_cid:
+                                raise APIError(
+                                    "The original request may have been silently aborted by Google."
+                                )
                             continue
 
                 break
