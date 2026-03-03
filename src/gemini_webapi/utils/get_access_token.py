@@ -197,7 +197,7 @@ async def get_access_token(
                         f"Init attempt ({i + 1}/{len(tasks)}) succeeded. Initializing client..."
                     )
                 return (
-                    snlm0e.group(1) if snlm0e else "",
+                    snlm0e.group(1) if snlm0e else None,
                     cfb2h.group(1) if cfb2h else None,
                     fdrfje.group(1) if fdrfje else None,
                     request_cookies,
