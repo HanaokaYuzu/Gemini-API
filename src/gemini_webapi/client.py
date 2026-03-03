@@ -1632,7 +1632,7 @@ class ChatSession:
     async def send_message(
         self,
         prompt: str,
-        files: list[str | Path] | None = None,
+        files: list[str | Path | bytes | io.BytesIO] | None = None,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1680,7 +1680,7 @@ class ChatSession:
     async def send_message_stream(
         self,
         prompt: str,
-        files: list[str | Path] | None = None,
+        files: list[str | Path | bytes | io.BytesIO] | None = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
