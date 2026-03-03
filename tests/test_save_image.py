@@ -13,13 +13,16 @@ set_log_level("DEBUG")
 class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.geminiclient = GeminiClient(
-            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS")
+            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS"), verify=False
         )
 
         try:
             await self.geminiclient.init(auto_refresh=False)
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
+
+    async def asyncTearDown(self):
+        await self.geminiclient.close()
 
     async def test_save_web_image(self):
         response = await self.geminiclient.generate_content(

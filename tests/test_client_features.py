@@ -22,6 +22,9 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         except AuthError as e:
             self.skipTest(e)
 
+    async def asyncTearDown(self):
+        await self.geminiclient.close()
+
     @logger.catch(reraise=True)
     async def test_successful_request(self):
         response = await self.geminiclient.generate_content(
@@ -32,13 +35,11 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_streaming_mode(self):
-        full_text = ""
         chunk_count = 0
 
         async for chunk in self.geminiclient.generate_content_stream(
             "What's the difference between 'await' and 'async for'?"
         ):
-            full_text += chunk.text_delta
             chunk_count += 1
             print(chunk.text_delta, end="", flush=True)
         print()
@@ -162,7 +163,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(f"Chat deleted: {chat.cid}")
 
     @logger.catch(reraise=True)
-    async def test_temporary_single_request(self):
+    async def test_temporary_mode(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Fine weather today", temporary=False)
         response = await chat.send_message("What's my last message?", temporary=True)

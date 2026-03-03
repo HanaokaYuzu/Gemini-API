@@ -50,6 +50,7 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
   - [Delete previous conversations from Gemini history](#delete-previous-conversations-from-gemini-history)
+  - [Temporary Mode](#temporary-mode)
   - [Streaming mode](#streaming-mode)
   - [Select language model](#select-language-model)
   - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
@@ -160,28 +161,6 @@ asyncio.run(main())
 >
 > Simply use `print(response)` to get the same output if you just want to see the response text
 
-### Temporary requests
-
-Set `temporary=True` to mark a request as temporary.
-
-```python
-async def main():
-    response = await client.generate_content("Hello World!", temporary=True)
-    print(response.text)
-
-    chat = client.start_chat()
-    await chat.send_message("Fine weather today", temporary=False)
-    response2 = await chat.send_message("What's my last message?", temporary=True)
-    print(response2.text)
-
-asyncio.run(main())
-```
-
-> [!NOTE]
->
-> `temporary` can be used in both single-call and chat-session requests.
-> Whether messages appear in history or retain context is controlled by Gemini's server-side/account settings.
-
 ### Generate contents with files
 
 Gemini supports file input, including images and documents. Optionally, you can pass files as a list of paths in `str` or `pathlib.Path` to `GeminiClient.generate_content` together with text prompt.
@@ -259,6 +238,23 @@ async def main():
 asyncio.run(main())
 ```
 
+### Temporary Mode
+
+You can start a temporary chat by passing `temporary=True` to `GeminiClient.generate_content` or `ChatSession.send_message`. Temporary chats won't be saved in Gemini history.
+
+```python
+async def main():
+    response = await client.generate_content("Hello World!", temporary=True)
+    print(response.text, "\n\n----------------------------------\n\n")
+
+    chat = client.start_chat()
+    await chat.send_message("Fine weather today", temporary=False)
+    response2 = await chat.send_message("What's my last message?", temporary=True)
+    print(response2.text)
+
+asyncio.run(main())
+```
+
 ### Streaming mode
 
 For longer responses, you can use streaming mode to receive partial outputs as they are generated. This provides a more responsive user experience, especially for real-time applications like chatbots.
@@ -279,7 +275,7 @@ asyncio.run(main())
 
 > [!TIP]
 >
-> You can also use streaming mode in multi-turn conversations with `ChatSession.send_message_stream`.
+> Streaming mode accepts the same arguments as `generate_content`. You can also use streaming mode in multi-turn conversations with `ChatSession.send_message_stream`.
 
 ### Select language model
 
@@ -454,7 +450,7 @@ Images in the API's output are stored as a list of `gemini_webapi.Image` objects
 async def main():
     response = await client.generate_content("Send me some pictures of cats")
     for image in response.images:
-        print(image, "\n\n----------------------------------\n")
+        print(image, "\n\n----------------------------------\n\n")
 
 asyncio.run(main())
 ```
@@ -480,7 +476,7 @@ async def main():
     response = await client.generate_content("Generate some pictures of cats")
     for i, image in enumerate(response.images):
         await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
-        print(image, "\n\n----------------------------------\n")
+        print(image, "\n\n----------------------------------\n\n")
 
 asyncio.run(main())
 ```
@@ -506,10 +502,10 @@ After activating extensions for your account, you can access them in your prompt
 ```python
 async def main():
     response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
-    print(response1, "\n\n----------------------------------\n")
+    print(response1, "\n\n----------------------------------\n\n")
 
     response2 = await client.generate_content("@Youtube What's the latest activity of Taylor Swift?")
-    print(response2, "\n\n----------------------------------\n")
+    print(response2, "\n\n----------------------------------\n\n")
 
 asyncio.run(main())
 ```
@@ -528,7 +524,7 @@ async def main():
     chat = client.start_chat()
     response = await chat.send_message("Recommend a science fiction book for me.")
     for candidate in response.candidates:
-        print(candidate, "\n\n----------------------------------\n")
+        print(candidate, "\n\n----------------------------------\n\n")
 
     if len(response.candidates) > 1:
         # Control the ongoing conversation flow by choosing candidate manually

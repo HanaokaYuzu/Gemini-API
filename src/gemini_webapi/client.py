@@ -754,6 +754,7 @@ class GeminiClient(GemMixin):
                                             get_nested_value(candidate_data, [37, 0, 0])
                                             or ""
                                         )
+
                                         # Image handling
                                         web_images = []
                                         for web_img_data in get_nested_value(

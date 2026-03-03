@@ -21,6 +21,9 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
         except AuthError as e:
             self.skipTest(e)
 
+    async def asyncTearDown(self):
+        await self.geminiclient.close()
+
     @logger.catch(reraise=True)
     async def test_fetch_gems(self):
         await self.geminiclient.fetch_gems(include_hidden=False)
