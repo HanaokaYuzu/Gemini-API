@@ -651,6 +651,8 @@ class GeminiClient(GemMixin):
             if session_state is not None:
                 if "original_cid" not in session_state:
                     session_state["original_cid"] = chat.cid if chat else None
+                if "original_rcid" not in session_state:
+                    session_state["original_rcid"] = chat.rcid if isinstance(chat, ChatSession) else None
                 # Sticky flag: once True, persists across retries so subsequent
                 # attempts know the server started processing our prompt.
                 if "had_response_data" not in session_state:
@@ -678,6 +680,17 @@ class GeminiClient(GemMixin):
                         try:
                             recovered = await self.read_chat(chat.cid)
                             if recovered:
+                                # Guard: for continuations, check if read_chat returned a stale
+                                # response from a previous turn (same rcid as what we started with)
+                                original_cid = session_state.get("original_cid")
+                                if (original_cid and recovered.rcid
+                                        and recovered.rcid == session_state.get("original_rcid")):
+                                    logger.debug(
+                                        f"READ_CHAT attempt {attempt} returned stale response "
+                                        f"(rcid={recovered.rcid!r} matches original). Continuing..."
+                                    )
+                                    continue  # keep polling — new response not persisted yet
+
                                 logger.info(
                                     f"Successfully recovered response via READ_CHAT "
                                     f"(attempt {attempt}/{len(read_chat_delays)})."
