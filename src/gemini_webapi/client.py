@@ -886,9 +886,10 @@ class GeminiClient(GemMixin):
                                         )
                                         # Image handling
                                         web_images = []
-                                        for web_img_data in get_nested_value(
+                                        web_img_list = get_nested_value(
                                             candidate_data, [12, 1], []
-                                        ):
+                                        )
+                                        for web_img_data in (web_img_list if isinstance(web_img_list, list) else []):
                                             url = get_nested_value(
                                                 web_img_data, [0, 0, 0]
                                             )
@@ -907,9 +908,10 @@ class GeminiClient(GemMixin):
                                                 )
 
                                         generated_images = []
-                                        for gen_img_data in get_nested_value(
+                                        gen_img_list = get_nested_value(
                                             candidate_data, [12, 7, 0], []
-                                        ):
+                                        )
+                                        for gen_img_data in (gen_img_list if isinstance(gen_img_list, list) else []):
                                             url = get_nested_value(
                                                 gen_img_data, [0, 3, 3]
                                             )
