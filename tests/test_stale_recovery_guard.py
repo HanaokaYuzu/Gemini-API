@@ -27,7 +27,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from gemini_webapi.client import GeminiClient, ChatSession
 from gemini_webapi.types.modeloutput import ModelOutput
 from gemini_webapi.types.candidate import Candidate
-from gemini_webapi.exceptions import GeminiError
+from gemini_webapi.exceptions import GeminiError, APIError
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ class TestContinuationRecoveryRejectsStaleRcid(unittest.IsolatedAsyncioTestCase)
         collected_outputs = []
         with patch("gemini_webapi.utils.decorators.DELAY_FACTOR", 0), \
              patch("gemini_webapi.client.asyncio.sleep", new_callable=AsyncMock):
-            with self.assertRaises(GeminiError) as ctx:
+            with self.assertRaises((APIError, GeminiError)):
                 async for output in client._generate(
                     prompt="continue the conversation",
                     chat=chat,
@@ -208,9 +208,7 @@ class TestContinuationRecoveryRejectsStaleRcid(unittest.IsolatedAsyncioTestCase)
         self.assertEqual(
             len(collected_outputs), 0,
             "No outputs should be yielded when read_chat only returns stale "
-            "responses with the same rcid as the original. The current code "
-            "yields the stale response because it does not check rcid -- "
-            "this test must fail until the guard is implemented.",
+            "responses with the same rcid as the original.",
         )
 
         # read_chat should have been called multiple times (all attempts
@@ -220,11 +218,10 @@ class TestContinuationRecoveryRejectsStaleRcid(unittest.IsolatedAsyncioTestCase)
             "read_chat should be polled multiple times before giving up.",
         )
 
-        # The error message should indicate recovery failure.
-        self.assertIn(
-            "read_chat",
-            str(ctx.exception).lower(),
-            "GeminiError should mention READ_CHAT recovery failure.",
+        # had_response_data should be reset so @running can safely retry
+        self.assertFalse(
+            session_state.get("had_response_data"),
+            "had_response_data should be reset to False for safe retry.",
         )
 
 

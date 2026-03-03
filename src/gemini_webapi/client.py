@@ -670,6 +670,7 @@ class GeminiClient(GemMixin):
                     # needs ~50-60s to persist responses after a stream break.
                     # Budget: 30 + 45 + 60 + 90 = 225s max wait, 4 requests.
                     read_chat_delays = [30, 45, 60, 90]
+                    all_stale = True  # Track if every attempt returned stale
                     for attempt, delay in enumerate(read_chat_delays, 1):
                         logger.warning(
                             f"Stream failed after Gemini assigned cid={chat.cid!r}. "
@@ -699,16 +700,28 @@ class GeminiClient(GemMixin):
                                     chat.metadata = recovered.metadata
                                 yield recovered
                                 return
+                            all_stale = False
                             logger.debug(
                                 f"READ_CHAT attempt {attempt} returned None"
                             )
                         except Exception as e:
+                            all_stale = False
                             logger.warning(
                                 f"READ_CHAT attempt {attempt} failed for cid={chat.cid!r}: "
                                 f"{type(e).__name__}: {e}"
                             )
 
-                    # GeminiError (not APIError) prevents @running from retrying
+                    if all_stale:
+                        # Every attempt returned the previous turn's response —
+                        # the server never processed our prompt, safe to retry.
+                        session_state["had_response_data"] = False
+                        raise APIError(
+                            f"Stream failed for cid={chat.cid!r}. "
+                            f"All {len(read_chat_delays)} READ_CHAT attempts returned stale "
+                            f"response (rcid unchanged). Retrying stream."
+                        )
+                    # Some attempts returned None/errors — turn may exist
+                    # server-side. GeminiError prevents @running from retrying.
                     raise GeminiError(
                         f"Stream failed after Gemini assigned cid={chat.cid!r}. "
                         f"Recovery via READ_CHAT returned no data after "
