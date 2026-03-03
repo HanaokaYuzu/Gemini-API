@@ -224,6 +224,16 @@ class TestContinuationRecoveryRejectsStaleRcid(unittest.IsolatedAsyncioTestCase)
             "had_response_data should be reset to False for safe retry.",
         )
 
+        # rid/rcid should be stripped so retry doesn't send stale metadata
+        self.assertEqual(
+            chat.rid, "",
+            "rid should be cleared so retry lets server determine append point.",
+        )
+        self.assertEqual(
+            chat.rcid, "",
+            "rcid should be cleared so retry doesn't send stale continuation.",
+        )
+
 
 class TestNewConversationRecoveryStillWorks(unittest.IsolatedAsyncioTestCase):
     """

@@ -714,6 +714,12 @@ class GeminiClient(GemMixin):
                     if all_stale:
                         # Every attempt returned the previous turn's response —
                         # the server never processed our prompt, safe to retry.
+                        # Drop rid/rcid so the retry doesn't send stale
+                        # continuation metadata — let the server determine
+                        # the append point from cid alone.
+                        if isinstance(chat, ChatSession):
+                            chat.rid = ""
+                            chat.rcid = ""
                         session_state["had_response_data"] = False
                         raise APIError(
                             f"Stream failed for cid={chat.cid!r}. "
