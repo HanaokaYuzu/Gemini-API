@@ -160,6 +160,28 @@ asyncio.run(main())
 >
 > Simply use `print(response)` to get the same output if you just want to see the response text
 
+### Temporary requests
+
+Set `temporary=True` to mark a request as temporary.
+
+```python
+async def main():
+    response = await client.generate_content("Hello World!", temporary=True)
+    print(response.text)
+
+    chat = client.start_chat()
+    await chat.send_message("Fine weather today", temporary=False)
+    response2 = await chat.send_message("What's my last message?", temporary=True)
+    print(response2.text)
+
+asyncio.run(main())
+```
+
+> [!NOTE]
+>
+> `temporary` can be used in both single-call and chat-session requests.
+> Whether messages appear in history or retain context is controlled by Gemini's server-side/account settings.
+
 ### Generate contents with files
 
 Gemini supports file input, including images and documents. Optionally, you can pass files as a list of paths in `str` or `pathlib.Path` to `GeminiClient.generate_content` together with text prompt.

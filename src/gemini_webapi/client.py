@@ -12,7 +12,14 @@ import orjson as json
 from httpx import AsyncClient, Cookies, ReadTimeout, Response
 
 from .components import GemMixin
-from .constants import Endpoint, ErrorCode, GRPC, Headers, Model
+from .constants import (
+    Endpoint,
+    ErrorCode,
+    GRPC,
+    Headers,
+    Model,
+    TEMPORARY_CHAT_FLAG_INDEX,
+)
 from .exceptions import (
     APIError,
     AuthError,
@@ -299,6 +306,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -319,6 +327,9 @@ class GeminiClient(GemMixin):
             Pass either a `gemini_webapi.types.Gem` object or a gem id string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+        temporary: `bool`, optional
+            If True, mark this request as temporary.
+            Temporary can be used in both single-call and chat-session requests.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `httpx.AsyncClient.request` for more information.
@@ -389,6 +400,7 @@ class GeminiClient(GemMixin):
                 model=model,
                 gem=gem,
                 chat=chat,
+                temporary=temporary,
                 session_state=session_state,
                 **kwargs,
             ):
@@ -418,6 +430,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -439,6 +452,9 @@ class GeminiClient(GemMixin):
             Specify a gem to use as system prompt for the chat session.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history.
+        temporary: `bool`, optional
+            If True, mark this request as temporary.
+            Temporary can be used in both single-call and chat-session requests.
         kwargs: `dict`, optional
             Additional arguments passed to `httpx.AsyncClient.stream`.
 
@@ -503,6 +519,7 @@ class GeminiClient(GemMixin):
                 model=model,
                 gem=gem,
                 chat=chat,
+                temporary=temporary,
                 session_state=session_state,
                 **kwargs,
             ):
@@ -526,6 +543,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         session_state: dict[str, Any] | None = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
@@ -577,6 +595,8 @@ class GeminiClient(GemMixin):
             inner_req_list[7] = 1  # Enable Snapshot Streaming
             if gem_id:
                 inner_req_list[19] = gem_id
+            if temporary:
+                inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
             request_data = {
                 "at": self.access_token,
@@ -1099,7 +1119,7 @@ class ChatSession:
     ) -> ModelOutput:
         """
         Generates contents with prompt.
-        Use as a shortcut for `GeminiClient.generate_content(prompt, image, self)`.
+        Use as a shortcut for `GeminiClient.generate_content(prompt, files, self)`.
 
         Parameters
         ----------
