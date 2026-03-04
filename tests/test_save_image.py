@@ -4,7 +4,7 @@ import logging
 
 from curl_cffi.requests.exceptions import HTTPError
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
+from gemini_webapi import GeminiClient, AuthError, set_log_level, logger, GeneratedImage
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -41,7 +41,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(response.images)
         for image in response.images:
-            await image.save(verbose=True, full_size=True)
+            if isinstance(image, GeneratedImage):
+                await image.save(verbose=True, full_size=True)
+            else:
+                await image.save(verbose=True)
 
     async def test_save_image_to_image(self):
         response = await self.geminiclient.generate_content(
@@ -50,7 +53,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(response.images)
         for image in response.images:
-            await image.save(verbose=True, full_size=True)
+            if isinstance(image, GeneratedImage):
+                await image.save(verbose=True, full_size=True)
+            else:
+                await image.save(verbose=True)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,15 @@ from curl_cffi.requests import AsyncSession, Cookies, Response
 from curl_cffi.requests.exceptions import ReadTimeout
 
 from .components import GemMixin
-from .constants import Endpoint, ErrorCode, GRPC, Model
+from .constants import (
+    Endpoint,
+    ErrorCode,
+    GRPC,
+    Model,
+    TEMPORARY_CHAT_FLAG_INDEX,
+    STREAMING_FLAG_INDEX,
+    GEM_FLAG_INDEX,
+)
 from .exceptions import (
     APIError,
     AuthError,
@@ -48,10 +56,9 @@ from .utils import (
     upload_file,
 )
 
-DEFAULT_METADATA: list[Any] = ["", "", "", None, None, None, None, None, None, ""]
-
 _CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
 _ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
+_DEFAULT_METADATA: list[Any] = ["", "", "", None, None, None, None, None, None, ""]
 
 
 class GeminiClient(GemMixin):
@@ -185,7 +192,8 @@ class GeminiClient(GemMixin):
         auto_refresh: `bool`, optional
             If `True`, will schedule a task to automatically refresh cookies and access token in the background.
         refresh_interval: `float`, optional
-            Time interval for background cookie and access token refresh in seconds. Effective only if `auto_refresh` is `True`.
+            Time interval for background cookie and access token refresh in seconds.
+            Effective only if `auto_refresh` is `True`.
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
         watchdog_timeout: `float`, optional
@@ -479,6 +487,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -487,9 +496,9 @@ class GeminiClient(GemMixin):
         Parameters
         ----------
         prompt: `str`
-            Prompt provided by user.
-        files: `list[str | Path]`, optional
-            List of file paths to be attached.
+            Text prompt provided by user.
+        files: `list[str | Path | bytes | io.BytesIO]`, optional
+            List of file paths or byte streams to be attached.
         model: `Model | str | dict`, optional
             Specify the model to use for generation.
             Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
@@ -498,7 +507,10 @@ class GeminiClient(GemMixin):
             Specify a gem to use as system prompt for the chat session.
             Pass either a `gemini_webapi.types.Gem` object or a gem id string.
         chat: `ChatSession`, optional
-            Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
+            Chat data to retrieve conversation history.
+            If None, will automatically generate a new chat id when sending post request.
+        temporary: `bool`, optional
+            If set to `True`, the ongoing conversation will not show up in Gemini history.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -506,8 +518,7 @@ class GeminiClient(GemMixin):
         Returns
         -------
         :class:`ModelOutput`
-            Output data from gemini.google.com, use `ModelOutput.text` to get the default text reply, `ModelOutput.images` to get a list
-            of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output.
+            Output data from gemini.google.com.
 
         Raises
         ------
@@ -558,6 +569,7 @@ class GeminiClient(GemMixin):
                 model=model,
                 gem=gem,
                 chat=chat,
+                temporary=temporary,
                 session_state=session_state,
                 **kwargs,
             ):
@@ -587,6 +599,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -599,7 +612,7 @@ class GeminiClient(GemMixin):
         Parameters
         ----------
         prompt: `str`
-            Prompt provided by user.
+            Text prompt provided by user.
         files: `list[str | Path | bytes | io.BytesIO]`, optional
             List of file paths or byte streams to be attached.
         model: `Model | str | dict`, optional
@@ -608,13 +621,15 @@ class GeminiClient(GemMixin):
             Specify a gem to use as system prompt for the chat session.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history.
+        temporary: `bool`, optional
+            If set to `True`, the ongoing conversation will not show up in Gemini history.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
         Yields
         ------
         :class:`ModelOutput`
-            Partial output data. The `text` attribute contains only the NEW characters
+            Partial output data. The `text_delta` attribute contains only the NEW characters
             received since the last yield.
 
         Raises
@@ -661,6 +676,7 @@ class GeminiClient(GemMixin):
                 model=model,
                 gem=gem,
                 chat=chat,
+                temporary=temporary,
                 session_state=session_state,
                 **kwargs,
             ):
@@ -684,6 +700,7 @@ class GeminiClient(GemMixin):
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
+        temporary: bool = False,
         session_state: dict[str, Any] | None = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
@@ -714,7 +731,7 @@ class GeminiClient(GemMixin):
                 "metadata": (
                     list(chat.metadata)
                     if getattr(chat, "metadata", None)
-                    else list(DEFAULT_METADATA)
+                    else list(_DEFAULT_METADATA)
                 ),
                 "cid": getattr(chat, "cid", ""),
                 "rid": getattr(chat, "rid", ""),
@@ -759,10 +776,12 @@ class GeminiClient(GemMixin):
             try:
                 inner_req_list: list[Any] = [None] * 69
                 inner_req_list[0] = message_content
-                inner_req_list[2] = chat.metadata if chat else list(DEFAULT_METADATA)
-                inner_req_list[7] = 1  # Enable Snapshot Streaming
+                inner_req_list[2] = chat.metadata if chat else list(_DEFAULT_METADATA)
+                inner_req_list[STREAMING_FLAG_INDEX] = 1
                 if gem_id:
-                    inner_req_list[19] = gem_id
+                    inner_req_list[GEM_FLAG_INDEX] = gem_id
+                if temporary:
+                    inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
                 request_data = {
                     "at": self.access_token,
@@ -1602,7 +1621,7 @@ class ChatSession:
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
-        self.__metadata: list[Any] = list(DEFAULT_METADATA)
+        self.__metadata: list[Any] = list(_DEFAULT_METADATA)
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
         self.model: Model | str | dict = model
@@ -1633,18 +1652,23 @@ class ChatSession:
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
+        temporary: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
         Generates contents with prompt.
-        Use as a shortcut for `GeminiClient.generate_content(prompt, image, self)`.
+        Use as a shortcut for `GeminiClient.generate_content(prompt, files, self)`.
 
         Parameters
         ----------
         prompt: `str`
-            Prompt provided by user.
-        files: `list[str | Path]`, optional
-            List of file paths to be attached.
+            Text prompt provided by user.
+        files: `list[str | Path | bytes | io.BytesIO]`, optional
+            List of file paths or byte streams to be attached.
+        temporary: `bool`, optional
+            If set to `True`, the ongoing conversation will not show up in Gemini history.
+            Switching temporary mode within a chat session will clear the previous context
+            and create a new chat session under the hood.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -1652,8 +1676,7 @@ class ChatSession:
         Returns
         -------
         :class:`ModelOutput`
-            Output data from gemini.google.com, use `ModelOutput.text` to get the default text reply, `ModelOutput.images` to get a list
-            of images in the default reply, `ModelOutput.candidates` to get a list of all answer candidates in the output.
+            Output data from gemini.google.com.
 
         Raises
         ------
@@ -1674,6 +1697,7 @@ class ChatSession:
             model=self.model,
             gem=self.gem,
             chat=self,
+            temporary=temporary,
             **kwargs,
         )
 
@@ -1681,6 +1705,7 @@ class ChatSession:
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
+        temporary: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1692,9 +1717,13 @@ class ChatSession:
         Parameters
         ----------
         prompt: `str`
-            Prompt provided by user.
-        files: `list[str | Path]`, optional
-            List of file paths to be attached.
+            Text prompt provided by user.
+        files: `list[str | Path | bytes | io.BytesIO]`, optional
+            List of file paths or byte streams to be attached.
+        temporary: `bool`, optional
+            If set to `True`, the ongoing conversation will not show up in Gemini history.
+            Switching temporary mode within a chat session will clear the previous context
+            and create a new chat session under the hood.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
 
@@ -1710,6 +1739,7 @@ class ChatSession:
             model=self.model,
             gem=self.gem,
             chat=self,
+            temporary=temporary,
             **kwargs,
         ):
             yield output

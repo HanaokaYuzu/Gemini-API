@@ -36,7 +36,7 @@ async def get_access_token(
     proxy: str | None = None,
     verbose: bool = False,
     verify: bool = True,
-) -> tuple[str, str | None, str | None, AsyncSession]:
+) -> tuple[str | None, str | None, str | None, AsyncSession]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -75,11 +75,11 @@ async def get_access_token(
         base_psid = base_cookies.get("__Secure-1PSID")
         base_psidts = base_cookies.get("__Secure-1PSIDTS")
 
-    cache_dir = (
-        (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
-        and Path(GEMINI_COOKIE_PATH)
-        or (Path(__file__).parent / "temp")
-    )
+    gemini_cookie_path = os.getenv("GEMINI_COOKIE_PATH")
+    if gemini_cookie_path:
+        cache_dir = Path(gemini_cookie_path)
+    else:
+        cache_dir = Path(__file__).parent / "temp"
 
     if base_psid:
         filename = f".cached_1psidts_{base_psid}.txt"
@@ -177,15 +177,15 @@ async def get_access_token(
         try:
             res = await send_request(client, jar, verbose=verbose)
             snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', res.text)
-            if snlm0e:
-                cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
-                fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
+            cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
+            fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
+            if snlm0e or cfb2h or fdrfje:
                 if verbose:
                     logger.debug(
                         f"Init attempt ({current_attempt}) from {group_name} succeeded."
                     )
                 return (
-                    snlm0e.group(1),
+                    snlm0e.group(1) if snlm0e else None,
                     cfb2h.group(1) if cfb2h else None,
                     fdrfje.group(1) if fdrfje else None,
                     client,

@@ -149,8 +149,8 @@ class GeneratedImage(Image):
         filename: str | None = None,
         verbose: bool = False,
         skip_invalid_filename: bool = False,
-        full_size: bool = True,
         client: AsyncSession | None = None,
+        full_size: bool = True,
     ) -> str | None:
         """Saves the generated image to disk.
 
@@ -161,8 +161,8 @@ class GeneratedImage(Image):
                 Defaults to timestamp + the end of the URL hash.
             verbose (bool, optional): Prints the path of the saved file or warning if True. Defaults to False.
             skip_invalid_filename (bool, optional): Saves the image only if the file name is valid. Defaults to False.
-            full_size (bool, optional): Modifies preview URLs to fetch full-size images if True. Defaults to True.
             client (AsyncSession | None, optional): An existing AsyncSession client. Defaults to None.
+            full_size (bool, optional): Modifies preview URLs to fetch full-size images if True. Defaults to True.
 
         Returns:
             str | None: Absolute path of the saved image if successfully saved, None otherwise.

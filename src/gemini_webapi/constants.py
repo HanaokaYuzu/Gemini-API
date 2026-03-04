@@ -1,6 +1,7 @@
 from enum import Enum, IntEnum, StrEnum
 
-
+STREAMING_FLAG_INDEX = 7
+GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
 
 
