@@ -821,8 +821,8 @@ class GeminiClient(GemMixin):
                     is_thinking = session_state["is_thinking"]
                     is_queueing = session_state["is_queueing"]
                     has_candidates = False
-                    is_completed = False
-                    is_final_chunk = False
+                    is_completed = False  # Check if this conversation turn has been fully answered.
+                    is_final_chunk = False  # Check if this turn is saved to history and marked complete or still pending (e.g., video generation).
                     cid = chat.cid if chat else ""
                     rid = chat.rid if chat else ""
 
@@ -901,7 +901,7 @@ class GeminiClient(GemMixin):
 
                                     context_str = get_nested_value(part_json, [25])
                                     if isinstance(context_str, str):
-                                        is_completed = True
+                                        is_final_chunk = True
                                         is_thinking = False
                                         session_state["is_thinking"] = False
                                         is_queueing = False
@@ -936,14 +936,15 @@ class GeminiClient(GemMixin):
                                                 candidate_data, cid, rid, rcid
                                             )
 
-                                            # Determine if this frame represents the final state of the message
-                                            is_final_chunk = (
+                                            # Check if this frame represents the complete state of the message
+                                            is_completed = (
                                                 get_nested_value(
                                                     candidate_data, [8, 0], 1
                                                 )
                                                 == 2
                                             )
 
+                                            # Save this conversation turn to list_chats whenever it is stored in history.
                                             if is_final_chunk:
                                                 cid = get_nested_value(
                                                     part_json, [1, 0]
@@ -1011,7 +1012,7 @@ class GeminiClient(GemMixin):
                                                 get_delta_by_fp_len(
                                                     text,
                                                     last_sent_text,
-                                                    is_final=is_final_chunk,
+                                                    is_final=is_completed,
                                                 )
                                             )
                                             last_sent_thought = last_thoughts.get(
@@ -1022,7 +1023,7 @@ class GeminiClient(GemMixin):
                                                     get_delta_by_fp_len(
                                                         thoughts,
                                                         last_sent_thought,
-                                                        is_final=is_final_chunk,
+                                                        is_final=is_completed,
                                                     )
                                                 )
                                             else:
@@ -1130,13 +1131,10 @@ class GeminiClient(GemMixin):
                     if buffer:
                         parsed_parts, _ = parse_response_by_frame(buffer)
                         async for out in _process_parts(parsed_parts):
+                            has_generated_text = True
                             yield out
 
-                    if (
-                        not (is_completed or is_final_chunk)
-                        or is_thinking
-                        or is_queueing
-                    ):
+                    if not is_completed or is_thinking or is_queueing:
                         stall_threshold = (
                             self.timeout
                             if (is_thinking or is_queueing)
@@ -1154,7 +1152,7 @@ class GeminiClient(GemMixin):
 
                         if cid:
                             logger.debug(
-                                f"Stream suspended. Checking conversation history for {cid}..."
+                                f"Stream incomplete. Checking conversation history for {cid}..."
                             )
 
                             poll_start_time = time.time()
@@ -1226,7 +1224,7 @@ class GeminiClient(GemMixin):
                             break
                         else:
                             logger.debug(
-                                f"Stream suspended (completed={is_completed}, thinking={is_thinking}, queueing={is_queueing}). "
+                                f"Stream suspended (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                                 f"No CID found to recover. (Request ID: {_reqid})"
                             )
                             raise APIError(
@@ -1304,67 +1302,6 @@ class GeminiClient(GemMixin):
                 ),
             ]
         )
-
-    def _parse_candidate(
-        self, candidate_data: list[Any], cid: str, rid: str, rcid: str
-    ) -> tuple[str, str, list[WebImage], list[GeneratedImage]]:
-        """Parses individual candidate data into text, thoughts, web_images, and generated_images."""
-        text = get_nested_value(candidate_data, [1, 0], "")
-        if _CARD_CONTENT_RE.match(text):
-            text = get_nested_value(candidate_data, [22, 0]) or text
-
-        # Cleanup googleusercontent artifacts
-        text = _ARTIFACTS_RE.sub("", text)
-
-        thoughts = get_nested_value(candidate_data, [37, 0, 0]) or ""
-
-        # Image handling
-        web_images = []
-        for web_img_data in get_nested_value(candidate_data, [12, 1], []):
-            url = get_nested_value(web_img_data, [0, 0, 0])
-            if url:
-                web_images.append(
-                    WebImage(
-                        url=url,
-                        title=get_nested_value(web_img_data, [7, 0], ""),
-                        alt=get_nested_value(web_img_data, [0, 4], ""),
-                        proxy=self.proxy,
-                        client=self.client,
-                    )
-                )
-
-        generated_images = []
-        for img_idx, gen_img_data in enumerate(
-            get_nested_value(candidate_data, [12, 7, 0], [])
-        ):
-            url = get_nested_value(gen_img_data, [0, 3, 3])
-            if url:
-                image_id = get_nested_value(gen_img_data, [1, 0])
-                if not image_id:
-                    image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
-
-                img_num = img_idx + 1
-
-                generated_images.append(
-                    GeneratedImage(
-                        url=url,
-                        title=(
-                            f"[Generated Image {img_num}]"
-                            if img_num
-                            else "[Generated Image]"
-                        ),
-                        alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
-                        proxy=self.proxy,
-                        client=self.client,
-                        client_ref=self,
-                        cid=cid,
-                        rid=rid,
-                        rcid=rcid,
-                        image_id=image_id,
-                    )
-                )
-
-        return text, thoughts, web_images, generated_images
 
     def list_chats(self) -> list[ChatInfo] | None:
         """
@@ -1468,6 +1405,67 @@ class GeminiClient(GemMixin):
                 f"[read_chat] Response data for {cid!r} is still incomplete (model is still processing)..."
             )
             return None
+
+    def _parse_candidate(
+        self, candidate_data: list[Any], cid: str, rid: str, rcid: str
+    ) -> tuple[str, str, list[WebImage], list[GeneratedImage]]:
+        """Parses individual candidate data into text, thoughts, web_images, and generated_images."""
+        text = get_nested_value(candidate_data, [1, 0], "")
+        if _CARD_CONTENT_RE.match(text):
+            text = get_nested_value(candidate_data, [22, 0]) or text
+
+        # Cleanup googleusercontent artifacts
+        text = _ARTIFACTS_RE.sub("", text)
+
+        thoughts = get_nested_value(candidate_data, [37, 0, 0]) or ""
+
+        # Image handling
+        web_images = []
+        for web_img_data in get_nested_value(candidate_data, [12, 1], []):
+            url = get_nested_value(web_img_data, [0, 0, 0])
+            if url:
+                web_images.append(
+                    WebImage(
+                        url=url,
+                        title=get_nested_value(web_img_data, [7, 0], ""),
+                        alt=get_nested_value(web_img_data, [0, 4], ""),
+                        proxy=self.proxy,
+                        client=self.client,
+                    )
+                )
+
+        generated_images = []
+        for img_idx, gen_img_data in enumerate(
+            get_nested_value(candidate_data, [12, 7, 0], [])
+        ):
+            url = get_nested_value(gen_img_data, [0, 3, 3])
+            if url:
+                image_id = get_nested_value(gen_img_data, [1, 0])
+                if not image_id:
+                    image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
+
+                img_num = img_idx + 1
+
+                generated_images.append(
+                    GeneratedImage(
+                        url=url,
+                        title=(
+                            f"[Generated Image {img_num}]"
+                            if img_num
+                            else "[Generated Image]"
+                        ),
+                        alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
+                        proxy=self.proxy,
+                        client=self.client,
+                        client_ref=self,
+                        cid=cid,
+                        rid=rid,
+                        rcid=rcid,
+                        image_id=image_id,
+                    )
+                )
+
+        return text, thoughts, web_images, generated_images
 
     async def _get_image_full_size(
         self, cid: str, rid: str, rcid: str, image_id: str
