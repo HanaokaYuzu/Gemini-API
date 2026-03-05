@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 from .image import Image
 from .candidate import Candidate
+from .video import GeneratedVideo
 
 
 class ModelOutput(BaseModel):
@@ -47,6 +48,10 @@ class ModelOutput(BaseModel):
     @property
     def images(self) -> list[Image]:
         return self.candidates[self.chosen].images
+
+    @property
+    def videos(self) -> list[GeneratedVideo]:
+        return self.candidates[self.chosen].generated_videos
 
     @property
     def rcid(self) -> str:

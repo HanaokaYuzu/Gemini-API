@@ -42,6 +42,7 @@ from .types import (
     ChatInfo,
     ChatTurn,
     ChatHistory,
+    GeneratedVideo,
 )
 from .utils import (
     extract_json_from_response,
@@ -932,6 +933,7 @@ class GeminiClient(GemMixin):
                                                 thoughts,
                                                 web_images,
                                                 generated_images,
+                                                generated_videos,
                                             ) = self._parse_candidate(
                                                 candidate_data, cid, rid, rcid
                                             )
@@ -1056,6 +1058,7 @@ class GeminiClient(GemMixin):
                                                     thoughts_delta=thoughts_delta,
                                                     web_images=web_images,
                                                     generated_images=generated_images,
+                                                    generated_videos=generated_videos,
                                                 )
                                             )
 
@@ -1373,6 +1376,7 @@ class GeminiClient(GemMixin):
                                 thoughts,
                                 web_images,
                                 generated_images,
+                                generated_videos,
                             ) = self._parse_candidate(candidate_data, cid, rid, rcid)
                             output_candidates.append(
                                 Candidate(
@@ -1381,6 +1385,7 @@ class GeminiClient(GemMixin):
                                     thoughts=thoughts,
                                     web_images=web_images,
                                     generated_images=generated_images,
+                                    generated_videos=generated_videos,
                                 )
                             )
 
@@ -1408,7 +1413,7 @@ class GeminiClient(GemMixin):
 
     def _parse_candidate(
         self, candidate_data: list[Any], cid: str, rid: str, rcid: str
-    ) -> tuple[str, str, list[WebImage], list[GeneratedImage]]:
+    ) -> tuple[str, str, list[WebImage], list[GeneratedImage], list[GeneratedVideo]]:
         """Parses individual candidate data into text, thoughts, web_images, and generated_images."""
         text = get_nested_value(candidate_data, [1, 0], "")
         if _CARD_CONTENT_RE.match(text):
@@ -1421,13 +1426,15 @@ class GeminiClient(GemMixin):
 
         # Image handling
         web_images = []
-        for web_img_data in get_nested_value(candidate_data, [12, 1], []):
+        for img_idx, web_img_data in enumerate(
+            get_nested_value(candidate_data, [12, 1], [])
+        ):
             url = get_nested_value(web_img_data, [0, 0, 0])
             if url:
                 web_images.append(
                     WebImage(
                         url=url,
-                        title=get_nested_value(web_img_data, [7, 0], ""),
+                        title=f"[Image {img_idx + 1}]",
                         alt=get_nested_value(web_img_data, [0, 4], ""),
                         proxy=self.proxy,
                         client=self.client,
@@ -1444,17 +1451,11 @@ class GeminiClient(GemMixin):
                 if not image_id:
                     image_id = f"http://googleusercontent.com/image_generation_content/{img_idx}"
 
-                img_num = img_idx + 1
-
                 generated_images.append(
                     GeneratedImage(
                         url=url,
-                        title=(
-                            f"[Generated Image {img_num}]"
-                            if img_num
-                            else "[Generated Image]"
-                        ),
-                        alt=get_nested_value(gen_img_data, [3, 5, 0], ""),
+                        title=f"[Generated Image {img_idx}]",
+                        alt=get_nested_value(gen_img_data, [0, 3, 2], ""),
                         proxy=self.proxy,
                         client=self.client,
                         client_ref=self,
@@ -1465,7 +1466,26 @@ class GeminiClient(GemMixin):
                     )
                 )
 
-        return text, thoughts, web_images, generated_images
+        # Video handling
+        generated_videos = []
+        for video_root in get_nested_value(candidate_data, [12, 59, 0], []):
+            video_info = get_nested_value(video_root, [0])
+            if video_info:
+                urls = get_nested_value(video_info, [7], [])
+                if len(urls) >= 2:
+                    generated_videos.append(
+                        GeneratedVideo(
+                            url=urls[1],
+                            thumbnail=urls[0],
+                            cid=cid,
+                            rid=rid,
+                            rcid=rcid,
+                            client_ref=self,
+                            proxy=self.proxy,
+                        )
+                    )
+
+        return text, thoughts, web_images, generated_images, generated_videos
 
     async def _get_image_full_size(
         self, cid: str, rid: str, rcid: str, image_id: str

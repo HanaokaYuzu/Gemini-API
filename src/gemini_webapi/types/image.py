@@ -1,9 +1,9 @@
 import hashlib
+import mimetypes
 import reprlib
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
@@ -45,7 +45,7 @@ class Image(BaseModel):
         Args:
             path (str, optional): Path to save the image. Defaults to "./temp".
             filename (str | None, optional): File name to save the image. Defaults to
-                the original file name from the URL.
+                a unique generated name.
             verbose (bool, optional): If True, will print the path of the saved file
                 or warning for invalid file name. Defaults to False.
             skip_invalid_filename (bool, optional): If True, will only save the image
@@ -60,26 +60,21 @@ class Image(BaseModel):
             curl_cffi.requests.exceptions.HTTPError: If the network request failed.
         """
 
-        if not filename:
-            parsed_url = urlparse(self.url)
-            filename = Path(parsed_url.path).name
-
-        if not Path(filename).suffix:
-            if skip_invalid_filename:
-                if verbose:
-                    logger.warning(f"Invalid filename: {filename}")
-                return None
-            else:
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                url_hash = hashlib.sha256(self.url.encode()).hexdigest()[:10]
-                filename = f"{timestamp}_{url_hash}.png"
+        if not filename or not Path(filename).suffix:
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            url_hash = hashlib.sha256(self.url.encode()).hexdigest()[:10]
+            base_name = Path(filename).stem if filename else "image"
+            filename = f"{timestamp}_{url_hash}_{base_name}"
 
         close_client = False
         req_client = client or self.client
         if not req_client:
+            client_ref = getattr(self, "client_ref", None)
+            cookies = getattr(client_ref, "cookies", None) if client_ref else None
             req_client = AsyncSession(
                 impersonate="chrome",
                 allow_redirects=True,
+                cookies=cookies,
                 proxy=self.proxy,
             )
             close_client = True
@@ -88,12 +83,18 @@ class Image(BaseModel):
             response = await req_client.get(self.url)
             if verbose:
                 logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
+
             if response.status_code == 200:
-                content_type = response.headers.get("content-type")
-                if content_type and "image" not in content_type:
-                    logger.warning(
-                        f"Content type of {filename} is not image, but {content_type}."
+                path_obj_file = Path(filename)
+                if not path_obj_file.suffix:
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        .split(";")[0]
+                        .strip()
+                        .lower()
                     )
+                    ext = mimetypes.guess_extension(content_type) or ".png"
+                    filename = f"{filename}{ext}"
 
                 path_obj = Path(path)
                 path_obj.mkdir(parents=True, exist_ok=True)
@@ -156,12 +157,10 @@ class GeneratedImage(Image):
 
         Args:
             path (str, optional): Path to save the image. Defaults to "temp".
-            filename (str | None, optional): Filename to save the image. Generated images
-                are always in .png format, but the file extension is not included in the URL.
-                Defaults to timestamp + the end of the URL hash.
-            verbose (bool, optional): Prints the path of the saved file or warning if True. Defaults to False.
-            skip_invalid_filename (bool, optional): Saves the image only if the file name is valid. Defaults to False.
-            client (AsyncSession | None, optional): An existing AsyncSession client. Defaults to None.
+            filename (str | None, optional): Filename to save the image.
+            verbose (bool, optional): Prints status. Defaults to False.
+            skip_invalid_filename (bool, optional): Skip if invalid. Defaults to False.
+            client (AsyncSession | None, optional): An existing AsyncSession client.
             full_size (bool, optional): Modifies preview URLs to fetch full-size images if True. Defaults to True.
 
         Returns:
@@ -186,9 +185,7 @@ class GeneratedImage(Image):
                             req_client = AsyncSession(
                                 impersonate="chrome",
                                 allow_redirects=True,
-                                cookies=(
-                                    self.client_ref.cookies if self.client_ref else None
-                                ),
+                                cookies=getattr(self.client_ref, "cookies", None),
                                 proxy=self.proxy,
                             )
                             close_client = True
@@ -227,11 +224,6 @@ class GeneratedImage(Image):
                 self.url = self.url.replace("=s2048-rj", "=s1024-rj")
             elif "=s1024-rj" not in self.url:
                 self.url += "=s1024-rj"
-
-        if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            url_hash = hashlib.sha256(self.url.encode()).hexdigest()[:10]
-            filename = f"{timestamp}_{url_hash}.png"
 
         return await super().save(
             path=path,
