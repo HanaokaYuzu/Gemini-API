@@ -6,6 +6,7 @@ import random
 import re
 import uuid
 from asyncio import Task
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
@@ -25,6 +26,7 @@ from .exceptions import (
 )
 from .types import (
     Candidate,
+    ConversationTurn,
     Gem,
     GeneratedImage,
     ModelOutput,
@@ -1246,6 +1248,118 @@ class GeminiClient(GemMixin):
                 exc_info=True,
             )
             return None
+
+    async def read_chat_history(
+        self, cid: str, max_turns: int = 100
+    ) -> list[ConversationTurn]:
+        """
+        Fetch the full conversation history for a chat by its id.
+
+        Returns all user+assistant turns in chronological order (oldest first).
+
+        Parameters
+        ----------
+        cid: `str`
+            The ID of the conversation to read (e.g. "c_...").
+        max_turns: `int`, optional
+            Maximum number of turns to request from the server, by default 100.
+
+        Returns
+        -------
+        :class:`list[ConversationTurn]`
+            List of conversation turns in chronological order. Empty list if
+            the conversation has no turns or parsing fails.
+        """
+        try:
+            response = await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.READ_CHAT,
+                        payload=json.dumps(
+                            [cid, max_turns, None, 1, [0], [4], None, 1]
+                        ).decode("utf-8"),
+                    ),
+                ]
+            )
+
+            response_json = extract_json_from_response(response.text)
+
+            for part in response_json:
+                part_body_str = get_nested_value(part, [2])
+                if not part_body_str:
+                    continue
+
+                part_body = json.loads(part_body_str)
+                turns = get_nested_value(part_body, [0])
+                if not turns or not isinstance(turns, list):
+                    continue
+
+                result: list[ConversationTurn] = []
+
+                for turn in turns:
+                    if not isinstance(turn, list) or len(turn) < 4:
+                        continue
+
+                    # [0] = [cid, rid]
+                    turn_meta = get_nested_value(turn, [0])
+                    rid = get_nested_value(turn_meta, [1], "") if isinstance(turn_meta, list) else ""
+
+                    # [2][0][0] = user prompt text
+                    user_prompt = get_nested_value(turn, [2, 0, 0], "")
+
+                    # [3][0][0] = first candidate
+                    candidate_data = get_nested_value(turn, [3, 0, 0])
+                    if not candidate_data:
+                        continue
+
+                    rcid = get_nested_value(candidate_data, [0], "")
+                    text = get_nested_value(candidate_data, [1, 0], "")
+
+                    if not text:
+                        continue
+
+                    # [37][0][0] = thoughts (thinking models)
+                    thoughts = get_nested_value(candidate_data, [37, 0, 0]) or None
+
+                    # [4] = [epoch_seconds, nanoseconds]
+                    ts_data = get_nested_value(turn, [4])
+                    timestamp = None
+                    if isinstance(ts_data, list) and ts_data and isinstance(ts_data[0], (int, float)):
+                        try:
+                            timestamp = datetime.fromtimestamp(ts_data[0])
+                        except (OSError, ValueError):
+                            pass
+
+                    result.append(
+                        ConversationTurn(
+                            rid=rid,
+                            user_prompt=user_prompt,
+                            assistant_response=text,
+                            rcid=rcid,
+                            thoughts=thoughts,
+                            timestamp=timestamp,
+                        )
+                    )
+
+                # Reverse to chronological order (server returns newest-first)
+                result.reverse()
+                return result
+
+            logger.warning(
+                f"read_chat_history({cid!r}) parsed all parts but found no turns"
+            )
+            return []
+        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
+            logger.warning(
+                f"read_chat_history({cid!r}) parse error: {type(e).__name__}: {e}"
+            )
+            return []
+        except Exception as e:
+            logger.error(
+                f"read_chat_history({cid!r}) unexpected error: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            return []
 
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
