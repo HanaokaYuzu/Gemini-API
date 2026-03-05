@@ -73,8 +73,9 @@ def main():
 
         print(f"Found {len(parsed_data)} frames/objects.")
 
+        separate_frames = "#" * 100
         for i, frame in enumerate(parsed_data):
-            print(f"\n{'#' * 100}")
+            print(f"\n{separate_frames}")
             print(f"\n[FRAME {i}]")
             print_tree(frame)
 
