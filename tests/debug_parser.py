@@ -1,13 +1,12 @@
+import argparse
 import os
-import reprlib
 import sys
 from typing import Any
-import argparse
-import orjson as json
 from typing import Optional
 
-from gemini_webapi.utils.parsing import extract_json_from_response
+import orjson as json
 
+from gemini_webapi.utils.parsing import extract_json_from_response
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
@@ -43,10 +42,14 @@ def print_tree(data: Any, indent: str = "", path: Optional[list[Any]] = None):
             print_tree(parsed, indent + "  ", path)
         except json.JSONDecodeError:
             val_str = data
-            print(f"{indent}value: {reprlib.repr(val_str)} ({type(data).__name__})")
+            if len(val_str) > 100:
+                val_str = val_str[:100] + "..."
+            print(f"{indent}value: {val_str} ({type(data).__name__})")
     else:
         val_str = str(data)
-        print(f"{indent}value: {reprlib.repr(val_str)} ({type(data).__name__})")
+        if len(val_str) > 100:
+            val_str = val_str[:100] + "..."
+        print(f"{indent}value: {val_str} ({type(data).__name__})")
 
 
 def main():
