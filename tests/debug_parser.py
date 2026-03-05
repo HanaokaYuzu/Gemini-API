@@ -1,5 +1,6 @@
 import argparse
 import os
+import reprlib
 import sys
 from typing import Any
 from typing import Optional
@@ -12,6 +13,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
+
+c_repr = reprlib.Repr(maxstring=100)
 
 
 def print_tree(data: Any, indent: str = "", path: Optional[list[Any]] = None):
@@ -42,14 +45,10 @@ def print_tree(data: Any, indent: str = "", path: Optional[list[Any]] = None):
             print_tree(parsed, indent + "  ", path)
         except json.JSONDecodeError:
             val_str = data
-            if len(val_str) > 100:
-                val_str = val_str[:100] + "..."
-            print(f"{indent}value: {val_str} ({type(data).__name__})")
+            print(f"{indent}value: {c_repr.repr(val_str)} ({type(data).__name__})")
     else:
         val_str = str(data)
-        if len(val_str) > 100:
-            val_str = val_str[:100] + "..."
-        print(f"{indent}value: {val_str} ({type(data).__name__})")
+        print(f"{indent}value: {c_repr.repr(val_str)} ({type(data).__name__})")
 
 
 def main():

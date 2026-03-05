@@ -1487,7 +1487,7 @@ class GeminiClient(GemMixin):
         for video_root in get_nested_value(candidate_data, [12, 59, 0], []):
             video_info = get_nested_value(video_root, [0])
             if video_info:
-                urls = get_nested_value(video_info, [7], [])
+                urls = get_nested_value(video_info, [0, 7], [])
                 if len(urls) >= 2:
                     generated_videos.append(
                         GeneratedVideo(
