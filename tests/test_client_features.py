@@ -101,6 +101,25 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             logger.debug(image)
 
     @logger.catch(reraise=True)
+    async def test_video_generation(self):
+        response = await self.geminiclient.generate_content(
+            "Generate a short video of a sunset over the beach",
+            model=Model.G_3_PRO_AI_PRO,
+        )
+        self.assertTrue(response.videos)
+        logger.debug(response.text)
+        for video in response.videos:
+            logger.debug(video)
+            paths = await video.save()
+            video_path, thumb_path = paths
+            self.assertIsNotNone(video_path)
+            self.assertTrue(os.path.exists(str(video_path)))
+            if thumb_path:
+                self.assertTrue(os.path.exists(str(thumb_path)))
+                self.assertEqual(Path(str(video_path)).stem, Path(str(thumb_path)).stem)
+            logger.debug(f"Saved video to: {paths}")
+
+    @logger.catch(reraise=True)
     async def test_image_to_image(self):
         response = await self.geminiclient.generate_content(
             "Design an application icon based on the provided image. Make it simple and modern.",
@@ -229,12 +248,14 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         chats = self.geminiclient.list_chats()
         if not chats:
             self.skipTest("No recent chats found to test read_chat.")
-        
+
         chat_info = chats[0]
         history = await self.geminiclient.read_chat(chat_info.cid)
         if history is None:
-            self.skipTest(f"Failed to read chat {chat_info.cid}. It might be still processing.")
-        
+            self.skipTest(
+                f"Failed to read chat {chat_info.cid}. It might be still processing."
+            )
+
         self.assertIsNotNone(history)
         self.assertEqual(history.cid, chat_info.cid)
         logger.debug(f"History turns: {len(history.turns)}")
@@ -243,12 +264,12 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_read_history(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Hello, what is the capital of Japan?")
-        
+
         self.assertIsNotNone(chat.cid)
         history = await chat.read_history()
         if history is None:
             self.skipTest("Failed to read history.")
-            
+
         self.assertEqual(history.cid, chat.cid)
         self.assertTrue(len(history.turns) >= 2)
         logger.debug(f"History turns in chat session: {len(history.turns)}")
