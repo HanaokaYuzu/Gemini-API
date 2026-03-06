@@ -64,7 +64,7 @@ async def upload_file(
     else:
         raise ValueError(f"Unsupported file type: {type(file)}")
 
-    async with AsyncClient(proxy=proxy) as client:
+    async with AsyncClient(http2=True, proxy=proxy) as client:
         response = await client.post(
             url=Endpoint.UPLOAD,
             headers=Headers.UPLOAD.value,

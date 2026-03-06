@@ -20,6 +20,7 @@ async def send_request(
     """
 
     async with AsyncClient(
+        http2=True,
         proxy=proxy,
         headers=Headers.GEMINI.value,
         cookies=cookies,
@@ -68,7 +69,7 @@ async def get_access_token(
     """
 
     async with AsyncClient(
-        proxy=proxy, follow_redirects=True, verify=verify
+        http2=True, proxy=proxy, follow_redirects=True, verify=verify
     ) as client:
         response = await client.get(Endpoint.GOOGLE)
 

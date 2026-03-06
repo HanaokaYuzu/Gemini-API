@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator
 
 class ConversationTurn(BaseModel):
     """
-    A single user+assistant exchange in a conversation history.
+    A single turn of interaction between user and assistant in a conversation.
 
     Parameters
     ----------

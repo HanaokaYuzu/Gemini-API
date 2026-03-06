@@ -6,14 +6,13 @@ import random
 import re
 import uuid
 from asyncio import Task
-from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 import orjson as json
 from httpx import AsyncClient, Cookies, ReadTimeout, Response
 
-from .components import GemMixin
+from .components import ChatMixin, GemMixin
 from .constants import Endpoint, ErrorCode, GRPC, Headers, Model
 from .exceptions import (
     APIError,
@@ -26,7 +25,6 @@ from .exceptions import (
 )
 from .types import (
     Candidate,
-    ConversationTurn,
     Gem,
     GeneratedImage,
     ModelOutput,
@@ -34,7 +32,6 @@ from .types import (
     WebImage,
 )
 from .utils import (
-    extract_json_from_response,
     get_access_token,
     get_delta_by_fp_len,
     get_nested_value,
@@ -47,7 +44,7 @@ from .utils import (
 )
 
 
-class GeminiClient(GemMixin):
+class GeminiClient(ChatMixin, GemMixin):
     """
     Async httpx client interface for gemini.google.com.
 
@@ -62,9 +59,9 @@ class GeminiClient(GemMixin):
         __Secure-1PSIDTS cookie value, some Google accounts don't require this value, provide only if it's in the cookie list.
     cookies: `dict[str, str]`, optional
         Full Google cookie dict for browser-parity (SID, HSID, SSID, etc.).
-        Values are set on the ``.google.com`` domain. If both ``cookies``
-        and ``secure_1psid`` provide ``__Secure-1PSID``, the explicit
-        ``secure_1psid`` parameter takes precedence.
+        Values are set on the `.google.com` domain. If both `cookies`
+        and `secure_1psid` provide `__Secure-1PSID`, the explicit
+        `secure_1psid` parameter takes precedence.
     proxy: `str`, optional
         Proxy URL.
     kwargs: `dict`, optional
@@ -257,7 +254,7 @@ class GeminiClient(GemMixin):
         if self.client:
             await self.client.aclose()
 
-    async def _reset_connection(self) -> None:
+    async def reset_connection(self) -> None:
         """
         Close and recreate the HTTP transport without re-fetching tokens.
 
@@ -619,7 +616,7 @@ class GeminiClient(GemMixin):
                 inner_req_list[19] = gem_id
 
             # Browser-parity: fixed slots observed in Chrome network traces
-            inner_req_list[1] = ['en']
+            inner_req_list[1] = ["en"]
             inner_req_list[6] = [0]
             inner_req_list[10] = 1
             inner_req_list[11] = 0
@@ -654,15 +651,21 @@ class GeminiClient(GemMixin):
                 if "original_cid" not in session_state:
                     session_state["original_cid"] = chat.cid if chat else None
                 if "original_rcid" not in session_state:
-                    session_state["original_rcid"] = chat.rcid if isinstance(chat, ChatSession) else None
+                    session_state["original_rcid"] = (
+                        chat.rcid if isinstance(chat, ChatSession) else None
+                    )
                 # Sticky flag: once True, persists across retries so subsequent
                 # attempts know the server started processing our prompt.
                 if "had_response_data" not in session_state:
                     session_state["had_response_data"] = False
 
-                if chat and chat.cid and (
-                    session_state.get("original_cid") in ("", None)
-                    or session_state.get("had_response_data")
+                if (
+                    chat
+                    and chat.cid
+                    and (
+                        session_state.get("original_cid") in ("", None)
+                        or session_state.get("had_response_data")
+                    )
                 ):
                     # Recovery triggers in two cases:
                     # 1. New conversation: cid was empty, assigned mid-stream
@@ -681,13 +684,17 @@ class GeminiClient(GemMixin):
                         )
                         await asyncio.sleep(delay)
                         try:
-                            recovered = await self.read_chat(chat.cid)
+                            recovered = await self.fetch_latest_chat_response(chat.cid)
                             if recovered:
                                 # Guard: for continuations, check if read_chat returned a stale
                                 # response from a previous turn (same rcid as what we started with)
                                 original_cid = session_state.get("original_cid")
-                                if (original_cid and recovered.rcid
-                                        and recovered.rcid == session_state.get("original_rcid")):
+                                if (
+                                    original_cid
+                                    and recovered.rcid
+                                    and recovered.rcid
+                                    == session_state.get("original_rcid")
+                                ):
                                     logger.debug(
                                         f"READ_CHAT attempt {attempt} returned stale response "
                                         f"(rcid={recovered.rcid!r} matches original). Continuing..."
@@ -703,9 +710,7 @@ class GeminiClient(GemMixin):
                                 yield recovered
                                 return
                             all_stale = False
-                            logger.debug(
-                                f"READ_CHAT attempt {attempt} returned None"
-                            )
+                            logger.debug(f"READ_CHAT attempt {attempt} returned None")
                         except Exception as e:
                             all_stale = False
                             logger.warning(
@@ -891,7 +896,11 @@ class GeminiClient(GemMixin):
                                         web_img_list = get_nested_value(
                                             candidate_data, [12, 1], []
                                         )
-                                        for web_img_data in (web_img_list if isinstance(web_img_list, list) else []):
+                                        for web_img_data in (
+                                            web_img_list
+                                            if isinstance(web_img_list, list)
+                                            else []
+                                        ):
                                             url = get_nested_value(
                                                 web_img_data, [0, 0, 0]
                                             )
@@ -913,7 +922,11 @@ class GeminiClient(GemMixin):
                                         gen_img_list = get_nested_value(
                                             candidate_data, [12, 7, 0], []
                                         )
-                                        for gen_img_data in (gen_img_list if isinstance(gen_img_list, list) else []):
+                                        for gen_img_data in (
+                                            gen_img_list
+                                            if isinstance(gen_img_list, list)
+                                            else []
+                                        ):
                                             url = get_nested_value(
                                                 gen_img_data, [0, 3, 3]
                                             )
@@ -1036,7 +1049,7 @@ class GeminiClient(GemMixin):
                                 f"Response stalled (active connection but no progress for {stall_threshold}s). "
                                 f"Queueing={is_queueing}. Retrying..."
                             )
-                            await self._reset_connection()
+                            await self.reset_connection()
                             if is_queueing and not has_candidates:
                                 raise APIError(
                                     "Gemini server is overloaded (request queued but never started processing). "
@@ -1090,276 +1103,6 @@ class GeminiClient(GemMixin):
         """
 
         return ChatSession(geminiclient=self, **kwargs)
-
-    async def delete_chat(self, cid: str) -> None:
-        """
-        Delete a specific conversation by chat id.
-
-        Parameters
-        ----------
-        cid: `str`
-            The ID of the chat requiring deletion (e.g. "c_...").
-        """
-
-        await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DELETE_CHAT,
-                    payload=json.dumps([cid]).decode("utf-8"),
-                ),
-            ]
-        )
-
-    async def read_chat(self, cid: str) -> ModelOutput | None:
-        """
-        Fetch the last assistant response from a conversation by chat id.
-
-        Used for recovery when a stream fails after Gemini assigned a cid
-        mid-stream. Returns None on any failure (network, parsing, empty response).
-
-        Parameters
-        ----------
-        cid: `str`
-            The ID of the conversation to read (e.g. "c_...").
-
-        Returns
-        -------
-        :class:`ModelOutput` | None
-            The recovered response, or None if recovery failed.
-        """
-        try:
-            response = await self._batch_execute(
-                [
-                    RPCData(
-                        rpcid=GRPC.READ_CHAT,
-                        payload=json.dumps([cid, 10, None, 1, [0], [4], None, 1]).decode("utf-8"),
-                    ),
-                ]
-            )
-
-            logger.debug(
-                f"read_chat({cid!r}) raw response: status={response.status_code}, "
-                f"len={len(response.text)}, first_500={response.text[:500]!r}"
-            )
-
-            response_json = extract_json_from_response(response.text)
-            logger.debug(f"read_chat({cid!r}) parsed {len(response_json)} top-level parts")
-
-            for i, part in enumerate(response_json):
-                rpc_id = get_nested_value(part, [1])
-                part_body_str = get_nested_value(part, [2])
-                if not part_body_str:
-                    logger.debug(f"read_chat part[{i}] rpc={rpc_id}: no body at [2]")
-                    continue
-
-                part_body = json.loads(part_body_str)
-
-                # READ_CHAT response: part_body[0] is the list of conversation turns
-                # Use [-1] to get the latest turn (the one being recovered)
-                # turn[3] holds the assistant response with candidates
-                # turn[3][0] is the candidates list (candidate structure matches StreamGenerate)
-                turns = get_nested_value(part_body, [0])
-                if not turns:
-                    logger.debug(
-                        f"read_chat part[{i}] rpc={rpc_id}: no turns at [0], "
-                        f"body type={type(part_body).__name__}, "
-                        f"body_keys={list(range(len(part_body))) if isinstance(part_body, list) else 'N/A'}, "
-                        f"body_len={len(part_body) if isinstance(part_body, (list, dict)) else 'N/A'}"
-                    )
-                    continue
-
-                conv_turn = turns[-1]
-                if not conv_turn:
-                    logger.debug(
-                        f"read_chat part[{i}]: turns[-1] is empty/None, "
-                        f"num_turns={len(turns)}"
-                    )
-                    continue
-
-                logger.debug(
-                    f"read_chat part[{i}]: last turn len={len(conv_turn) if isinstance(conv_turn, list) else 'N/A'}, "
-                    f"types=[{', '.join(type(x).__name__ for x in conv_turn[:8])}...]"
-                    if isinstance(conv_turn, list) and len(conv_turn) > 0 else
-                    f"read_chat part[{i}]: last turn type={type(conv_turn).__name__}"
-                )
-
-                candidates_list = get_nested_value(conv_turn, [3, 0])
-                if not candidates_list:
-                    # Dump structure around [3] for debugging
-                    turn3 = get_nested_value(conv_turn, [3])
-                    logger.debug(
-                        f"read_chat part[{i}]: no candidates at [3][0], "
-                        f"turn[3] type={type(turn3).__name__}, "
-                        f"turn[3] preview={str(turn3)[:300]!r}"
-                    )
-                    continue
-
-                # Extract first candidate (candidate structure matches StreamGenerate)
-                candidate_data = get_nested_value(candidates_list, [0])
-                if not candidate_data:
-                    logger.debug(
-                        f"read_chat part[{i}]: candidates_list[0] empty, "
-                        f"candidates_list len={len(candidates_list)}"
-                    )
-                    continue
-
-                rcid = get_nested_value(candidate_data, [0], "")
-                text = get_nested_value(candidate_data, [1, 0], "")
-
-                if not text:
-                    logger.debug(
-                        f"read_chat part[{i}]: candidate has empty text, "
-                        f"rcid={rcid!r}, skipping"
-                    )
-                    continue
-
-                turn_metadata = get_nested_value(conv_turn, [0])
-                if isinstance(turn_metadata, list) and len(turn_metadata) >= 2:
-                    rid = turn_metadata[1] if isinstance(turn_metadata[1], str) else ""
-                else:
-                    rid = ""
-                    logger.warning(
-                        f"read_chat({cid!r}): could not extract rid from turn_metadata "
-                        f"(type={type(turn_metadata).__name__}). "
-                        f"Next continuation turn may use a stale rid."
-                    )
-
-                # Only include rid if extracted, to avoid overwriting valid existing rid
-                metadata = [cid, rid] if rid else [cid]
-
-                logger.debug(
-                    f"read_chat({cid!r}) SUCCESS: rcid={rcid!r}, rid={rid!r}, text_len={len(text)}"
-                )
-                return ModelOutput(
-                    metadata=metadata,
-                    candidates=[Candidate(rcid=rcid, text=text)],
-                )
-
-            logger.warning(
-                f"read_chat({cid!r}) parsed all parts but found no candidates"
-            )
-            return None
-        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
-            logger.warning(f"read_chat({cid!r}) parse error: {type(e).__name__}: {e}")
-            return None
-        except Exception as e:
-            logger.error(
-                f"read_chat({cid!r}) unexpected error: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
-            return None
-
-    async def read_chat_history(
-        self, cid: str, max_turns: int = 100
-    ) -> list[ConversationTurn]:
-        """
-        Fetch the full conversation history for a chat by its id.
-
-        Returns all user+assistant turns in chronological order (oldest first).
-
-        Parameters
-        ----------
-        cid: `str`
-            The ID of the conversation to read (e.g. "c_...").
-        max_turns: `int`, optional
-            Maximum number of turns to request from the server, by default 100.
-
-        Returns
-        -------
-        :class:`list[ConversationTurn]`
-            List of conversation turns in chronological order. Empty list if
-            the conversation has no turns or parsing fails.
-        """
-        try:
-            response = await self._batch_execute(
-                [
-                    RPCData(
-                        rpcid=GRPC.READ_CHAT,
-                        payload=json.dumps(
-                            [cid, max_turns, None, 1, [0], [4], None, 1]
-                        ).decode("utf-8"),
-                    ),
-                ]
-            )
-
-            response_json = extract_json_from_response(response.text)
-
-            for part in response_json:
-                part_body_str = get_nested_value(part, [2])
-                if not part_body_str:
-                    continue
-
-                part_body = json.loads(part_body_str)
-                turns = get_nested_value(part_body, [0])
-                if not turns or not isinstance(turns, list):
-                    continue
-
-                result: list[ConversationTurn] = []
-
-                for turn in turns:
-                    if not isinstance(turn, list) or len(turn) < 4:
-                        continue
-
-                    # [0] = [cid, rid]
-                    turn_meta = get_nested_value(turn, [0])
-                    rid = get_nested_value(turn_meta, [1], "") if isinstance(turn_meta, list) else ""
-
-                    # [2][0][0] = user prompt text
-                    user_prompt = get_nested_value(turn, [2, 0, 0], "")
-
-                    # [3][0][0] = first candidate
-                    candidate_data = get_nested_value(turn, [3, 0, 0])
-                    if not candidate_data:
-                        continue
-
-                    rcid = get_nested_value(candidate_data, [0], "")
-                    text = get_nested_value(candidate_data, [1, 0], "")
-
-                    if not text:
-                        continue
-
-                    # [37][0][0] = thoughts (thinking models)
-                    thoughts = get_nested_value(candidate_data, [37, 0, 0]) or None
-
-                    # [4] = [epoch_seconds, nanoseconds]
-                    ts_data = get_nested_value(turn, [4])
-                    timestamp = None
-                    if isinstance(ts_data, list) and ts_data and isinstance(ts_data[0], (int, float)):
-                        try:
-                            timestamp = datetime.fromtimestamp(ts_data[0])
-                        except (OSError, ValueError):
-                            pass
-
-                    result.append(
-                        ConversationTurn(
-                            rid=rid,
-                            user_prompt=user_prompt,
-                            assistant_response=text,
-                            rcid=rcid,
-                            thoughts=thoughts,
-                            timestamp=timestamp,
-                        )
-                    )
-
-                # Reverse to chronological order (server returns newest-first)
-                result.reverse()
-                return result
-
-            logger.warning(
-                f"read_chat_history({cid!r}) parsed all parts but found no turns"
-            )
-            return []
-        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
-            logger.warning(
-                f"read_chat_history({cid!r}) parse error: {type(e).__name__}: {e}"
-            )
-            return []
-        except Exception as e:
-            logger.error(
-                f"read_chat_history({cid!r}) unexpected error: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
-            return []
 
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
