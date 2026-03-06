@@ -1376,15 +1376,25 @@ class GeminiClient(GemMixin):
                         output_candidates = []
                         rid = get_nested_value(conv_turn, [1], "")
                         for candidate_data in candidates_list:
-                            # Check if this frame represents the complete state of the message
-                            is_completed = (
-                                get_nested_value(candidate_data, [8, 0], 1) == 2
+                            completion_status = get_nested_value(candidate_data, [8, 0])
+                            has_result_signal = (
+                                get_nested_value(candidate_data, [12, 6, 0]) is not None
                             )
-                            if not is_completed:
+
+                            if completion_status == 2:
+                                # Finished successfully
+                                pass
+                            elif completion_status == 1 or has_result_signal:
+                                # Still generating / searching / thinking
                                 logger.debug(
-                                    f"[read_chat] Response data for {cid!r} is still incomplete (model is still processing)..."
+                                    f"[read_chat] Gemini is still processing the response for {cid!r}. Waiting..."
                                 )
                                 return None
+                            else:
+                                # Stopped dead (e.g. usage limit, policy refusal)
+                                logger.debug(
+                                    f"[read_chat] Gemini has stopped generating for {cid!r} (terminal state reached)."
+                                )
 
                             rcid = get_nested_value(candidate_data, [0], "")
                             (
