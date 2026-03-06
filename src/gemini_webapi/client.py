@@ -884,10 +884,16 @@ class GeminiClient(GemMixin):
                                 try:
                                     part_json = json.loads(inner_json_str)
                                     m_data = get_nested_value(part_json, [1])
-                                    cid = get_nested_value(m_data, [0], "")
-                                    rid = get_nested_value(m_data, [1], "")
-                                    if m_data and isinstance(chat, ChatSession):
-                                        chat.metadata = m_data
+                                    if m_data:
+                                        _new_cid = get_nested_value(m_data, [0])
+                                        _new_rid = get_nested_value(m_data, [1])
+                                        if _new_cid:
+                                            cid = _new_cid
+                                        if _new_rid:
+                                            rid = _new_rid
+
+                                        if isinstance(chat, ChatSession):
+                                            chat.metadata = m_data
 
                                     # Check for busy analyzing data
                                     tool_name = get_nested_value(part_json, [6, 1, 0])
