@@ -950,9 +950,6 @@ class GeminiClient(GemMixin):
 
                                             # Save this conversation turn to list_chats whenever it is stored in history.
                                             if is_final_chunk:
-                                                cid = get_nested_value(
-                                                    part_json, [1, 0]
-                                                )
                                                 if cid and isinstance(
                                                     self._recent_chats, list
                                                 ):
