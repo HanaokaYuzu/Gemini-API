@@ -1,6 +1,7 @@
 from enum import Enum, IntEnum, StrEnum
 
-
+STREAMING_FLAG_INDEX = 7
+GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
 
 
@@ -22,6 +23,7 @@ class GRPC(StrEnum):
     LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
     DELETE_CHAT = "GzXR5e"
+    DELETE_CHAT_SECOND = "qWymEb"
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
@@ -29,8 +31,11 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    # Activity methods
-    BARD_ACTIVITY = "ESY5D"
+    BARD_SETTINGS = "ESY5D"
+
+    LIST_MODELS = "otAQ7b"
+
+    IMAGE_FULL_SIZE = "c8o8Fe"
 
 
 class Headers(Enum):
@@ -39,7 +44,6 @@ class Headers(Enum):
         "Host": "gemini.google.com",
         "Origin": "https://gemini.google.com",
         "Referer": "https://gemini.google.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
         "X-Same-Domain": "1",
     }
     ROTATE_COOKIES = {
@@ -50,26 +54,47 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    G_3_0_PRO = (
-        "gemini-3.0-pro",
+    G_3_PRO_AI_FREE = (
+        "gemini-3-pro-ai-free",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]'
         },
         False,
     )
-    G_3_0_FLASH = (
-        "gemini-3.0-flash",
+    G_3_FLASH_AI_FREE = (
+        "gemini-3-flash-ai-free",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]'
         },
         False,
     )
-    G_3_0_FLASH_THINKING = (
-        "gemini-3.0-flash-thinking",
+    G_3_FLASH_THINKING_AI_FREE = (
+        "gemini-3-flash-thinking-ai-free",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]'
         },
         False,
+    )
+    G_3_PRO_AI_PRO = (
+        "gemini-3-pro-ai-pro",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]'
+        },
+        True,
+    )
+    G_3_FLASH_AI_PRO = (
+        "gemini-3-flash-ai-pro",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]'
+        },
+        True,
+    )
+    G_3_FLASH_THINKING_AI_PRO = (
+        "gemini-3-flash-thinking-ai-pro",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]'
+        },
+        True,
     )
 
     def __init__(self, name, header, advanced_only):
