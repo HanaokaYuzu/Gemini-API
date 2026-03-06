@@ -1391,10 +1391,15 @@ class GeminiClient(GemMixin):
                                 )
                                 return None
                             else:
-                                # Stopped dead (e.g. usage limit, policy refusal)
-                                logger.debug(
-                                    f"[read_chat] Gemini has stopped generating for {cid!r} (terminal state reached)."
+                                # Stopped generating (e.g. usage limit, policy refusal)
+                                text = (
+                                    get_nested_value(candidate_data, [1, 0])
+                                    or "Gemini has stopped generating without providing a response (likely due to a usage limit or safety policy)."
                                 )
+                                logger.debug(
+                                    f"[read_chat] Generation stopped for {cid!r}: {text}"
+                                )
+                                raise UsageLimitExceeded(text)
 
                             rcid = get_nested_value(candidate_data, [0], "")
                             (
@@ -1416,7 +1421,6 @@ class GeminiClient(GemMixin):
                                     generated_media=generated_media,
                                 )
                             )
-
                         if output_candidates:
                             model_output = ModelOutput(
                                 metadata=[cid, rid, output_candidates[0].rcid],
@@ -1433,6 +1437,8 @@ class GeminiClient(GemMixin):
                 return ChatHistory(cid=cid, metadata=[cid], turns=chat_turns)
 
             return None
+        except UsageLimitExceeded:
+            raise
         except Exception:
             logger.debug(
                 f"[read_chat] Response data for {cid!r} is still incomplete (model is still processing)..."
