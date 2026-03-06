@@ -4,6 +4,7 @@ import io
 import time
 import random
 import re
+import uuid
 from asyncio import Task
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -11,7 +12,7 @@ from typing import Any, AsyncGenerator, Optional
 import orjson as json
 from httpx import AsyncClient, Cookies, ReadTimeout, Response
 
-from .components import GemMixin
+from .components import ChatMixin, GemMixin
 from .constants import (
     Endpoint,
     ErrorCode,
@@ -50,7 +51,7 @@ from .utils import (
 )
 
 
-class GeminiClient(GemMixin):
+class GeminiClient(ChatMixin, GemMixin):
     """
     Async httpx client interface for gemini.google.com.
 
@@ -63,6 +64,11 @@ class GeminiClient(GemMixin):
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
         __Secure-1PSIDTS cookie value, some Google accounts don't require this value, provide only if it's in the cookie list.
+    cookies: `dict[str, str]`, optional
+        Full Google cookie dict for browser-parity (SID, HSID, SSID, etc.).
+        Values are set on the `.google.com` domain. If both `cookies`
+        and `secure_1psid` provide `__Secure-1PSID`, the explicit
+        `secure_1psid` parameter takes precedence.
     proxy: `str`, optional
         Proxy URL.
     kwargs: `dict`, optional
@@ -103,6 +109,7 @@ class GeminiClient(GemMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        cookies: dict[str, str] | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -121,10 +128,19 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 540
         self.refresh_task: Task | None = None
         self.verbose: bool = True
-        self.watchdog_timeout: float = 60  # ≤ DELAY_FACTOR × retry × (retry + 1) / 2
+        self.watchdog_timeout: float = 30  # seconds before declaring a zombie stream
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
         self.kwargs = kwargs
+
+        # Forward caller-supplied cookies to .google.com domain.
+        # secure_1psid/secure_1psidts below override matching keys.
+        if cookies:
+            for name, value in cookies.items():
+                if value:
+                    self.cookies.set(name, value, domain=".google.com")
+                else:
+                    logger.debug(f"Skipping cookie {name!r} with empty value")
 
         if secure_1psid:
             self.cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
@@ -141,7 +157,7 @@ class GeminiClient(GemMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 540,
         verbose: bool = True,
-        watchdog_timeout: float = 60,  # ≤ DELAY_FACTOR × retry × (retry + 1) / 2
+        watchdog_timeout: float = 30,  # seconds before declaring a zombie stream
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -245,6 +261,27 @@ class GeminiClient(GemMixin):
 
         if self.client:
             await self.client.aclose()
+
+    async def reset_connection(self) -> None:
+        """
+        Close and recreate the HTTP transport without re-fetching tokens.
+
+        Use this instead of close() when the connection is broken (zombie stream,
+        HTTP/2 errors) but authentication tokens are still valid. Avoids an
+        unnecessary round-trip to gemini.google.com/app on every retry.
+        """
+        if self.client:
+            await self.client.aclose()
+
+        self.client = AsyncClient(
+            http2=True,
+            timeout=self.timeout,
+            proxy=self.proxy,
+            follow_redirects=True,
+            headers=Headers.GEMINI.value,
+            cookies=self.cookies,
+            **self.kwargs,
+        )
 
     async def reset_close_task(self) -> None:
         """
@@ -597,6 +634,28 @@ class GeminiClient(GemMixin):
             if temporary:
                 inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
+            # Browser-parity: fixed slots observed in Chrome network traces
+            inner_req_list[1] = ["en"]
+            inner_req_list[6] = [0]
+            inner_req_list[10] = 1
+            inner_req_list[11] = 0
+            inner_req_list[17] = [[0]]
+            inner_req_list[18] = 0
+            inner_req_list[27] = 1
+            inner_req_list[30] = [4]
+            inner_req_list[41] = [1]
+            inner_req_list[53] = 0
+            inner_req_list[61] = []
+            inner_req_list[68] = 1
+
+            # Per-request UUID shared between inner_req_list[59] and header
+            uuid_val = str(uuid.uuid4())
+            inner_req_list[59] = uuid_val
+            request_headers = {
+                **model.model_header,
+                "x-goog-ext-525005358-jspb": f'["{uuid_val}",1]',
+            }
+
             request_data = {
                 "at": self.access_token,
                 "f.req": json.dumps(
@@ -607,11 +666,106 @@ class GeminiClient(GemMixin):
                 ).decode("utf-8"),
             }
 
+            if session_state is not None:
+                if "original_cid" not in session_state:
+                    session_state["original_cid"] = chat.cid if chat else None
+                if "original_rcid" not in session_state:
+                    session_state["original_rcid"] = (
+                        chat.rcid if isinstance(chat, ChatSession) else None
+                    )
+                # Sticky flag: once True, persists across retries so subsequent
+                # attempts know the server started processing our prompt.
+                if "had_response_data" not in session_state:
+                    session_state["had_response_data"] = False
+
+                if (
+                    chat
+                    and chat.cid
+                    and (
+                        session_state.get("original_cid") in ("", None)
+                        or session_state.get("had_response_data")
+                    )
+                ):
+                    # Recovery triggers in two cases:
+                    # 1. New conversation: cid was empty, assigned mid-stream
+                    # 2. Continuation: server started processing (had_response_data)
+                    #    before stream broke — retrying would duplicate the turn
+                    # Poll read_chat with exponential backoff. Google's Pro backend
+                    # needs ~50-60s to persist responses after a stream break.
+                    # Budget: 30 + 45 + 60 + 90 = 225s max wait, 4 requests.
+                    read_chat_delays = [30, 45, 60, 90]
+                    all_stale = True  # Track if every attempt returned stale
+                    for attempt, delay in enumerate(read_chat_delays, 1):
+                        logger.warning(
+                            f"Stream failed after Gemini assigned cid={chat.cid!r}. "
+                            f"READ_CHAT attempt {attempt}/{len(read_chat_delays)}: "
+                            f"waiting {delay}s for server to persist..."
+                        )
+                        await asyncio.sleep(delay)
+                        try:
+                            recovered = await self.fetch_latest_chat_response(chat.cid)
+                            if recovered:
+                                # Guard: for continuations, check if read_chat returned a stale
+                                # response from a previous turn (same rcid as what we started with)
+                                original_cid = session_state.get("original_cid")
+                                if (
+                                    original_cid
+                                    and recovered.rcid
+                                    and recovered.rcid
+                                    == session_state.get("original_rcid")
+                                ):
+                                    logger.debug(
+                                        f"READ_CHAT attempt {attempt} returned stale response "
+                                        f"(rcid={recovered.rcid!r} matches original). Continuing..."
+                                    )
+                                    continue  # keep polling — new response not persisted yet
+
+                                logger.info(
+                                    f"Successfully recovered response via READ_CHAT "
+                                    f"(attempt {attempt}/{len(read_chat_delays)})."
+                                )
+                                if isinstance(chat, ChatSession):
+                                    chat.metadata = recovered.metadata
+                                yield recovered
+                                return
+                            all_stale = False
+                            logger.debug(f"READ_CHAT attempt {attempt} returned None")
+                        except Exception as e:
+                            all_stale = False
+                            logger.warning(
+                                f"READ_CHAT attempt {attempt} failed for cid={chat.cid!r}: "
+                                f"{type(e).__name__}: {e}"
+                            )
+
+                    if all_stale:
+                        # Every attempt returned the previous turn's response —
+                        # the server never processed our prompt, safe to retry.
+                        # Drop rid/rcid so the retry doesn't send stale
+                        # continuation metadata — let the server determine
+                        # the append point from cid alone.
+                        if isinstance(chat, ChatSession):
+                            chat.rid = ""
+                            chat.rcid = ""
+                        session_state["had_response_data"] = False
+                        raise APIError(
+                            f"Stream failed for cid={chat.cid!r}. "
+                            f"All {len(read_chat_delays)} READ_CHAT attempts returned stale "
+                            f"response (rcid unchanged). Retrying stream."
+                        )
+                    # Some attempts returned None/errors — turn may exist
+                    # server-side. GeminiError prevents @running from retrying.
+                    raise GeminiError(
+                        f"Stream failed after Gemini assigned cid={chat.cid!r}. "
+                        f"Recovery via READ_CHAT returned no data after "
+                        f"{len(read_chat_delays)} attempts (~{sum(read_chat_delays)}s). "
+                        "Retrying would create a duplicate conversation thread."
+                    )
+
             async with self.client.stream(
                 "POST",
                 Endpoint.GENERATE,
                 params=params,
-                headers=model.model_header,
+                headers=request_headers,
                 data=request_data,
                 **kwargs,
             ) as response:
@@ -637,9 +791,10 @@ class GeminiClient(GemMixin):
 
                 last_texts: dict[str, str] = session_state["last_texts"]
                 last_thoughts: dict[str, str] = session_state["last_thoughts"]
-                last_progress_time = session_state.get(
-                    "last_progress_time", time.time()
-                )
+                # Reset watchdog timer per stream attempt; stale values from
+                # previous retries would cause immediate false stall detection.
+                last_progress_time = time.time()
+                session_state["last_progress_time"] = last_progress_time
 
                 is_thinking = False
                 is_queueing = False
@@ -709,6 +864,8 @@ class GeminiClient(GemMixin):
                                 m_data = get_nested_value(part_json, [1])
                                 if m_data and isinstance(chat, ChatSession):
                                     chat.metadata = m_data
+                                    if session_state is not None:
+                                        session_state["had_response_data"] = True
                                 context_str = get_nested_value(part_json, [25])
                                 if isinstance(context_str, str):
                                     is_completed = True
@@ -756,8 +913,13 @@ class GeminiClient(GemMixin):
 
                                         # Image handling
                                         web_images = []
-                                        for web_img_data in get_nested_value(
+                                        web_img_list = get_nested_value(
                                             candidate_data, [12, 1], []
+                                        )
+                                        for web_img_data in (
+                                            web_img_list
+                                            if isinstance(web_img_list, list)
+                                            else []
                                         ):
                                             url = get_nested_value(
                                                 web_img_data, [0, 0, 0]
@@ -777,8 +939,13 @@ class GeminiClient(GemMixin):
                                                 )
 
                                         generated_images = []
-                                        for gen_img_data in get_nested_value(
+                                        gen_img_list = get_nested_value(
                                             candidate_data, [12, 7, 0], []
+                                        )
+                                        for gen_img_data in (
+                                            gen_img_list
+                                            if isinstance(gen_img_list, list)
+                                            else []
                                         ):
                                             url = get_nested_value(
                                                 gen_img_data, [0, 3, 3]
@@ -890,7 +1057,9 @@ class GeminiClient(GemMixin):
                         yield out
                         got_update = True
 
-                    if got_update or is_thinking:
+                    # Reset watchdog when genuine progress occurs: content
+                    # yielded, model thinking, or server actively queueing.
+                    if got_update or is_thinking or is_queueing:
                         last_progress_time = time.time()
                         session_state["last_progress_time"] = last_progress_time
                     else:
@@ -900,7 +1069,12 @@ class GeminiClient(GemMixin):
                                 f"Response stalled (active connection but no progress for {stall_threshold}s). "
                                 f"Queueing={is_queueing}. Retrying..."
                             )
-                            await self.close()
+                            await self.reset_connection()
+                            if is_queueing and not has_candidates:
+                                raise APIError(
+                                    "Gemini server is overloaded (request queued but never started processing). "
+                                    "Try again in a few minutes or use a different model."
+                                )
                             raise APIError("Response stalled (zombie stream).")
 
                 # Final flush
@@ -925,8 +1099,10 @@ class GeminiClient(GemMixin):
         except (GeminiError, APIError):
             raise
         except Exception as e:
-            logger.debug(
-                f"{type(e).__name__}: {e}; Unexpected response or parsing error. Response: {locals().get('response', 'N/A')}"
+            logger.warning(
+                f"Stream error: {type(e).__name__}: {e}; "
+                f"chat.cid={getattr(chat, 'cid', None)!r}, "
+                f"model={getattr(model, 'model_name', model)!r}"
             )
             raise APIError(f"Failed to parse response body: {e}")
 
@@ -947,25 +1123,6 @@ class GeminiClient(GemMixin):
         """
 
         return ChatSession(geminiclient=self, **kwargs)
-
-    async def delete_chat(self, cid: str) -> None:
-        """
-        Delete a specific conversation by chat id.
-
-        Parameters
-        ----------
-        cid: `str`
-            The ID of the chat requiring deletion (e.g. "c_...").
-        """
-
-        await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DELETE_CHAT,
-                    payload=json.dumps([cid]).decode("utf-8"),
-                ),
-            ]
-        )
 
     @running(retry=2)
     async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:

@@ -124,7 +124,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
             "1+1=?",
-            model=Model.G_3_0_PRO,
+            model=Model.G_3_1_PRO,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)
@@ -153,6 +153,21 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
         logger.debug(response2.text)
         logger.debug(response2.images)
+
+    @logger.catch(reraise=True)
+    async def test_read_chat(self):
+        self.geminiclient.verbose = False
+        chat = self.geminiclient.start_chat()
+        await chat.send_message("What is the capital of France?")
+        self.assertIsNotNone(chat.cid)
+
+        latest_response = await self.geminiclient.fetch_latest_chat_response(chat.cid)
+        self.assertIsNotNone(latest_response)
+        logger.debug(latest_response.text)
+
+        full_chat = await self.geminiclient.read_chat(chat.cid)
+        self.assertTrue(full_chat)
+        logger.debug(full_chat)
 
     @logger.catch(reraise=True)
     async def test_delete_chat(self):
