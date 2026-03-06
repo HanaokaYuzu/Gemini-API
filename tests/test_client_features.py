@@ -167,7 +167,12 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
         full_chat = await self.geminiclient.read_chat(chat.cid)
         self.assertTrue(full_chat)
-        logger.debug(full_chat)
+        for turn in full_chat:
+            logger.debug(
+                f"Input: {turn.user_prompt}\n"
+                f"Output: {turn.assistant_response}"
+                "\n\n----------------------------------\n\n"
+            )
 
     @logger.catch(reraise=True)
     async def test_delete_chat(self):
