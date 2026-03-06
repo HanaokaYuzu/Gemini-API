@@ -24,18 +24,18 @@
 
 # <img src="https://raw.githubusercontent.com/HanaokaYuzu/Gemini-API/master/assets/logo.svg" width="35px" alt="Gemini Icon" /> Gemini-API
 
-A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gemini.google.com) web app (formerly Bard).
+A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https://gemini.google.com) web app (formerly Bard).
 
 ## Features
 
 - **Persistent Cookies** - Automatically refreshes cookies in background. Optimized for always-on services.
 - **Image Generation** - Natively supports generating and editing images with natural language.
-- **System Prompt** - Supports customizing model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
-- **Extension Support** - Supports generating contents with [Gemini extensions](https://gemini.google.com/extensions) on, like YouTube and Gmail.
-- **Classified Outputs** - Categorizes texts, thoughts, web images and AI generated images in the response.
+- **System Prompt** - Supports customizing the model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
+- **Extension Support** - Supports generating content with [Gemini extensions](https://gemini.google.com/extensions), such as YouTube and Gmail.
+- **Classified Outputs** - Categorizes text, thoughts, web images, and AI-generated images in the response.
 - **Streaming Mode** - Supports stream generation, yielding partial outputs as they are generated.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
-- **Asynchronous** - Utilizes `asyncio` to run generating tasks and return outputs efficiently.
+- **Asynchronous** - Utilizes `asyncio` to run generation tasks and return outputs efficiently.
 
 ## Table of Contents
 
@@ -45,23 +45,24 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - [Authentication](#authentication)
 - [Usage](#usage)
   - [Initialization](#initialization)
-  - [Generate contents](#generate-contents)
-  - [Generate contents with files](#generate-contents-with-files)
-  - [Conversations across multiple turns](#conversations-across-multiple-turns)
-  - [Continue previous conversations](#continue-previous-conversations)
-  - [Delete previous conversations from Gemini history](#delete-previous-conversations-from-gemini-history)
-  - [Streaming mode](#streaming-mode)
-  - [Select language model](#select-language-model)
-  - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
+  - [Generate Content](#generate-content)
+  - [Generate Content with Files](#generate-content-with-files)
+  - [Conversations Across Multiple Turns](#conversations-across-multiple-turns)
+  - [Continue Previous Conversations](#continue-previous-conversations)
+  - [Delete Previous Conversations from Gemini History](#delete-previous-conversations-from-gemini-history)
+  - [Temporary Mode](#temporary-mode)
+  - [Streaming Mode](#streaming-mode)
+  - [Select Language Model](#select-language-model)
+  - [Apply System Prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Manage Custom Gems](#manage-custom-gems)
-    - [Create a custom gem](#create-a-custom-gem)
-    - [Update an existing gem](#update-an-existing-gem)
-    - [Delete a custom gem](#delete-a-custom-gem)
-  - [Retrieve model's thought process](#retrieve-models-thought-process)
-  - [Retrieve images in response](#retrieve-images-in-response)
-  - [Generate and edit images](#generate-and-edit-images)
-  - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
-  - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
+    - [Create a Custom Gem](#create-a-custom-gem)
+    - [Update an Existing Gem](#update-an-existing-gem)
+    - [Delete a Custom Gem](#delete-a-custom-gem)
+  - [Retrieve Model's Thought Process](#retrieve-models-thought-process)
+  - [Retrieve Images in Response](#retrieve-images-in-response)
+  - [Generate and Edit Images](#generate-and-edit-images)
+  - [Generate Content with Gemini Extensions](#generate-content-with-gemini-extensions)
+  - [Check and Switch to Other Reply Candidates](#check-and-switch-to-other-reply-candidates)
   - [Logging Configuration](#logging-configuration)
 - [References](#references)
 - [Stargazers](#stargazers)
@@ -72,13 +73,13 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 >
 > This package requires Python 3.10 or higher.
 
-Install/update the package with pip.
+Install or update the package with pip.
 
 ```sh
 pip install -U gemini_webapi
 ```
 
-Optionally, package offers a way to automatically import cookies from your local browser. To enable this feature, install `browser-cookie3` as well. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
+Optionally, the package offers a way to automatically import cookies from your local browser. To enable this feature, install `browser-cookie3` as well. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
 
 ```sh
 pip install -U browser-cookie3
@@ -88,11 +89,11 @@ pip install -U browser-cookie3
 
 > [!TIP]
 >
-> If `browser-cookie3` is installed, you can skip this step and go directly to [usage](#usage) section. Just make sure you have logged in to <https://gemini.google.com> in your browser.
+> If `browser-cookie3` is installed, you can skip this step and go directly to the [usage](#usage) section. Just make sure you are logged in to <https://gemini.google.com> in your browser.
 
-- Go to <https://gemini.google.com> and login with your Google account
-- Press F12 for web inspector, go to `Network` tab and refresh the page
-- Click any request and copy cookie values of `__Secure-1PSID` and `__Secure-1PSIDTS`
+- Go to <https://gemini.google.com> and log in with your Google account
+- Press F12 to open the web inspector, go to the `Network` tab, and refresh the page
+- Click any request and copy the cookie values of `__Secure-1PSID` and `__Secure-1PSIDTS`
 
 > [!NOTE]
 >
@@ -111,17 +112,17 @@ services:
 
 > [!NOTE]
 >
-> API's auto cookie refreshing feature doesn't require `browser-cookie3`, and by default is enabled. It allows you to keep the API service running without worrying about cookie expiration.
+> The API's auto-cookie-refreshing feature doesn't require `browser-cookie3` and is enabled by default. It allows you to keep the API service running without worrying about cookie expiration.
 >
-> This feature may cause that you need to re-login to your Google account in the browser. This is an expected behavior and won't affect the API's functionality.
+> This feature may require you to log in to your Google account again in the browser. This is expected behavior and won't affect the API's functionality.
 >
-> To avoid such result, it's recommended to get cookies from a separate browser session and close it as asap for best utilization (e.g. a fresh login in browser's private mode). More details can be found [here](https://github.com/HanaokaYuzu/Gemini-API/issues/6).
+> To avoid this, it's recommended to get cookies from a separate browser session and close it as soon as possible for best utilization (e.g. a fresh login in the browser's private mode). More details can be found [here](https://github.com/HanaokaYuzu/Gemini-API/issues/6).
 
 ## Usage
 
 ### Initialization
 
-Import required packages and initialize a client with your cookies obtained from the previous step. After a successful initialization, the API will automatically refresh `__Secure-1PSIDTS` in background as long as the process is alive.
+Import the required packages and initialize a client with your cookies from the previous step. After successful initialization, the API will automatically refresh `__Secure-1PSIDTS` in the background as long as the process is alive.
 
 ```python
 import asyncio
@@ -142,9 +143,9 @@ asyncio.run(main())
 
 > [!TIP]
 >
-> `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In an always-on service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
+> `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In an always-on service like a chatbot, it's recommended to set `auto_close` to `True` with a reasonable `close_delay` value for better resource management.
 
-### Generate contents
+### Generate Content
 
 Ask a single-turn question by calling `GeminiClient.generate_content`, which returns a `gemini_webapi.ModelOutput` object containing the generated text, images, thoughts, and conversation metadata.
 
@@ -158,11 +159,11 @@ asyncio.run(main())
 
 > [!TIP]
 >
-> Simply use `print(response)` to get the same output if you just want to see the response text
+> Simply use `print(response)` to get the same output if you just want to see the response text.
 
-### Generate contents with files
+### Generate Content with Files
 
-Gemini supports file input, including images and documents. Optionally, you can pass files as a list of paths in `str` or `pathlib.Path` to `GeminiClient.generate_content` together with text prompt.
+Gemini supports file input, including images and documents. Optionally, you can pass files as a list of paths in `str` or `pathlib.Path` to `GeminiClient.generate_content` together with a text prompt.
 
 ```python
 async def main():
@@ -175,9 +176,9 @@ async def main():
 asyncio.run(main())
 ```
 
-### Conversations across multiple turns
+### Conversations Across Multiple Turns
 
-If you want to keep conversation continuous, please use `GeminiClient.start_chat` to create a `gemini_webapi.ChatSession` object and send messages through it. The conversation history will be automatically handled and get updated after each turn.
+If you want to keep the conversation continuous, use `GeminiClient.start_chat` to create a `gemini_webapi.ChatSession` object and send messages through it. The conversation history will be handled automatically and updated after each turn.
 
 ```python
 async def main():
@@ -199,9 +200,9 @@ asyncio.run(main())
 >
 > Same as `GeminiClient.generate_content`, `ChatSession.send_message` also accepts `image` as an optional argument.
 
-### Continue previous conversations
+### Continue Previous Conversations
 
-To manually retrieve previous conversations, you can pass previous `ChatSession`'s metadata to `GeminiClient.start_chat` when creating a new `ChatSession`. Alternatively, you can persist previous metadata to a file or db if you need to access them after the current Python process has exited.
+To manually retrieve previous conversations, you can pass a previous `ChatSession`'s metadata to `GeminiClient.start_chat` when creating a new `ChatSession`. Alternatively, you can persist previous metadata to a file or database if you need to access it after the current Python process has exited.
 
 ```python
 async def main():
@@ -220,9 +221,9 @@ async def main():
 asyncio.run(main())
 ```
 
-### Delete previous conversations from Gemini history
+### Delete Previous Conversations from Gemini History
 
-You can delete a specific chat from Gemini history on the server by calling `GeminiClient.delete_chat` with the chat id.
+You can delete a specific chat from Gemini history on the server by calling `GeminiClient.delete_chat` with the chat ID.
 
 ```python
 async def main():
@@ -237,7 +238,24 @@ async def main():
 asyncio.run(main())
 ```
 
-### Streaming mode
+### Temporary Mode
+
+You can start a temporary chat by passing `temporary=True` to `GeminiClient.generate_content` or `ChatSession.send_message`. Temporary chats won't be saved in Gemini history.
+
+```python
+async def main():
+    response = await client.generate_content("Hello World!", temporary=True)
+    print(response.text, "\n\n----------------------------------\n\n")
+
+    chat = client.start_chat()
+    await chat.send_message("Fine weather today", temporary=False)
+    response2 = await chat.send_message("What's my last message?", temporary=True)
+    print(response2.text)
+
+asyncio.run(main())
+```
+
+### Streaming Mode
 
 For longer responses, you can use streaming mode to receive partial outputs as they are generated. This provides a more responsive user experience, especially for real-time applications like chatbots.
 
@@ -257,11 +275,11 @@ asyncio.run(main())
 
 > [!TIP]
 >
-> You can also use streaming mode in multi-turn conversations with `ChatSession.send_message_stream`.
+> Streaming mode accepts the same arguments as `generate_content`. You can also use streaming mode in multi-turn conversations with `ChatSession.send_message_stream`.
 
-### Select language model
+### Select Language Model
 
-You can specify which language model to use by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
+You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
 Currently available models (as of November 20, 2025):
 
@@ -275,19 +293,19 @@ from gemini_webapi.constants import Model
 
 async def main():
     response1 = await client.generate_content(
-        "What's you language model version? Reply version number only.",
+        "What's your language model version? Reply with the version number only.",
         model=Model.G_3_0_FLASH,
     )
     print(f"Model version ({Model.G_3_0_FLASH.model_name}): {response1.text}")
 
     chat = client.start_chat(model="gemini-2.5-pro")
-    response2 = await chat.send_message("What's you language model version? Reply version number only.")
+    response2 = await chat.send_message("What's your language model version? Reply with the version number only.")
     print(f"Model version (gemini-2.5-pro): {response2.text}")
 
 asyncio.run(main())
 ```
 
-You can also pass custom model header strings directly to access models which are not listed above.
+You can also pass custom model header strings directly to access models that are not listed above.
 
 ```python
 # "model_name" and "model_header" keys must be present
@@ -304,13 +322,13 @@ response = await client.generate_content(
 )
 ```
 
-### Apply system prompt with Gemini Gems
+### Apply System Prompt with Gemini Gems
 
-System prompt can be applied to conversations via [Gemini Gems](https://gemini.google.com/gems/view). To use a gem, you can pass `gem` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. `gem` can be either a string of gem id or a `gemini_webapi.Gem` object. Only one gem can be applied to a single conversation.
+System prompts can be applied to conversations via [Gemini Gems](https://gemini.google.com/gems/view). To use a gem, you can pass the `gem` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. `gem` can be either a gem ID string or a `gemini_webapi.Gem` object. Only one gem can be applied to a single conversation.
 
 > [!TIP]
 >
-> There are some system predefined gems that by default are not shown to users (and therefore may not work properly). Use `client.fetch_gems(include_hidden=True)` to include them in the fetch result.
+> There are some system predefined gems that are not shown to users by default (and therefore may not work properly). Use `client.fetch_gems(include_hidden=True)` to include them in the fetch result.
 
 ```python
 async def main():
@@ -325,7 +343,7 @@ async def main():
     coding_partner = system_gems.get(id="coding-partner")
 
     response1 = await client.generate_content(
-        "what's your system prompt?",
+        "What's your system prompt?",
         model=Model.G_3_0_FLASH,
         gem=coding_partner,
     )
@@ -336,7 +354,7 @@ async def main():
     your_gem = gems.get(name="Your Gem Name")
     your_gem_id = your_gem.id
     chat = client.start_chat(gem=your_gem_id)
-    response2 = await chat.send_message("what's your system prompt?")
+    response2 = await chat.send_message("What's your system prompt?")
     print(response2)
 ```
 
@@ -344,7 +362,7 @@ async def main():
 
 You can create, update, and delete your custom gems programmatically with the API. Note that predefined system gems cannot be modified or deleted.
 
-#### Create a custom gem
+#### Create a Custom Gem
 
 Create a new custom gem with a name, system prompt (instructions), and optional description:
 
@@ -369,7 +387,7 @@ async def main():
 asyncio.run(main())
 ```
 
-#### Update an existing gem
+#### Update an Existing Gem
 
 > [!NOTE]
 >
@@ -394,7 +412,7 @@ async def main():
 asyncio.run(main())
 ```
 
-#### Delete a custom gem
+#### Delete a Custom Gem
 
 ```python
 async def main():
@@ -409,7 +427,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Retrieve model's thought process
+### Retrieve Model's Thought Process
 
 When using models with thinking capabilities, the model's thought process will be populated in `ModelOutput.thoughts`.
 
@@ -424,7 +442,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Retrieve images in response
+### Retrieve Images in Response
 
 Images in the API's output are stored as a list of `gemini_webapi.Image` objects. You can access the image title, URL, and description by calling `Image.title`, `Image.url` and `Image.alt` respectively.
 
@@ -432,18 +450,18 @@ Images in the API's output are stored as a list of `gemini_webapi.Image` objects
 async def main():
     response = await client.generate_content("Send me some pictures of cats")
     for image in response.images:
-        print(image, "\n\n----------------------------------\n")
+        print(image, "\n\n----------------------------------\n\n")
 
 asyncio.run(main())
 ```
 
-### Generate and edit images
+### Generate and Edit Images
 
-You can ask Gemini to generate and edit images with Nano Banana, Google's latest image model, simply by natural language.
+You can ask Gemini to generate and edit images with Nano Banana, Google's latest image model, using natural language.
 
 > [!IMPORTANT]
 >
-> Google has some limitations on the image generation feature in Gemini, so its availability could be different per region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
+> Google has some limitations on Gemini's image generation feature, so availability may vary by region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
 >
 > > This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
 > >
@@ -451,27 +469,27 @@ You can ask Gemini to generate and edit images with Nano Banana, Google's latest
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 
-You can save images returned from Gemini to local by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function and skip images with invalid file names by passing `skip_invalid_filename=True`. Works for both `WebImage` and `GeneratedImage`.
+You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function, and skip images with invalid file names by passing `skip_invalid_filename=True`. This works for both `WebImage` and `GeneratedImage`.
 
 ```python
 async def main():
     response = await client.generate_content("Generate some pictures of cats")
     for i, image in enumerate(response.images):
         await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
-        print(image, "\n\n----------------------------------\n")
+        print(image, "\n\n----------------------------------\n\n")
 
 asyncio.run(main())
 ```
 
 > [!NOTE]
 >
-> by default, when asked to send images (like the previous example), Gemini will send images fetched from web instead of generating images with AI model, unless you specifically require to "generate" images in your prompt. In this package, web images and generated images are treated differently as `WebImage` and `GeneratedImage`, and will be automatically categorized in the output.
+> By default, when asked to send images (like in the previous example), Gemini will send images fetched from the web instead of generating images with an AI model, unless you specifically ask it to "generate" images in your prompt. In this package, web images and generated images are treated differently as `WebImage` and `GeneratedImage`, and are automatically categorized in the output.
 
-### Generate contents with Gemini extensions
+### Generate Content with Gemini Extensions
 
 > [!IMPORTANT]
 >
-> To access Gemini extensions in API, you must activate them on the [Gemini website](https://gemini.google.com/extensions) first. Same as image generation, Google also has limitations on the availability of Gemini extensions. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/13695044) (as of March 19th, 2025):
+> To access Gemini extensions in the API, you must activate them on the [Gemini website](https://gemini.google.com/extensions) first. As with image generation, Google also has limitations on the availability of Gemini extensions. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/13695044) (as of March 19, 2025):
 >
 > > To connect apps to Gemini, you must have​​​​ Gemini Apps Activity on.
 > >
@@ -479,26 +497,26 @@ asyncio.run(main())
 > >
 > > Important: If you’re under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
 
-After activating extensions for your account, you can access them in your prompts either by natural language or by starting your prompt with "@" followed by the extension keyword.
+After activating extensions for your account, you can access them in your prompts either in natural language or by starting your prompt with "@" followed by the extension keyword.
 
 ```python
 async def main():
     response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
-    print(response1, "\n\n----------------------------------\n")
+    print(response1, "\n\n----------------------------------\n\n")
 
     response2 = await client.generate_content("@Youtube What's the latest activity of Taylor Swift?")
-    print(response2, "\n\n----------------------------------\n")
+    print(response2, "\n\n----------------------------------\n\n")
 
 asyncio.run(main())
 ```
 
 > [!NOTE]
 >
-> For the available regions limitation, it actually only requires your Google account's **preferred language** to be set to one of the three supported languages listed above. You can change your language settings [here](https://myaccount.google.com/language).
+> For region availability, your Google account's **preferred language** only needs to be set to one of the three supported languages listed above. You can change your language settings [here](https://myaccount.google.com/language).
 
-### Check and switch to other reply candidates
+### Check and Switch to Other Reply Candidates
 
-A response from Gemini sometimes contains multiple reply candidates with different generated contents. You can check all candidates and choose one to continue the conversation. By default, the first candidate will be chosen.
+A response from Gemini sometimes contains multiple reply candidates with different generated content. You can check all candidates and choose one to continue the conversation. By default, the first candidate is chosen.
 
 ```python
 async def main():
@@ -506,12 +524,12 @@ async def main():
     chat = client.start_chat()
     response = await chat.send_message("Recommend a science fiction book for me.")
     for candidate in response.candidates:
-        print(candidate, "\n\n----------------------------------\n")
+        print(candidate, "\n\n----------------------------------\n\n")
 
     if len(response.candidates) > 1:
         # Control the ongoing conversation flow by choosing candidate manually
         new_candidate = chat.choose_candidate(index=1)  # Choose the second candidate here
-        followup_response = await chat.send_message("Tell me more about it.")  # Will generate contents based on the chosen candidate
+        followup_response = await chat.send_message("Tell me more about it.")  # Will generate content based on the chosen candidate
         print(new_candidate, followup_response, sep="\n\n----------------------------------\n\n")
     else:
         print("Only one candidate available.")
@@ -521,7 +539,7 @@ asyncio.run(main())
 
 ### Logging Configuration
 
-This package uses [loguru](https://loguru.readthedocs.io/en/stable/) for logging, and exposes a function `set_log_level` to control log level. You can set log level to one of the following values: `DEBUG`, `INFO`, `WARNING`, `ERROR` and `CRITICAL`. The default value is `INFO`.
+This package uses [loguru](https://loguru.readthedocs.io/en/stable/) for logging and exposes a function `set_log_level` to control the log level. You can set the log level to one of the following values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. The default value is `INFO`.
 
 ```python
 from gemini_webapi import set_log_level
