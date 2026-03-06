@@ -1206,11 +1206,7 @@ class GeminiClient(GemMixin):
                                             getattr(chat, "rcid", "") if chat else ""
                                         )
 
-                                        is_new_turn = (
-                                            rec_rcid == current_expected_rcid
-                                            if current_expected_rcid
-                                            else rec_rcid != prev_rcid
-                                        )
+                                        is_new_turn = rec_rcid != prev_rcid
 
                                         if is_new_turn:
                                             logger.debug(
@@ -1247,14 +1243,14 @@ class GeminiClient(GemMixin):
                     "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
                     "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
                 )
-            except (GeminiError, APIError):
+            except (UsageLimitExceeded, GeminiError, APIError):
                 if not has_generated_text and chat and chat_backup:
                     chat.metadata = list(chat_backup["metadata"])  # type: ignore
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
                 raise
-            except Exception:
+            except Exception as e:
                 if not has_generated_text and chat and chat_backup:
                     chat.metadata = list(chat_backup["metadata"])  # type: ignore
                     chat.cid = chat_backup["cid"]
@@ -1264,7 +1260,7 @@ class GeminiClient(GemMixin):
                     "Stream parsing interrupted. Attempting to recover conversation context..."
                 )
                 raise APIError(
-                    "Failed to parse response body from Google. This might be a temporary API change or invalid data."
+                    f"Failed to parse response body from Google ({type(e).__name__}). This might be a temporary API change or invalid data."
                 )
 
     def start_chat(self, **kwargs) -> "ChatSession":
@@ -1383,21 +1379,23 @@ class GeminiClient(GemMixin):
 
                             if completion_status == 2:
                                 # Finished successfully
-                                pass
+                                logger.debug(
+                                    f"[read_chat] Gemini has successfully finalized the response for {cid!r}."
+                                )
                             elif completion_status == 1 or has_result_signal:
                                 # Still generating / searching / thinking
                                 logger.debug(
-                                    f"[read_chat] Gemini is still processing the response for {cid!r}. Waiting..."
+                                    f"[read_chat] Gemini is still working on the response for {cid!r}. Continuing to wait..."
                                 )
                                 return None
                             else:
                                 # Stopped generating (e.g. usage limit, policy refusal)
                                 text = (
                                     get_nested_value(candidate_data, [1, 0])
-                                    or "Gemini has stopped generating without providing a response (likely due to a usage limit or safety policy)."
+                                    or "Gemini has stopped generating (this is usually due to a safety policy, content filter, or daily usage limit)."
                                 )
-                                logger.debug(
-                                    f"[read_chat] Generation stopped for {cid!r}: {text}"
+                                logger.warning(
+                                    f"[read_chat] Gemini generation was interrupted/stopped for {cid!r}. Reason: {text}"
                                 )
                                 raise UsageLimitExceeded(text)
 
