@@ -28,6 +28,10 @@ class Image(BaseModel):
     alt: str = ""
     proxy: str | None = None
     client: Any = None
+    _default_filename_suffix: str = "image"
+
+    def _get_url_for_hash(self) -> str:
+        return self.url
 
     def __str__(self):
         return f"Image(title='{self.title}', alt='{self.alt}', url='{reprlib.repr(self.url)}')"
@@ -37,9 +41,9 @@ class Image(BaseModel):
         path: str = "temp",
         filename: str | None = None,
         verbose: bool = False,
-        skip_invalid_filename: bool = False,
         client: AsyncSession | None = None,
-    ) -> str | None:
+        **kwargs: Any,
+    ) -> Any:
         """Saves the image to disk.
 
         Args:
@@ -48,13 +52,12 @@ class Image(BaseModel):
                 a unique generated name.
             verbose (bool, optional): If True, will print the path of the saved file
                 or warning for invalid file name. Defaults to False.
-            skip_invalid_filename (bool, optional): If True, will only save the image
-                if the file name and extension are valid. Defaults to False.
             client (AsyncSession | None, optional): Client used for requests.
+            **kwargs: Additional arguments passed to the specific image's `_perform_save` implementation.
+                For example, `GeneratedImage` accepts `full_size (bool)`.
 
         Returns:
-            str | None: Absolute path of the saved image if successful, None if
-                filename is invalid and `skip_invalid_filename` is True.
+            Any: Absolute path of the saved image if successful.
 
         Raises:
             curl_cffi.requests.exceptions.HTTPError: If the network request failed.
@@ -62,8 +65,12 @@ class Image(BaseModel):
 
         if not filename or not Path(filename).suffix:
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            url_hash = hashlib.sha256(self.url.encode()).hexdigest()[:10]
-            base_name = Path(filename).stem if filename else "image"
+            url_hash = hashlib.sha256(self._get_url_for_hash().encode()).hexdigest()[
+                :10
+            ]
+            base_name = (
+                Path(filename).stem if filename else self._default_filename_suffix
+            )
             filename = f"{timestamp}_{url_hash}_{base_name}"
 
         close_client = False
@@ -80,39 +87,51 @@ class Image(BaseModel):
             close_client = True
 
         try:
-            response = await req_client.get(self.url)
-            if verbose:
-                logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
-
-            if response.status_code == 200:
-                path_obj_file = Path(filename)
-                if not path_obj_file.suffix:
-                    content_type = (
-                        response.headers.get("content-type", "")
-                        .split(";")[0]
-                        .strip()
-                        .lower()
-                    )
-                    ext = mimetypes.guess_extension(content_type) or ".png"
-                    filename = f"{filename}{ext}"
-
-                path_obj = Path(path)
-                path_obj.mkdir(parents=True, exist_ok=True)
-
-                dest = path_obj / filename
-                dest.write_bytes(response.content)
-
-                if verbose:
-                    logger.info(f"Image saved as {dest.resolve()}")
-
-                return str(dest.resolve())
-            else:
-                raise HTTPError(
-                    f"Error downloading image: {response.status_code} {response.reason}"
-                )
+            path_obj = Path(path)
+            path_obj.mkdir(parents=True, exist_ok=True)
+            return await self._perform_save(
+                req_client, path_obj, filename, verbose, **kwargs
+            )
         finally:
             if close_client:
                 await req_client.close()
+
+    async def _perform_save(
+        self,
+        req_client: AsyncSession,
+        path_obj: Path,
+        filename: str,
+        verbose: bool,
+        **kwargs: Any,
+    ) -> Any:
+        """Base implementation: simple download."""
+        response = await req_client.get(self.url)
+        if verbose:
+            logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
+
+        if response.status_code == 200:
+            path_obj_file = Path(filename)
+            if not path_obj_file.suffix:
+                content_type = (
+                    response.headers.get("content-type", "")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
+                )
+                ext = mimetypes.guess_extension(content_type) or ".png"
+                filename = f"{filename}{ext}"
+
+            dest = path_obj / filename
+            dest.write_bytes(response.content)
+
+            if verbose:
+                logger.info(f"Image saved as {dest.resolve()}")
+
+            return str(dest.resolve())
+        else:
+            raise HTTPError(
+                f"Error downloading image: {response.status_code} {response.reason}"
+            )
 
 
 class WebImage(Image):
@@ -144,28 +163,29 @@ class GeneratedImage(Image):
     image_id: str = ""
 
     # @override
-    async def save(
+    async def _perform_save(
         self,
-        path: str = "temp",
-        filename: str | None = None,
-        verbose: bool = False,
-        skip_invalid_filename: bool = False,
-        client: AsyncSession | None = None,
-        full_size: bool = True,
-    ) -> str | None:
-        """Saves the generated image to disk.
+        req_client: AsyncSession,
+        path_obj: Path,
+        filename: str,
+        verbose: bool,
+        **kwargs: Any,
+    ) -> Any:
+        """Internal method for GeneratedImage, handling full size resolution.
 
         Args:
-            path (str, optional): Path to save the image. Defaults to "temp".
-            filename (str | None, optional): Filename to save the image.
-            verbose (bool, optional): Prints status. Defaults to False.
-            skip_invalid_filename (bool, optional): Skip if invalid. Defaults to False.
-            client (AsyncSession | None, optional): An existing AsyncSession client.
-            full_size (bool, optional): Modifies preview URLs to fetch full-size images if True. Defaults to True.
+            req_client (AsyncSession): Client used for requests.
+            path_obj (Path): Path to save the image.
+            filename (str): Base filename.
+            verbose (bool): Prints status if True.
+            **kwargs:
+                full_size (bool, optional): Modifies preview URLs to fetch full-size images. Defaults to True.
 
         Returns:
-            str | None: Absolute path of the saved image if successfully saved, None otherwise.
+            Any: Absolute path of the saved image if successfully saved, None otherwise.
         """
+        full_size = kwargs.get("full_size", True)
+
         if full_size:
             if all([self.client_ref, self.cid, self.rid, self.rcid, self.image_id]):
                 try:
@@ -178,37 +198,17 @@ class GeneratedImage(Image):
                     if original_url:
                         req_url = f"{original_url}=d-I?alr=yes"
 
-                        req_client = client or self.client
-                        close_client = False
+                        response = await req_client.get(req_url)
+                        response.raise_for_status()
+                        url_text = response.text
 
-                        if not req_client:
-                            req_client = AsyncSession(
-                                impersonate="chrome",
-                                allow_redirects=True,
-                                cookies=getattr(self.client_ref, "cookies", None),
-                                proxy=self.proxy,
-                            )
-                            close_client = True
+                        response = await req_client.get(url_text)
+                        response.raise_for_status()
+                        self.url = response.text
 
-                        try:
-                            response = await req_client.get(req_url)
-                            response.raise_for_status()
-                            url_text = response.text
-
-                            response = await req_client.get(url_text)
-                            response.raise_for_status()
-                            self.url = response.text
-
-                            return await super().save(
-                                path=path,
-                                filename=filename,
-                                verbose=verbose,
-                                skip_invalid_filename=skip_invalid_filename,
-                                client=req_client,
-                            )
-                        finally:
-                            if close_client and req_client:
-                                await req_client.close()
+                        return await super()._perform_save(
+                            req_client, path_obj, filename, verbose, **kwargs
+                        )
 
                 except Exception as e:
                     logger.debug(
@@ -225,10 +225,6 @@ class GeneratedImage(Image):
             elif "=s1024-rj" not in self.url:
                 self.url += "=s1024-rj"
 
-        return await super().save(
-            path=path,
-            filename=filename,
-            verbose=verbose,
-            skip_invalid_filename=skip_invalid_filename,
-            client=client,
+        return await super()._perform_save(
+            req_client, path_obj, filename, verbose, **kwargs
         )

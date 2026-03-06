@@ -4,7 +4,7 @@ import reprlib
 from pydantic import BaseModel, field_validator
 
 from .image import Image, WebImage, GeneratedImage
-from .video import GeneratedVideo
+from .video import GeneratedVideo, GeneratedMedia
 
 
 class Candidate(BaseModel):
@@ -25,6 +25,8 @@ class Candidate(BaseModel):
         List of generated images in reply, can be empty
     generated_videos: `list[GeneratedVideo]`, optional
         List of generated videos in reply, can be empty
+    generated_media: `list[GeneratedMedia]`, optional
+        List of generated media (music/audio) in reply, can be empty
     """
 
     rcid: str
@@ -35,12 +37,13 @@ class Candidate(BaseModel):
     web_images: list[WebImage] = []
     generated_images: list[GeneratedImage] = []
     generated_videos: list[GeneratedVideo] = []
+    generated_media: list[GeneratedMedia] = []
 
     def __str__(self):
         return self.text
 
     def __repr__(self):
-        return f"Candidate(rcid='{self.rcid}', text='{reprlib.repr(self.text)}', images={self.images}, videos={self.generated_videos})"
+        return f"Candidate(rcid='{self.rcid}', text='{reprlib.repr(self.text)}', images={self.images}, videos={self.generated_videos}, media={self.generated_media})"
 
     @field_validator("text", "thoughts")
     @classmethod

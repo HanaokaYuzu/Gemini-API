@@ -111,13 +111,31 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         for video in response.videos:
             logger.debug(video)
             paths = await video.save()
-            video_path, thumb_path = paths
+            video_path = paths.get("video")
+            thumb_path = paths.get("video_thumbnail")
             self.assertIsNotNone(video_path)
             self.assertTrue(os.path.exists(str(video_path)))
             if thumb_path:
                 self.assertTrue(os.path.exists(str(thumb_path)))
                 self.assertEqual(Path(str(video_path)).stem, Path(str(thumb_path)).stem)
             logger.debug(f"Saved video to: {paths}")
+
+    @logger.catch(reraise=True)
+    async def test_music_generation(self):
+        response = await self.geminiclient.generate_content(
+            "Generate a 15-second pop music track",
+            model=Model.G_3_PRO_AI_PRO,
+        )
+        self.assertTrue(response.media)
+        logger.debug(response.text)
+        for media in response.media:
+            logger.debug(media)
+            paths = await media.save()
+            self.assertIn("audio", paths)
+            self.assertIn("video", paths)
+            self.assertTrue(os.path.exists(str(paths["audio"])))
+            self.assertTrue(os.path.exists(str(paths["video"])))
+            logger.debug(f"Saved media to: {paths}")
 
     @logger.catch(reraise=True)
     async def test_image_to_image(self):
