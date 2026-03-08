@@ -128,9 +128,9 @@ class GeminiClient(GemMixin):
         self.access_token: str | None = None
         self.build_label: str | None = None
         self.session_id: str | None = None
-        self.timeout: float = 600
+        self.timeout: float = 450
         self.auto_close: bool = False
-        self.close_delay: float = 600
+        self.close_delay: float = 450
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 600
@@ -171,9 +171,9 @@ class GeminiClient(GemMixin):
 
     async def init(
         self,
-        timeout: float = 600,
+        timeout: float = 450,
         auto_close: bool = False,
-        close_delay: float = 600,
+        close_delay: float = 450,
         auto_refresh: bool = True,
         refresh_interval: float = 600,
         verbose: bool = True,
@@ -1099,6 +1099,7 @@ class GeminiClient(GemMixin):
                             logger.debug(
                                 f"[Watchdog] Socket idle for {stall_threshold + 5}s. Refreshing connection..."
                             )
+                            await self.close()
                             break
 
                         buffer += decoder.decode(chunk, final=False)
@@ -1144,22 +1145,7 @@ class GeminiClient(GemMixin):
                             yield out
 
                     if not is_completed or is_thinking or is_queueing:
-                        stall_threshold = (
-                            self.timeout
-                            if (is_thinking or is_queueing)
-                            else min(self.timeout, self.watchdog_timeout)
-                        )
-                        if (time.time() - last_progress_time) > stall_threshold:
-                            if not is_thinking:
-                                logger.debug(
-                                    f"[Watchdog] Stream ended after {stall_threshold}s without completing. Triggering recovery..."
-                                )
-                            else:
-                                logger.debug(
-                                    "[Watchdog] Stream finished but model is still thinking. Polling again..."
-                                )
-
-                        if cid:
+                        if cid and is_final_chunk:  # The conversation can only be recovered if Gemini has saved the context.
                             logger.debug(
                                 f"Stream incomplete. Checking conversation history for {cid}..."
                             )
@@ -1171,6 +1157,7 @@ class GeminiClient(GemMixin):
                                     logger.warning(
                                         f"[Recovery] Polling for {cid} timed out after {self.timeout}s."
                                     )
+                                    await self.close()
                                     if has_generated_text:
                                         raise GeminiError(
                                             "The connection to Gemini was lost while generating the response, and recovery timed out. "
