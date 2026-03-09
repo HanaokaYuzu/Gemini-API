@@ -1,4 +1,5 @@
 import argparse
+import io
 import os
 import reprlib
 import sys
@@ -9,12 +10,22 @@ import orjson as json
 
 from gemini_webapi.utils.parsing import extract_json_from_response
 
+# Ensure UTF-8 on all platforms
+if sys.stdin.encoding != "utf-8":
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+if sys.stderr.encoding != "utf-8":
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-c_repr = reprlib.Repr(maxstring=100)
+MAXSTRING = 123
+
+c_repr = reprlib.Repr(maxstring=MAXSTRING)
 
 
 def print_tree(data: Any, indent: str = "", path: Optional[list[Any]] = None):
@@ -72,7 +83,7 @@ def main():
 
         print(f"Found {len(parsed_data)} frames/objects.")
 
-        separate_frames = "#" * 100
+        separate_frames = "#" * MAXSTRING
         for i, frame in enumerate(parsed_data):
             print(f"\n{separate_frames}")
             print(f"\n[FRAME {i}]")

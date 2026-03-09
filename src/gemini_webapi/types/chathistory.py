@@ -33,7 +33,7 @@ class ChatTurn(BaseModel):
 
 class ChatHistory(BaseModel):
     """
-    Represents the full history of a chat conversation.
+    Represents the complete history of a chat conversation, ordered from the latest turn to the oldest.
 
     Parameters
     ----------

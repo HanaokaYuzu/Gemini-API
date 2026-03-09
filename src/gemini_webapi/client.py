@@ -1074,9 +1074,7 @@ class GeminiClient(GemMixin):
                                             is_queueing = False
                                             session_state["is_queueing"] = False
                                             yield ModelOutput(
-                                                metadata=get_nested_value(
-                                                    part_json, [1], []
-                                                ),
+                                                metadata=[cid, rid],
                                                 candidates=output_candidates,
                                             )
                                 except json.JSONDecodeError:
@@ -1173,9 +1171,9 @@ class GeminiClient(GemMixin):
                                 if (
                                     recovered_history
                                     and recovered_history.turns
-                                    and recovered_history.turns[-1].role == "model"
+                                    and recovered_history.turns[0].role == "model"
                                 ):
-                                    recovered = recovered_history.turns[-1].info
+                                    recovered = recovered_history.turns[0].info
                                     if (
                                         recovered
                                         and recovered.candidates
@@ -1308,7 +1306,7 @@ class GeminiClient(GemMixin):
 
     async def read_chat(self, cid: str, limit: int = 10) -> ChatHistory | None:
         """
-        Fetch the full conversation history by chat id.
+        Fetch the complete conversation history by chat ID, ordered from the latest turn to the oldest.
 
         Parameters
         ----------
@@ -1333,7 +1331,6 @@ class GeminiClient(GemMixin):
                     ),
                 ]
             )
-
             response_json = extract_json_from_response(response.text)
 
             for part in response_json:
@@ -1348,19 +1345,15 @@ class GeminiClient(GemMixin):
 
                 chat_turns = []
                 for conv_turn in turns_data:
-                    # User turn
-                    user_text = get_nested_value(conv_turn, [2, 0, 0], "")
-                    if user_text:
-                        chat_turns.append(ChatTurn(role="user", text=user_text))
+                    rid = get_nested_value(conv_turn, [0, 1], "")
 
                     # Model turn
                     candidates_list = get_nested_value(conv_turn, [3, 0])
                     if candidates_list:
                         output_candidates = []
-                        rid = get_nested_value(conv_turn, [1], "")
                         for candidate_data in candidates_list:
                             completion_status = get_nested_value(candidate_data, [8, 0])
-                            has_result_signal = (
+                            has_progress_signal = (
                                 get_nested_value(candidate_data, [12, 6, 0]) is not None
                             )
 
@@ -1369,7 +1362,7 @@ class GeminiClient(GemMixin):
                                 logger.debug(
                                     f"[read_chat] Gemini has successfully finalized the response for {cid!r}."
                                 )
-                            elif completion_status == 1 or has_result_signal:
+                            elif completion_status == 1 or has_progress_signal:
                                 # Still generating / searching / thinking
                                 logger.debug(
                                     f"[read_chat] Gemini is still working on the response for {cid!r}. Continuing to wait..."
@@ -1384,7 +1377,6 @@ class GeminiClient(GemMixin):
                                 logger.warning(
                                     f"[read_chat] Gemini generation was interrupted/stopped for {cid!r}. Reason: {text}"
                                 )
-                                raise UsageLimitExceeded(text)
 
                             rcid = get_nested_value(candidate_data, [0], "")
                             (
@@ -1408,22 +1400,25 @@ class GeminiClient(GemMixin):
                             )
                         if output_candidates:
                             model_output = ModelOutput(
-                                metadata=[cid, rid, output_candidates[0].rcid],
+                                metadata=[cid, rid],
                                 candidates=output_candidates,
                             )
                             chat_turns.append(
                                 ChatTurn(
                                     role="model",
-                                    text=output_candidates[0].text,
+                                    text=model_output.text,
                                     info=model_output,
                                 )
                             )
 
+                    # User turn
+                    user_text = get_nested_value(conv_turn, [2, 0, 0], "")
+                    if user_text:
+                        chat_turns.append(ChatTurn(role="user", text=user_text))
+
                 return ChatHistory(cid=cid, metadata=[cid], turns=chat_turns)
 
             return None
-        except UsageLimitExceeded:
-            raise
         except Exception:
             logger.debug(
                 f"[read_chat] Response data for {cid!r} is still incomplete (model is still processing)..."
