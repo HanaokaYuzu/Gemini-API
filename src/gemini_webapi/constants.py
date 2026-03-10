@@ -52,7 +52,6 @@ class Headers(Enum):
     }
     ROTATE_COOKIES = {
         "Content-Type": "application/json",
-        "Origin": "https://accounts.google.com",
     }
     UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz", "x-tenant-id": "bard-storage"}
     BATCH_EXEC = {
