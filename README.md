@@ -491,7 +491,7 @@ You can ask Gemini to generate and edit images with Nano Banana, Google's latest
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 
-You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function, and skip images with invalid file names by passing `skip_invalid_filename=True`. This works for both `WebImage` and `GeneratedImage`.
+You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function. This works for both `WebImage` and `GeneratedImage`.
 
 ```python
 async def main():
