@@ -27,6 +27,9 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+browser = ["browser-cookie3"]
+
 [project.urls]
 Repository = "https://github.com/HanaokaYuzu/Gemini-API"
 Issues = "https://github.com/HanaokaYuzu/Gemini-API/issues"

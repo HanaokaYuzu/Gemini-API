@@ -49,6 +49,7 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
   - [Generate Content with Files](#generate-content-with-files)
   - [Conversations Across Multiple Turns](#conversations-across-multiple-turns)
   - [Continue Previous Conversations](#continue-previous-conversations)
+  - [Read Conversation History](#read-conversation-history)
   - [Delete Previous Conversations from Gemini History](#delete-previous-conversations-from-gemini-history)
   - [Temporary Mode](#temporary-mode)
   - [Streaming Mode](#streaming-mode)
@@ -79,10 +80,10 @@ Install or update the package with pip.
 pip install -U gemini_webapi
 ```
 
-Optionally, the package offers a way to automatically import cookies from your local browser. To enable this feature, install `browser-cookie3` as well. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
+Optionally, the package offers a way to automatically import cookies from your local browser via optional dependency `browser-cookie3`. To enable this feature, install `gemini_webapi[browser]` instead. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
 
 ```sh
-pip install -U browser-cookie3
+pip install -U gemini_webapi[browser]
 ```
 
 ## Authentication
@@ -217,6 +218,27 @@ async def main():
     previous_chat = client.start_chat(metadata=previous_session)
     response = await previous_chat.send_message("What was my previous message?")
     print(response)
+
+asyncio.run(main())
+```
+
+### Read Conversation History
+
+You can read the conversation history of a specific chat by calling `GeminiClient.read_chat` with the chat ID.
+
+```python
+async def main():
+    chat = client.start_chat()
+    await chat.send_message("What is the capital of France?")
+
+    # Read the chat history
+    history = await client.read_chat(chat.cid)
+    for turn in history:
+        print(
+            f"Input: {turn.user_prompt}\n"
+            f"Output: {turn.assistant_response}"
+            "\n\n----------------------------------\n\n"
+        )
 
 asyncio.run(main())
 ```
