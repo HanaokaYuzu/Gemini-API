@@ -9,6 +9,7 @@ from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel
 
+from ..constants import Headers
 from ..utils import logger
 
 
@@ -105,7 +106,7 @@ class Image(BaseModel):
         **kwargs: Any,
     ) -> Any:
         """Base implementation: simple download."""
-        response = await req_client.get(self.url)
+        response = await req_client.get(self.url, headers=Headers.REFERER.value)
         if verbose:
             logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
 
@@ -198,11 +199,15 @@ class GeneratedImage(Image):
                     if original_url:
                         req_url = f"{original_url}=d-I?alr=yes"
 
-                        response = await req_client.get(req_url)
+                        response = await req_client.get(
+                            req_url, headers=Headers.REFERER.value
+                        )
                         response.raise_for_status()
                         url_text = response.text
 
-                        response = await req_client.get(url_text)
+                        response = await req_client.get(
+                            url_text, headers=Headers.REFERER.value
+                        )
                         response.raise_for_status()
                         self.url = response.text
 

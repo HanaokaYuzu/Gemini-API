@@ -47,14 +47,22 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             original_url = image.url
 
             await image.save(verbose=True, full_size=True)
-            self.assertFalse("=s2048-rj" in image.url, "Test failed: Fallback occurred despite expecting RPC success.")
+            self.assertFalse(
+                "=s2048-rj" in image.url,
+                "Test failed: Fallback occurred despite expecting RPC success.",
+            )
 
             image.url = original_url
 
-            with patch.object(self.geminiclient, "_get_image_full_size", new_callable=AsyncMock) as mock_rpc:
+            with patch.object(
+                self.geminiclient, "_get_image_full_size", new_callable=AsyncMock
+            ) as mock_rpc:
                 mock_rpc.side_effect = Exception("Simulated RPC failure for testing")
                 await image.save(verbose=True, full_size=True)
-                self.assertTrue("=s2048-rj" in image.url, "Test failed: Expected fallback to =s2048-rj but did not happen.")
+                self.assertTrue(
+                    "=s2048-rj" in image.url,
+                    "Test failed: Expected fallback to =s2048-rj but did not happen.",
+                )
 
     async def test_save_image_to_image(self):
         response = await self.geminiclient.generate_content(

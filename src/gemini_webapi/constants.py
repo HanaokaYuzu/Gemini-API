@@ -39,17 +39,26 @@ class GRPC(StrEnum):
 
 
 class Headers(Enum):
-    GEMINI = {
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-        "Host": "gemini.google.com",
+    REFERER = {
         "Origin": "https://gemini.google.com",
         "Referer": "https://gemini.google.com/",
+    }
+    SAME_DOMAIN = {
         "X-Same-Domain": "1",
+    }
+    GEMINI = {
+        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        **REFERER,
     }
     ROTATE_COOKIES = {
         "Content-Type": "application/json",
+        "Origin": "https://accounts.google.com",
     }
-    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz"}
+    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz", "x-tenant-id": "bard-storage"}
+    BATCH_EXEC = {
+        "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4]]",
+        "x-goog-ext-73010989-jspb": "[0]",
+    }
 
 
 class Model(Enum):
@@ -57,42 +66,54 @@ class Model(Enum):
     G_3_PRO_AI_FREE = (
         "gemini-3-pro-ai-free",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
         },
         False,
     )
     G_3_FLASH_AI_FREE = (
         "gemini-3-flash-ai-free",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
         },
         False,
     )
     G_3_FLASH_THINKING_AI_FREE = (
         "gemini-3-flash-thinking-ai-free",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
         },
         False,
     )
     G_3_PRO_AI_PRO = (
         "gemini-3-pro-ai-pro",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
         },
         True,
     )
     G_3_FLASH_AI_PRO = (
         "gemini-3-flash-ai-pro",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
         },
         True,
     )
     G_3_FLASH_THINKING_AI_PRO = (
         "gemini-3-flash-thinking-ai-pro",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]'
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
         },
         True,
     )

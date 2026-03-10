@@ -81,9 +81,14 @@ async def upload_file(
     )
 
     try:
+        request_headers = {
+            **Headers.GEMINI.value,
+            **Headers.UPLOAD.value,
+        }
+
         response = await client.post(
             url=Endpoint.UPLOAD,
-            headers=Headers.UPLOAD.value,
+            headers=request_headers,
             multipart=mp,
             allow_redirects=True,
         )

@@ -10,6 +10,7 @@ from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel
 
+from ..constants import Headers
 from ..utils import logger
 
 
@@ -101,7 +102,7 @@ class Video(BaseModel):
         verbose: bool = False,
     ) -> str | None:
         """Internal helper to download a file and determine its extension."""
-        response = await req_client.get(url)
+        response = await req_client.get(url, headers=Headers.REFERER.value)
         if verbose:
             logger.debug(f"HTTP Request: GET {url} [{response.status_code}]")
 

@@ -92,6 +92,7 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
 
     if new_1psidts:
         path.write_text(new_1psidts)
+        path.chmod(0o600)  # Restrict cookie cache to owner read/write only
         logger.debug(
             f"Rotated __Secure-1PSIDTS successfully (length={len(new_1psidts)})."
         )

@@ -4,6 +4,7 @@ import io
 import random
 import re
 import time
+import uuid
 from asyncio import Task
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -18,6 +19,7 @@ from .constants import (
     ErrorCode,
     GRPC,
     Model,
+    Headers,
     TEMPORARY_CHAT_FLAG_INDEX,
     STREAMING_FLAG_INDEX,
     GEM_FLAG_INDEX,
@@ -490,6 +492,7 @@ class GeminiClient(GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        language: str = "en",
         **kwargs,
     ) -> ModelOutput:
         """
@@ -513,6 +516,8 @@ class GeminiClient(GemMixin):
             If None, will automatically generate a new chat id when sending post request.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
+        language: `str`, optional
+            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -573,6 +578,7 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
+                language=language,
                 **kwargs,
             ):
                 pass
@@ -602,6 +608,7 @@ class GeminiClient(GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -625,6 +632,8 @@ class GeminiClient(GemMixin):
             Chat data to retrieve conversation history.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
+        language: `str`, optional
+            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
@@ -680,6 +689,7 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
+                language=language,
                 **kwargs,
             ):
                 yield output
@@ -704,6 +714,7 @@ class GeminiClient(GemMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
+        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -785,6 +796,30 @@ class GeminiClient(GemMixin):
                 if temporary:
                     inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
+                inner_req_list[1] = [f"{language}"]
+                inner_req_list[6] = [1]
+                inner_req_list[10] = 1
+                inner_req_list[11] = 0
+                inner_req_list[17] = [[0]]
+                inner_req_list[18] = 0
+                inner_req_list[27] = 1
+                inner_req_list[30] = [4]
+                inner_req_list[41] = [1]
+                inner_req_list[53] = 0
+                inner_req_list[61] = []
+                inner_req_list[68] = 2
+
+                uuid_val = str(uuid.uuid4()).upper()
+
+                inner_req_list[59] = uuid_val
+
+                request_headers = {
+                    **Headers.GEMINI.value,
+                    **model.model_header,
+                    "x-goog-ext-525005358-jspb": f'["{uuid_val}",1]',
+                    **Headers.SAME_DOMAIN.value,
+                }
+
                 request_data = {
                     "at": self.access_token,
                     "f.req": json.dumps(
@@ -799,7 +834,7 @@ class GeminiClient(GemMixin):
                     "POST",
                     Endpoint.GENERATE,
                     params=params,
-                    headers=model.model_header,
+                    headers=request_headers,
                     data=request_data,
                     **kwargs,
                 ) as response:
@@ -1660,9 +1695,16 @@ class GeminiClient(GemMixin):
             if self.session_id:
                 params["f.sid"] = self.session_id
 
+            request_headers = {
+                **Headers.GEMINI.value,
+                **Headers.BATCH_EXEC.value,
+                **Headers.SAME_DOMAIN.value,
+            }
+
             response = await self.client.post(
                 Endpoint.BATCH_EXEC,
                 params=params,
+                headers=request_headers,
                 data={
                     "at": self.access_token,
                     "f.req": json.dumps(
@@ -1765,6 +1807,7 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
+        language: str = "en",
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1781,6 +1824,8 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
+        language: `str`, optional
+            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -1810,6 +1855,7 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
+            language=language,
             **kwargs,
         )
 
@@ -1818,6 +1864,7 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
+        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1836,6 +1883,8 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
+        language: `str`, optional
+            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
 
@@ -1852,6 +1901,7 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
+            language=language,
             **kwargs,
         ):
             yield output
