@@ -44,6 +44,17 @@ async def get_access_token(
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
 
+    Parameters
+    ----------
+    base_cookies: `dict | curl_cffi.requests.Cookies`
+        Initial cookies to try. Can be a dictionary or a Cookies object.
+    proxy: `str`, optional
+        Proxy URL.
+    verbose: `bool`, optional
+        If True, log more details.
+    verify: `bool`, optional
+        Whether to verify SSL certificates.
+
     Returns the **live** AsyncSession that succeeded so the caller can reuse
     the same TLS connection for subsequent requests.
     """
