@@ -831,7 +831,14 @@ class GeminiClient(GemMixin):
                     async def _process_parts(
                         parts: list[Any],
                     ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, cid, rid
+                        nonlocal \
+                            is_thinking, \
+                            is_queueing, \
+                            has_candidates, \
+                            is_completed, \
+                            is_final_chunk, \
+                            cid, \
+                            rid
                         for part in parts:
                             # Check for fatal error codes
                             error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -947,12 +954,10 @@ class GeminiClient(GemMixin):
                                             )
 
                                             # Check if this frame represents the complete state of the message
-                                            is_completed = (
-                                                get_nested_value(
-                                                    candidate_data, [8, 0], 1
-                                                )
-                                                == 2
+                                            indicator = get_nested_value(
+                                                candidate_data, [8, 0]
                                             )
+                                            is_completed = indicator == 2
 
                                             # Save this conversation turn to list_chats whenever it is stored in history.
                                             if is_final_chunk:
@@ -1019,7 +1024,8 @@ class GeminiClient(GemMixin):
                                                 get_delta_by_fp_len(
                                                     text,
                                                     last_sent_text,
-                                                    is_final=is_completed,
+                                                    is_final=is_completed
+                                                    or indicator is None,
                                                 )
                                             )
                                             last_sent_thought = last_thoughts.get(
@@ -1030,7 +1036,8 @@ class GeminiClient(GemMixin):
                                                     get_delta_by_fp_len(
                                                         thoughts,
                                                         last_sent_thought,
-                                                        is_final=is_completed,
+                                                        is_final=is_completed
+                                                        or indicator is None,
                                                     )
                                                 )
                                             else:
@@ -1042,6 +1049,8 @@ class GeminiClient(GemMixin):
                                                 or thoughts_delta
                                                 or web_images
                                                 or generated_images
+                                                or generated_videos
+                                                or generated_media
                                             ):
                                                 has_candidates = True
 
@@ -1143,7 +1152,9 @@ class GeminiClient(GemMixin):
                             yield out
 
                     if not is_completed or is_thinking or is_queueing:
-                        if cid and is_final_chunk:  # The conversation can only be recovered if Gemini has saved the context.
+                        if (
+                            cid and is_final_chunk
+                        ):  # The conversation can only be recovered if Gemini has saved the context.
                             logger.debug(
                                 f"Stream incomplete. Checking conversation history for {cid}..."
                             )
@@ -1178,12 +1189,14 @@ class GeminiClient(GemMixin):
                                         recovered
                                         and recovered.candidates
                                         and (
-                                            recovered.candidates[0].text.strip()
-                                            or recovered.candidates[0].generated_images
-                                            or recovered.candidates[0].web_images
+                                            recovered.text
+                                            or recovered.thoughts
+                                            or recovered.images
+                                            or recovered.videos
+                                            or recovered.media
                                         )
                                     ):
-                                        rec_rcid = recovered.candidates[0].rcid
+                                        rec_rcid = recovered.rcid
                                         prev_rcid = (
                                             chat_backup["rcid"] if chat_backup else ""
                                         )
@@ -1362,7 +1375,7 @@ class GeminiClient(GemMixin):
                                 logger.debug(
                                     f"[read_chat] Gemini has successfully finalized the response for {cid!r}."
                                 )
-                            elif completion_status == 1 or has_progress_signal:
+                            elif has_progress_signal:
                                 # Still generating / searching / thinking
                                 logger.debug(
                                     f"[read_chat] Gemini is still working on the response for {cid!r}. Continuing to wait..."
@@ -1370,15 +1383,17 @@ class GeminiClient(GemMixin):
                                 return None
                             else:
                                 # Stopped generating (e.g. usage limit, policy refusal)
-                                text = (
+                                reason = (
                                     get_nested_value(candidate_data, [1, 0])
                                     or "Gemini has stopped generating (this is usually due to a safety policy, content filter, or daily usage limit)."
                                 )
                                 logger.warning(
-                                    f"[read_chat] Gemini generation was interrupted/stopped for {cid!r}. Reason: {text}"
+                                    f"[read_chat] Gemini generation was interrupted/stopped for {cid!r}. Reason: {reason}"
                                 )
 
-                            rcid = get_nested_value(candidate_data, [0], "")
+                            rcid = get_nested_value(candidate_data, [0])
+                            if not rcid:
+                                continue
                             (
                                 text,
                                 thoughts,
@@ -1391,7 +1406,9 @@ class GeminiClient(GemMixin):
                                 Candidate(
                                     rcid=rcid,
                                     text=text,
+                                    text_delta=text,
                                     thoughts=thoughts,
+                                    thoughts_delta=thoughts,
                                     web_images=web_images,
                                     generated_images=generated_images,
                                     generated_videos=generated_videos,
