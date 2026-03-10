@@ -2,6 +2,8 @@ import os
 import time
 from pathlib import Path
 
+import orjson as json
+
 from curl_cffi.requests import AsyncSession, Cookies
 
 from ..constants import Endpoint, Headers
@@ -55,11 +57,11 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
         If request failed with other status codes.
     """
 
-    path = (
-        (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
-        and Path(GEMINI_COOKIE_PATH)
-        or (Path(__file__).parent / "temp")
-    )
+    gemini_cookie_path = os.getenv("GEMINI_COOKIE_PATH")
+    if gemini_cookie_path:
+        path = Path(gemini_cookie_path)
+    else:
+        path = Path(__file__).parent / "temp"
     path.mkdir(parents=True, exist_ok=True)
 
     # Safely get __Secure-1PSID value for filename
@@ -68,12 +70,14 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
     if not secure_1psid:
         return None
 
-    filename = f".cached_1psidts_{secure_1psid}.txt"
+    filename = f".cached_cookies_{secure_1psid}.json"
     path = path / filename
 
     # Check if the cache file was modified in the last minute to avoid 429 Too Many Requests
     if path.is_file() and time.time() - os.path.getmtime(path) <= 60:
-        return path.read_text()
+        if verbose:
+            logger.debug("Rotation skipped, cache is still fresh (< 60s).")
+        return _extract_cookie_value(client.cookies, "__Secure-1PSIDTS")
 
     response = await client.post(
         url=Endpoint.ROTATE_COOKIES,
@@ -91,10 +95,27 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
     new_1psidts = _extract_cookie_value(client.cookies, "__Secure-1PSIDTS")
 
     if new_1psidts:
-        path.write_text(new_1psidts)
+        cookie_list = []
+        for cookie in client.cookies.jar:
+            # Only save persistent cookies for .google.com
+            if (
+                cookie.domain == ".google.com"
+                and cookie.expires
+                and not cookie.is_expired()
+            ):
+                cookie_list.append(
+                    {
+                        "name": cookie.name,
+                        "value": cookie.value,
+                        "domain": cookie.domain,
+                        "path": cookie.path,
+                        "expires": cookie.expires,
+                    }
+                )
+        path.write_text(json.dumps(cookie_list).decode("utf-8"))
         path.chmod(0o600)  # Restrict cookie cache to owner read/write only
         logger.debug(
-            f"Rotated __Secure-1PSIDTS successfully (length={len(new_1psidts)})."
+            f"Rotated and cached cookies successfully ({len(cookie_list)} cookies)."
         )
         return new_1psidts
 

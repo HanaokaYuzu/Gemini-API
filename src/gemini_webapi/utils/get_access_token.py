@@ -1,8 +1,11 @@
 import os
 import re
+import time
 from pathlib import Path
 
 from curl_cffi.requests import AsyncSession, Cookies, Response
+
+import orjson as json
 
 from .load_browser_cookies import HAS_BC3, load_browser_cookies
 from .logger import logger
@@ -82,37 +85,92 @@ async def get_access_token(
         cache_dir = Path(__file__).parent / "temp"
 
     if base_psid:
-        filename = f".cached_1psidts_{base_psid}.txt"
+        filename = f".cached_cookies_{base_psid}.json"
         cache_file = cache_dir / filename
+
         if cache_file.is_file():
-            cached_1psidts = cache_file.read_text().strip()
-            if cached_1psidts:
+            content = cache_file.read_text().strip()
+            if content:
                 jar = Cookies(extra_cookies)
-                jar.update(base_cookies)
-                jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                cookie_jars_to_test.append((jar, "Cache"))
-                tried_psid_ts.add((base_psid, cached_1psidts))
+                if isinstance(base_cookies, dict):
+                    for name, value in base_cookies.items():
+                        jar.set(name, value, domain=".google.com", path="/")
+                else:
+                    jar.update(base_cookies)
+                try:
+                    cookies_data = json.loads(content)
+                    for cookie in cookies_data:
+                        # Skip expired cookies
+                        expires = cookie.get("expires")
+                        if expires and expires < time.time():
+                            continue
+
+                        jar.set(
+                            cookie["name"],
+                            cookie["value"],
+                            domain=cookie.get("domain", ".google.com"),
+                            path=cookie.get("path", "/"),
+                        )
+                    cookie_jars_to_test.append((jar, "Cache"))
+                    tried_psid_ts.add(
+                        (
+                            base_psid,
+                            _extract_cookie_value(jar, "__Secure-1PSIDTS") or "",
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to parse cached cookies as JSON: {e}")
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
         elif verbose:
             logger.debug("Skipping loading cached cookies. Cache file not found.")
 
     if not base_psid:
-        for cache_file in cache_dir.glob(".cached_1psidts_*.txt"):
+        cache_files = list(cache_dir.glob(".cached_cookies_*.json"))
+        if cache_files:
+            # Only use the most recently modified cache file as the default
+            cache_file = max(cache_files, key=lambda p: p.stat().st_mtime)
             psid = cache_file.stem[16:]
-            cached_1psidts = cache_file.read_text().strip()
-            if cached_1psidts:
+            content = cache_file.read_text().strip()
+            if content:
                 jar = Cookies(extra_cookies)
-                jar.set("__Secure-1PSID", psid, domain=".google.com")
-                jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                cookie_jars_to_test.append((jar, "Cache"))
-                tried_psid_ts.add((psid, cached_1psidts))
+                try:
+                    cookies_data = json.loads(content)
+                    for cookie in cookies_data:
+                        # Skip expired cookies
+                        expires = cookie.get("expires")
+                        if expires and expires < time.time():
+                            continue
+
+                        jar.set(
+                            cookie["name"],
+                            cookie["value"],
+                            domain=cookie.get("domain", ".google.com"),
+                            path=cookie.get("path", "/"),
+                        )
+                    cookie_jars_to_test.append((jar, "Cache (Latest)"))
+                    tried_psid_ts.add(
+                        (psid, _extract_cookie_value(jar, "__Secure-1PSIDTS") or "")
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to parse cached cookies as JSON: {e}")
 
     # Phase 2: Base Cookies
     if base_psid and base_psidts:
         if (base_psid, base_psidts) not in tried_psid_ts:
             jar = Cookies(extra_cookies)
-            jar.update(base_cookies)
+            if isinstance(base_cookies, dict):
+                for name, value in base_cookies.items():
+                    jar.set(name, value, domain=".google.com", path="/")
+            else:
+                for cookie in base_cookies.jar:
+                    if not cookie.is_expired():
+                        jar.set(
+                            cookie.name,
+                            cookie.value,
+                            domain=cookie.domain or ".google.com",
+                            path=cookie.path or "/",
+                        )
             cookie_jars_to_test.append((jar, "Base Cookies"))
             tried_psid_ts.add((base_psid, base_psidts))
         elif verbose:
@@ -128,8 +186,13 @@ async def get_access_token(
             domain_name="google.com", verbose=verbose
         )
         if browser_cookies:
-            for browser, cookies in browser_cookies.items():
-                if secure_1psid := cookies.get("__Secure-1PSID"):
+            for browser, cookie_list in browser_cookies.items():
+                # Extract identifiers for matching and deduplication
+                temp_cookies = {c["name"]: c["value"] for c in cookie_list}
+                secure_1psid = temp_cookies.get("__Secure-1PSID")
+                secure_1psidts = temp_cookies.get("__Secure-1PSIDTS")
+
+                if secure_1psid:
                     if base_psid and base_psid != secure_1psid:
                         if verbose:
                             logger.debug(
@@ -138,24 +201,24 @@ async def get_access_token(
                             )
                         continue
 
-                    secure_1psidts = cookies.get("__Secure-1PSIDTS")
                     if (secure_1psid, secure_1psidts or "") in tried_psid_ts:
                         continue
 
-                    local_cookies = {"__Secure-1PSID": secure_1psid}
-                    if secure_1psidts:
-                        local_cookies["__Secure-1PSIDTS"] = secure_1psidts
-                    if nid := cookies.get("NID"):
-                        local_cookies["NID"] = nid
-
                     jar = Cookies(extra_cookies)
-                    for k, v in local_cookies.items():
-                        jar.set(k, v, domain=".google.com")
+                    for cookie in cookie_list:
+                        jar.set(
+                            cookie["name"],
+                            cookie["value"],
+                            domain=cookie["domain"],
+                            path=cookie["path"],
+                        )
 
                     cookie_jars_to_test.append((jar, f"Browser ({browser})"))
                     tried_psid_ts.add((secure_1psid, secure_1psidts or ""))
                     if verbose:
-                        logger.debug(f"Prepared local browser cookies from {browser}")
+                        logger.debug(
+                            f"Prepared local browser cookies from {browser} ({len(cookie_list)} cookies)"
+                        )
 
         if (
             HAS_BC3

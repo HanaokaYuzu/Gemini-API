@@ -120,6 +120,7 @@ class GeminiClient(GemMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        cookies: dict[str, str] | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -145,6 +146,10 @@ class GeminiClient(GemMixin):
         self._available_models: list[AvailableModel] | None = None
         self._recent_chats: list[ChatInfo] | None = None
         self.kwargs = kwargs
+
+        if cookies:
+            for k, v in cookies.items():
+                self._cookies.set(k, v, domain=".google.com")
 
         if secure_1psid:
             self._cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
@@ -309,9 +314,7 @@ class GeminiClient(GemMixin):
                     # Refresh all cookies in the background to keep the session alive.
                     new_1psidts = await rotate_1psidts(self.client, self.verbose)
 
-                    if new_1psidts:
-                        logger.debug("Cookies refreshed (network update).")
-                    else:
+                    if not new_1psidts:
                         logger.warning(
                             "Rotation response did not contain a new __Secure-1PSIDTS. "
                             "Session might expire soon if this persists."

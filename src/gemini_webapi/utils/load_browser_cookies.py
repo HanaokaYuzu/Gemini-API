@@ -26,8 +26,9 @@ def load_browser_cookies(domain_name: str = "", verbose: bool = False) -> dict:
 
     Returns
     -------
-    `dict[str, dict]`
+    `dict[str, list[dict]]`
         Dictionary with browser as keys and their cookies for the specified domain as values.
+        Each cookie is a dictionary: `{"name": str, "value": str, "domain": str, "path": str, "expires": int}`.
         Only browsers that have cookies for the specified domain will be included.
     """
     if not HAS_BC3 or bc3 is None:
@@ -56,7 +57,20 @@ def load_browser_cookies(domain_name: str = "", verbose: bool = False) -> dict:
         try:
             jar: CookieJar = cookie_fn(domain_name=domain_name)
             if jar:
-                return cookie_fn.__name__, {cookie.name: cookie.value for cookie in jar}
+                cookie_list = []
+                for cookie in jar:
+                    if not cookie.is_expired():
+                        cookie_list.append(
+                            {
+                                "name": cookie.name,
+                                "value": cookie.value,
+                                "domain": cookie.domain,
+                                "path": cookie.path,
+                                "expires": cookie.expires,
+                            }
+                        )
+                if cookie_list:
+                    return cookie_fn.__name__, cookie_list
         except bc3.BrowserCookieError:
             pass
         except PermissionError:
