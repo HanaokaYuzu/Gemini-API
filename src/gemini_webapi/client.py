@@ -78,11 +78,6 @@ class GeminiClient(GemMixin):
         __Secure-1PSID cookie value.
     secure_1psidts: `str`, optional
         __Secure-1PSIDTS cookie value, some Google accounts don't require this value, provide only if it's in the cookie list.
-    cookies: `dict[str, str]`, optional
-        Full Google cookie dict for browser-parity.
-        Values are set on the `.google.com` domain. If both `cookies`
-        and `secure_1psid` provide `__Secure-1PSID`, the explicit
-        `secure_1psid` parameter takes precedence.
     proxy: `str`, optional
         Proxy URL.
     kwargs: `dict`, optional
@@ -125,7 +120,6 @@ class GeminiClient(GemMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
-        cookies: dict[str, str] | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -152,9 +146,6 @@ class GeminiClient(GemMixin):
         self._recent_chats: list[ChatInfo] | None = None
         self.kwargs = kwargs
 
-        if cookies:
-            for k, v in cookies.items():
-                self._cookies.set(k, v, domain=".google.com")
 
         if secure_1psid:
             self._cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
