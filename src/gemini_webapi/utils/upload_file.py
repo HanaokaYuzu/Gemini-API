@@ -82,7 +82,7 @@ async def upload_file(
 
     try:
         request_headers = {
-            **Headers.GEMINI.value,
+            **Headers.REFERER.value,
             **Headers.UPLOAD.value,
         }
 
