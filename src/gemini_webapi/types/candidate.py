@@ -40,7 +40,8 @@ class Candidate(BaseModel):
     generated_media: list[GeneratedMedia] = []
 
     def __str__(self):
-        return self.text
+        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
+        return text
 
     def __repr__(self):
         return f"Candidate(rcid='{self.rcid}', text='{reprlib.repr(self.text)}', images={self.images}, videos={self.generated_videos}, media={self.generated_media})"

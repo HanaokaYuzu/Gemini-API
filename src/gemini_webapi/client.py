@@ -146,7 +146,6 @@ class GeminiClient(GemMixin):
         self._recent_chats: list[ChatInfo] | None = None
         self.kwargs = kwargs
 
-
         if secure_1psid:
             self._cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
             if secure_1psidts:
@@ -437,12 +436,24 @@ class GeminiClient(GemMixin):
                             cid = get_nested_value(chat_data, [0], "")
                             title = get_nested_value(chat_data, [1], "")
                             is_pinned = bool(get_nested_value(chat_data, [2]))
+                            timestamp_data = get_nested_value(chat_data, [5])
+                            timestamp = 0.0
+                            if (
+                                isinstance(timestamp_data, list)
+                                and len(timestamp_data) >= 2
+                            ):
+                                seconds = timestamp_data[0]
+                                nanos = timestamp_data[1]
+                                timestamp = float(seconds) + (float(nanos) / 1e9)
 
-                            if cid and title:
+                            if cid:
                                 if not any(c.cid == cid for c in recent_chats):
                                     recent_chats.append(
                                         ChatInfo(
-                                            cid=cid, title=title, is_pinned=is_pinned
+                                            cid=cid,
+                                            title=title,
+                                            is_pinned=is_pinned,
+                                            timestamp=timestamp,
                                         )
                                     )
                     break
@@ -569,7 +580,6 @@ class GeminiClient(GemMixin):
                 "last_progress_time": time.time(),
                 "is_thinking": False,
                 "is_queueing": False,
-                "title": None,
             }
             output = None
             async for output in self._generate(
@@ -680,7 +690,6 @@ class GeminiClient(GemMixin):
                 "last_progress_time": time.time(),
                 "is_thinking": False,
                 "is_queueing": False,
-                "title": None,
             }
             output = None
             async for output in self._generate(
@@ -760,7 +769,6 @@ class GeminiClient(GemMixin):
                 "last_progress_time": time.time(),
                 "is_thinking": False,
                 "is_queueing": False,
-                "title": None,
             }
         else:
             # Reset connection-specific states during a retry attempt
@@ -961,9 +969,19 @@ class GeminiClient(GemMixin):
                                         if isinstance(chat, ChatSession):
                                             chat.metadata = [None] * 9 + [context_str]
 
-                                    title = get_nested_value(part_json, [10, 0])
-                                    if title:
-                                        session_state["title"] = title
+                                    timestamp_data = get_nested_value(
+                                        part_json, [27, 0, 0, 3]
+                                    )
+                                    timestamp = time.time()
+                                    if (
+                                        isinstance(timestamp_data, list)
+                                        and len(timestamp_data) >= 2
+                                    ):
+                                        seconds = timestamp_data[0]
+                                        nanos = timestamp_data[1]
+                                        timestamp = float(seconds) + (
+                                            float(nanos) / 1e9
+                                        )
 
                                     candidates_list = get_nested_value(
                                         part_json, [4], []
@@ -1001,58 +1019,55 @@ class GeminiClient(GemMixin):
                                                 if cid and isinstance(
                                                     self._recent_chats, list
                                                 ):
-                                                    chat_title = session_state.get(
-                                                        "title"
-                                                    )
-                                                    if not chat_title:
-                                                        for c in self._recent_chats:
-                                                            if c.cid == cid:
-                                                                chat_title = c.title
-                                                                break
+                                                    chat_title = f"Chat({cid})"
+                                                    is_pinned = False
+                                                    for c in self._recent_chats:
+                                                        if c.cid == cid:
+                                                            chat_title = c.title
+                                                            is_pinned = c.is_pinned
+                                                            break
 
-                                                    if chat_title:
-                                                        is_pinned = False
-                                                        for c in self._recent_chats:
-                                                            if c.cid == cid:
-                                                                is_pinned = c.is_pinned
-                                                                break
-
-                                                        expected_idx = (
-                                                            0
-                                                            if is_pinned
-                                                            else sum(
-                                                                1
-                                                                for c in self._recent_chats
-                                                                if c.cid != cid
-                                                                and c.is_pinned
-                                                            )
+                                                    expected_idx = (
+                                                        0
+                                                        if is_pinned
+                                                        else sum(
+                                                            1
+                                                            for c in self._recent_chats
+                                                            if c.cid != cid
+                                                            and c.is_pinned
                                                         )
+                                                    )
 
-                                                        if not (
-                                                            len(self._recent_chats)
-                                                            > expected_idx
-                                                            and self._recent_chats[
-                                                                expected_idx
-                                                            ].cid
-                                                            == cid
-                                                            and self._recent_chats[
-                                                                expected_idx
-                                                            ].title
-                                                            == chat_title
-                                                        ):
-                                                            self._recent_chats = [
-                                                                c
-                                                                for c in self._recent_chats
-                                                                if c.cid != cid
-                                                            ]
-                                                            self._recent_chats.insert(
-                                                                expected_idx,
-                                                                ChatInfo(
-                                                                    cid=cid,
-                                                                    title=chat_title,
-                                                                    is_pinned=is_pinned,
-                                                                ),
-                                                            )
+                                                    if not (
+                                                        len(self._recent_chats)
+                                                        > expected_idx
+                                                        and self._recent_chats[
+                                                            expected_idx
+                                                        ].cid
+                                                        == cid
+                                                        and self._recent_chats[
+                                                            expected_idx
+                                                        ].title
+                                                        == chat_title
+                                                        and self._recent_chats[
+                                                            expected_idx
+                                                        ].timestamp
+                                                        == timestamp
+                                                    ):
+                                                        self._recent_chats = [
+                                                            c
+                                                            for c in self._recent_chats
+                                                            if c.cid != cid
+                                                        ]
+                                                        self._recent_chats.insert(
+                                                            expected_idx,
+                                                            ChatInfo(
+                                                                cid=cid,
+                                                                title=chat_title,
+                                                                is_pinned=is_pinned,
+                                                                timestamp=timestamp,
+                                                            ),
+                                                        )
 
                                             last_sent_text = last_texts.get(
                                                 rcid

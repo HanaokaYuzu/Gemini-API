@@ -22,3 +22,9 @@ class AvailableModel(BaseModel):
     name: str
     model: Model
     description: str
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"AvailableModel(id='{self.id}', name='{self.name}', model={self.model}, description='{self.description}')"

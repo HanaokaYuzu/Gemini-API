@@ -35,7 +35,10 @@ class Image(BaseModel):
         return self.url
 
     def __str__(self):
-        return f"Image(title='{self.title}', alt='{self.alt}', url='{reprlib.repr(self.url)}')"
+        alt = self.alt if len(self.alt) <= 100 else self.alt[:97] + "..."
+        return (
+            f"Image(title='{self.title}', alt='{alt}', url='{reprlib.repr(self.url)}')"
+        )
 
     async def save(
         self,

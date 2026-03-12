@@ -25,7 +25,8 @@ class ChatTurn(BaseModel):
     info: Optional[ModelOutput] = None
 
     def __str__(self):
-        return f"{self.role.upper()}: {self.text}"
+        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
+        return f"{self.role.upper()}: {text}"
 
     def __repr__(self):
         return f"ChatTurn(role='{self.role}', text='{reprlib.repr(self.text)}')"
@@ -49,5 +50,8 @@ class ChatHistory(BaseModel):
     metadata: List[str]
     turns: List[ChatTurn]
 
-    def __repr__(self):
+    def __str__(self) -> str:
+        return f"ChatHistory(cid='{self.cid}', turns={len(self.turns)})"
+
+    def __repr__(self) -> str:
         return f"ChatHistory(cid='{self.cid}', turns={len(self.turns)})"

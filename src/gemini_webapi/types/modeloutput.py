@@ -24,7 +24,8 @@ class ModelOutput(BaseModel):
     chosen: int = 0
 
     def __str__(self):
-        return self.text
+        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
+        return text
 
     def __repr__(self):
         return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
