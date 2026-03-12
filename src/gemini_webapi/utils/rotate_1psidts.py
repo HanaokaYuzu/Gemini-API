@@ -1,11 +1,19 @@
 import os
 import time
+import tempfile
 from pathlib import Path
 
 from httpx import AsyncClient, Cookies
 
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
+
+
+def _get_cookie_cache_dir() -> Path:
+    env_path = os.getenv("GEMINI_COOKIE_PATH")
+    if env_path:
+        return Path(env_path)
+    return Path(tempfile.gettempdir()) / "gemini_webapi"
 
 
 async def rotate_1psidts(
@@ -34,11 +42,7 @@ async def rotate_1psidts(
         If request failed with other status codes.
     """
 
-    path = (
-        (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
-        and Path(GEMINI_COOKIE_PATH)
-        or (Path(__file__).parent / "temp")
-    )
+    path = _get_cookie_cache_dir()
     path.mkdir(parents=True, exist_ok=True)
 
     # Safely get __Secure-1PSID value for filename

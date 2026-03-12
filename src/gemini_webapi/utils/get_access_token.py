@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import tempfile
 from asyncio import Task
 from pathlib import Path
 
@@ -10,6 +11,13 @@ from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 from .load_browser_cookies import load_browser_cookies
 from .logger import logger
+
+
+def _get_cookie_cache_dir() -> Path:
+    env_path = os.getenv("GEMINI_COOKIE_PATH")
+    if env_path:
+        return Path(env_path)
+    return Path(tempfile.gettempdir()) / "gemini_webapi"
 
 
 async def send_request(
@@ -91,11 +99,8 @@ async def get_access_token(
         )
 
     # Cached cookies in local file
-    cache_dir = (
-        (GEMINI_COOKIE_PATH := os.getenv("GEMINI_COOKIE_PATH"))
-        and Path(GEMINI_COOKIE_PATH)
-        or (Path(__file__).parent / "temp")
-    )
+    cache_dir = _get_cookie_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Safely get __Secure-1PSID value
     if isinstance(base_cookies, Cookies):
