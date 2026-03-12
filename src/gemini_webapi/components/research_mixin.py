@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, Optional
 import orjson as json
 
 from ..constants import GRPC, Model
-from ..exceptions import APIError, GeminiError, TimeoutError, UsageLimitExceeded
+from ..exceptions import (
+    APIError,
+    GeminiError,
+    ModelInvalid,
+    TemporarilyBlocked,
+    TimeoutError,
+    UsageLimitExceeded,
+)
 from ..types import DeepResearchPlan, DeepResearchResult, DeepResearchStatus, RPCData
 from ..utils import (
     extract_deep_research_status_payload,
@@ -272,6 +279,8 @@ class ResearchMixin:
         chat: "ChatSession",
         prompt: str,
     ) -> "ModelOutput":
+        recoverable_error: GeminiError | APIError | None = None
+
         try:
             output = await chat.send_message(
                 prompt,
@@ -284,8 +293,10 @@ class ResearchMixin:
                 return output
         except UsageLimitExceeded:
             raise
-        except (GeminiError, APIError):
-            pass
+        except (TimeoutError, ModelInvalid, TemporarilyBlocked):
+            raise
+        except (GeminiError, APIError) as e:
+            recoverable_error = e
 
         if chat.cid:
             fallback = await self.fetch_latest_chat_response(chat.cid)
@@ -306,6 +317,9 @@ class ResearchMixin:
             raise
         except Exception:
             pass
+
+        if recoverable_error is not None:
+            raise recoverable_error
 
         raise GeminiError(
             "Gemini returned no usable output for deep research request. "
@@ -372,7 +386,7 @@ class ResearchMixin:
             logger.debug(f"Ignoring unsupported deep research start kwargs: {kwargs}")
 
         if chat is None:
-            chat = self.start_chat(metadata=list(plan.metadata))
+            chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid)
 
         await self._deep_research_preflight(chat)
         prompt = confirm_prompt or plan.confirm_prompt or "开始研究"
@@ -421,7 +435,7 @@ class ResearchMixin:
         latest_output = None
 
         if chat is None:
-            chat = self.start_chat(metadata=list(plan.metadata))
+            chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid)
 
         while True:
             if time.monotonic() - started > timeout:
@@ -433,9 +447,11 @@ class ResearchMixin:
             status = await self.get_deep_research_status(plan.research_id, chat=chat)
             if status:
                 statuses.append(status)
-                if status.cid and not plan.cid:
-                    plan.cid = status.cid
-                    chat.cid = status.cid
+                if status.cid:
+                    if not plan.cid:
+                        plan.cid = status.cid
+                    if not chat.cid:
+                        chat.cid = status.cid
                 logger.debug(
                     f"Deep research {plan.research_id}: state={status.state}, done={status.done}"
                 )

@@ -82,13 +82,18 @@ def collect_research_notes(data: Any, *, exclude: set[str] | None = None) -> lis
 
 
 def extract_deep_research_plan(candidate_data: list, fallback_text: str = "") -> dict[str, Any] | None:
-    meta_dict = _find_first_dict_key(candidate_data, "56") or _find_first_dict_key(
-        candidate_data, "57"
-    )
-    if not meta_dict:
+    meta_dict = None
+    payload = None
+
+    for key in ("56", "57"):
+        meta_dict = _find_first_dict_key(candidate_data, key)
+        if meta_dict and isinstance(meta_dict.get(key), list):
+            payload = meta_dict[key]
+            break
+
+    if meta_dict is None or payload is None:
         return None
 
-    payload = meta_dict.get("56") if isinstance(meta_dict.get("56"), list) else []
     research_id = extract_research_id(candidate_data)
 
     title = get_nested_value(payload, [0])
@@ -111,20 +116,39 @@ def extract_deep_research_plan(candidate_data: list, fallback_text: str = "") ->
     if isinstance(modify_payload, list):
         modify_prompt = _find_first_string(modify_payload)
 
+    query = (
+        get_nested_value(payload, [1, 0, 2])
+        if isinstance(get_nested_value(payload, [1, 0, 2]), str)
+        else None
+    )
+    eta_text = get_nested_value(payload, [2]) if isinstance(get_nested_value(payload, [2]), str) else None
+    confirm_prompt = get_nested_value(payload, [3, 0]) if isinstance(get_nested_value(payload, [3, 0]), str) else None
+    confirmation_url = get_nested_value(payload, [4, 0]) if isinstance(get_nested_value(payload, [4, 0]), str) else None
+    raw_state = meta_dict.get("70") if isinstance(meta_dict.get("70"), int) else None
+
+    if not any(
+        [
+            title if isinstance(title, str) else None,
+            query,
+            steps,
+            eta_text,
+            confirm_prompt,
+            confirmation_url,
+            modify_prompt,
+        ]
+    ):
+        return None
+
     return {
         "research_id": research_id,
         "title": title if isinstance(title, str) else None,
-        "query": (
-            get_nested_value(payload, [1, 0, 2])
-            if isinstance(get_nested_value(payload, [1, 0, 2]), str)
-            else None
-        ),
+        "query": query,
         "steps": steps,
-        "eta_text": get_nested_value(payload, [2]) if isinstance(get_nested_value(payload, [2]), str) else None,
-        "confirm_prompt": get_nested_value(payload, [3, 0]) if isinstance(get_nested_value(payload, [3, 0]), str) else None,
-        "confirmation_url": get_nested_value(payload, [4, 0]) if isinstance(get_nested_value(payload, [4, 0]), str) else None,
+        "eta_text": eta_text,
+        "confirm_prompt": confirm_prompt,
+        "confirmation_url": confirmation_url,
         "modify_prompt": modify_prompt,
-        "raw_state": meta_dict.get("70") if isinstance(meta_dict.get("70"), int) else None,
+        "raw_state": raw_state,
         "response_text": fallback_text or None,
     }
 
