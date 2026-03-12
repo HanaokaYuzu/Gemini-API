@@ -1,6 +1,8 @@
+import inspect
 import io
 import random
 from pathlib import Path
+from typing import Any
 
 from httpx import AsyncClient
 from pydantic import ConfigDict, validate_call
@@ -18,7 +20,7 @@ def _generate_random_name(extension: str = ".txt") -> str:
 
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 async def upload_file(
-    file: str | Path | bytes | io.BytesIO,
+    file: Any,
     proxy: str | None = None,
     filename: str | None = None,
 ) -> str:
@@ -61,6 +63,12 @@ async def upload_file(
         file_content = file
         if not filename:
             filename = _generate_random_name()
+    elif hasattr(file, "read"):
+        file_content = file.read()
+        if inspect.isawaitable(file_content):
+            file_content = await file_content
+        if not filename:
+            filename = getattr(file, "filename", _generate_random_name())
     else:
         raise ValueError(f"Unsupported file type: {type(file)}")
 
@@ -75,13 +83,13 @@ async def upload_file(
         return response.text
 
 
-def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:
+def parse_file_name(file: Any) -> str:
     """
     Parse the file name from the given path or generate a random one for in-memory data.
 
     Parameters
     ----------
-    file : `str` | `Path` | `bytes` | `io.BytesIO`
+    file : `Any`
         Path to the file or file content.
 
     Returns
@@ -95,5 +103,8 @@ def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:
         if not file.is_file():
             raise ValueError(f"{file} is not a valid file.")
         return file.name
+
+    if hasattr(file, "filename") and isinstance(file.filename, str):
+        return file.filename
 
     return _generate_random_name()
