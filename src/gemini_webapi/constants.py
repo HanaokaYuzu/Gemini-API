@@ -22,6 +22,7 @@ class GRPC(StrEnum):
     LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
     DELETE_CHAT = "GzXR5e"
+    DEEP_RESEARCH_STATUS = "kwDCne"
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
@@ -29,8 +30,13 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    # Activity methods
+    # Activity / feature methods
     BARD_ACTIVITY = "ESY5D"
+    DEEP_RESEARCH_PREFS = "L5adhe"
+    DEEP_RESEARCH_BOOTSTRAP = "ku4Jyf"
+    DEEP_RESEARCH_MODEL_STATE = "qpEbW"
+    DEEP_RESEARCH_CAPS = "aPya6c"
+    DEEP_RESEARCH_ACK = "PCck7e"
 
 
 class Headers(Enum):

@@ -13,8 +13,10 @@ from .logger import logger
 
 
 async def send_request(
-    cookies: dict | Cookies, proxy: str | None = None
-) -> tuple[Response | None, Cookies]:
+    cookies: dict | Cookies,
+    proxy: str | None = None,
+    init_url: str = Endpoint.INIT,
+) -> tuple[Response | None, Cookies, str, str | None, str | None]:
     """
     Send http request with provided cookies.
     """
@@ -26,9 +28,43 @@ async def send_request(
         cookies=cookies,
         follow_redirects=True,
     ) as client:
-        response = await client.get(Endpoint.INIT)
+        response = await client.get(init_url)
         response.raise_for_status()
-        return response, client.cookies
+        path = response.url.path
+        account_path = path[: -len("/app")] if path.endswith("/app") else ""
+        long_token_matches = list(
+            re.finditer(r'![^"\'\s<>]{100,}', response.text, flags=re.IGNORECASE)
+        )
+        long_token = (
+            max(long_token_matches, key=lambda m: len(m.group(0))).group(0)
+            if long_token_matches
+            else None
+        )
+
+        hex_token = None
+        if long_token_matches:
+            longest_match = max(long_token_matches, key=lambda m: len(m.group(0)))
+            nearby = re.search(
+                r'\b[a-f0-9]{32}\b',
+                response.text[longest_match.end() : longest_match.end() + 8000],
+                flags=re.IGNORECASE,
+            )
+            if nearby:
+                hex_token = nearby.group(0)
+
+        if not hex_token:
+            hex_matches = re.findall(
+                r'\b[a-f0-9]{32}\b', response.text, flags=re.IGNORECASE
+            )
+            hex_token = hex_matches[-1] if hex_matches else None
+
+        return (
+            response,
+            client.cookies,
+            account_path,
+            long_token,
+            hex_token,
+        )
 
 
 async def get_access_token(
@@ -36,7 +72,8 @@ async def get_access_token(
     proxy: str | None = None,
     verbose: bool = False,
     verify: bool = True,
-) -> tuple[str, Cookies, str | None, str | None]:
+    init_url: str = Endpoint.INIT,
+) -> tuple[str, str | None, str | None, Cookies, str, str | None, str | None]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -59,8 +96,8 @@ async def get_access_token(
 
     Returns
     -------
-    `tuple[str, str | None, str | None, Cookies]`
-        By order: access token; build label; session id; cookies of the successful request.
+    `tuple[str, str | None, str | None, Cookies, str, str | None, str | None]`
+        By order: access token; build label; session id; cookies of the successful request; account path prefix such as '/u/2'; opaque long request token; opaque 32-char hex token.
 
     Raises
     ------
@@ -84,7 +121,7 @@ async def get_access_token(
     if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
         jar = Cookies(extra_cookies)
         jar.update(base_cookies)
-        tasks.append(Task(send_request(jar, proxy=proxy)))
+        tasks.append(Task(send_request(jar, proxy=proxy, init_url=init_url)))
     elif verbose:
         logger.debug(
             "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
@@ -114,7 +151,7 @@ async def get_access_token(
                 jar = Cookies(extra_cookies)
                 jar.update(base_cookies)
                 jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                tasks.append(Task(send_request(jar, proxy=proxy)))
+                tasks.append(Task(send_request(jar, proxy=proxy, init_url=init_url)))
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file is empty.")
         elif verbose:
@@ -129,7 +166,7 @@ async def get_access_token(
                 psid = cache_file.stem[16:]
                 jar.set("__Secure-1PSID", psid, domain=".google.com")
                 jar.set("__Secure-1PSIDTS", cached_1psidts, domain=".google.com")
-                tasks.append(Task(send_request(jar, proxy=proxy)))
+                tasks.append(Task(send_request(jar, proxy=proxy, init_url=init_url)))
                 valid_caches += 1
 
         if valid_caches == 0 and verbose:
@@ -162,7 +199,9 @@ async def get_access_token(
                         local_cookies["__Secure-1PSIDTS"] = secure_1psidts
                     if nid := cookies.get("NID"):
                         local_cookies["NID"] = nid
-                    tasks.append(Task(send_request(local_cookies, proxy=proxy)))
+                    tasks.append(
+                        Task(send_request(local_cookies, proxy=proxy, init_url=init_url))
+                    )
                     valid_browser_cookies += 1
                     if verbose:
                         logger.debug(f"Loaded local browser cookies from {browser}")
@@ -187,7 +226,7 @@ async def get_access_token(
 
     for i, future in enumerate(asyncio.as_completed(tasks)):
         try:
-            response, request_cookies = await future
+            response, request_cookies, account_path, long_token, hex_token = await future
             snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
             cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
             fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
@@ -201,6 +240,9 @@ async def get_access_token(
                     cfb2h.group(1) if cfb2h else None,
                     fdrfje.group(1) if fdrfje else None,
                     request_cookies,
+                    account_path,
+                    long_token,
+                    hex_token,
                 )
             elif verbose:
                 logger.debug(

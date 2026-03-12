@@ -5,6 +5,7 @@ import time
 import random
 import re
 import uuid
+import secrets
 from asyncio import Task
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -12,7 +13,7 @@ from typing import Any, AsyncGenerator, Optional
 import orjson as json
 from httpx import AsyncClient, Cookies, ReadTimeout, Response
 
-from .components import ChatMixin, GemMixin
+from .components import ChatMixin, GemMixin, ResearchMixin
 from .constants import (
     Endpoint,
     ErrorCode,
@@ -32,6 +33,7 @@ from .exceptions import (
 )
 from .types import (
     Candidate,
+    DeepResearchPlan,
     Gem,
     GeneratedImage,
     ModelOutput,
@@ -39,6 +41,7 @@ from .types import (
     WebImage,
 )
 from .utils import (
+    extract_deep_research_plan,
     get_access_token,
     get_delta_by_fp_len,
     get_nested_value,
@@ -51,7 +54,7 @@ from .utils import (
 )
 
 
-class GeminiClient(ChatMixin, GemMixin):
+class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
     """
     Async httpx client interface for gemini.google.com.
 
@@ -89,6 +92,9 @@ class GeminiClient(ChatMixin, GemMixin):
         "access_token",
         "build_label",
         "session_id",
+        "account_path",
+        "deep_research_long_token",
+        "deep_research_hex_token",
         "timeout",
         "auto_close",
         "close_delay",
@@ -110,6 +116,7 @@ class GeminiClient(ChatMixin, GemMixin):
         secure_1psidts: str | None = None,
         proxy: str | None = None,
         cookies: dict[str, str] | None = None,
+        account_index: int | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -120,6 +127,9 @@ class GeminiClient(ChatMixin, GemMixin):
         self.access_token: str | None = None
         self.build_label: str | None = None
         self.session_id: str | None = None
+        self.account_path: str = f"/u/{account_index}" if account_index is not None else ""
+        self.deep_research_long_token: str | None = None
+        self.deep_research_hex_token: str | None = None
         self.timeout: float = 300
         self.auto_close: bool = False
         self.close_delay: float = 300
@@ -148,6 +158,22 @@ class GeminiClient(ChatMixin, GemMixin):
                 self.cookies.set(
                     "__Secure-1PSIDTS", secure_1psidts, domain=".google.com"
                 )
+
+    def _with_account_path(self, path: str) -> str:
+        if not path.startswith("/"):
+            path = f"/{path}"
+        if self.account_path:
+            return f"https://gemini.google.com{self.account_path}{path}"
+        return f"https://gemini.google.com{path}"
+
+    def _source_path(self, suffix: str = "") -> str:
+        base = f"{self.account_path}/app" if self.account_path else "/app"
+        if suffix:
+            normalized = suffix.lstrip("/")
+            if normalized.startswith("c_"):
+                normalized = normalized[2:]
+            return f"{base}/{normalized}"
+        return base
 
     async def init(
         self,
@@ -190,21 +216,32 @@ class GeminiClient(ChatMixin, GemMixin):
             try:
                 self.verbose = verbose
                 self.watchdog_timeout = watchdog_timeout
-                access_token, build_label, session_id, valid_cookies = (
+                init_url = self._with_account_path("/app")
+                if self.verbose:
+                    logger.debug(f"Initializing session via {init_url}")
+                access_token, build_label, session_id, valid_cookies, account_path, long_token, hex_token = (
                     await get_access_token(
                         base_cookies=self.cookies,
                         proxy=self.proxy,
                         verbose=self.verbose,
                         verify=self.kwargs.get("verify", True),
+                        init_url=init_url,
                     )
                 )
+
+                effective_account_path = account_path or self.account_path
+                default_headers = dict(Headers.GEMINI.value)
+                if effective_account_path:
+                    default_headers["Referer"] = (
+                        f"https://gemini.google.com{effective_account_path}/"
+                    )
 
                 self.client = AsyncClient(
                     http2=True,
                     timeout=timeout,
                     proxy=self.proxy,
                     follow_redirects=True,
-                    headers=Headers.GEMINI.value,
+                    headers=default_headers,
                     cookies=valid_cookies,
                     **self.kwargs,
                 )
@@ -212,6 +249,12 @@ class GeminiClient(ChatMixin, GemMixin):
                 self.cookies = valid_cookies
                 self.build_label = build_label
                 self.session_id = session_id
+                if account_path:
+                    self.account_path = account_path
+                self.deep_research_long_token = long_token or (
+                    "!" + secrets.token_urlsafe(1400)
+                )
+                self.deep_research_hex_token = hex_token or uuid.uuid4().hex
                 self._running = True
 
                 self.timeout = timeout
@@ -345,6 +388,7 @@ class GeminiClient(ChatMixin, GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        deep_research: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -430,6 +474,10 @@ class GeminiClient(ChatMixin, GemMixin):
                 "last_thoughts": {},
                 "last_progress_time": time.time(),
             }
+            generate_kwargs = dict(kwargs)
+            if deep_research and "current_retry" not in generate_kwargs:
+                generate_kwargs["current_retry"] = 0
+
             output = None
             async for output in self._generate(
                 prompt=prompt,
@@ -438,8 +486,9 @@ class GeminiClient(ChatMixin, GemMixin):
                 gem=gem,
                 chat=chat,
                 temporary=temporary,
+                deep_research=deep_research,
                 session_state=session_state,
-                **kwargs,
+                **generate_kwargs,
             ):
                 pass
 
@@ -468,6 +517,7 @@ class GeminiClient(ChatMixin, GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        deep_research: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -548,6 +598,10 @@ class GeminiClient(ChatMixin, GemMixin):
                 "last_thoughts": {},
                 "last_progress_time": time.time(),
             }
+            generate_kwargs = dict(kwargs)
+            if deep_research and "current_retry" not in generate_kwargs:
+                generate_kwargs["current_retry"] = 0
+
             output = None
             async for output in self._generate(
                 prompt=prompt,
@@ -556,8 +610,9 @@ class GeminiClient(ChatMixin, GemMixin):
                 gem=gem,
                 chat=chat,
                 temporary=temporary,
+                deep_research=deep_research,
                 session_state=session_state,
-                **kwargs,
+                **generate_kwargs,
             ):
                 yield output
 
@@ -580,6 +635,7 @@ class GeminiClient(ChatMixin, GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        deep_research: bool = False,
         session_state: dict[str, Any] | None = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
@@ -615,7 +671,12 @@ class GeminiClient(ChatMixin, GemMixin):
                 0,
             ]
 
-            params: dict[str, Any] = {"_reqid": _reqid, "rt": "c"}
+            params: dict[str, Any] = {
+                "_reqid": _reqid,
+                "rt": "c",
+                "hl": "en",
+                "pageId": "none",
+            }
             if self.build_label:
                 params["bl"] = self.build_label
             if self.session_id:
@@ -636,20 +697,26 @@ class GeminiClient(ChatMixin, GemMixin):
 
             # Browser-parity: fixed slots observed in Chrome network traces
             inner_req_list[1] = ["en"]
+            if deep_research:
+                inner_req_list[3] = "!" + secrets.token_urlsafe(2600)
+                inner_req_list[4] = uuid.uuid4().hex
             inner_req_list[6] = [0]
             inner_req_list[10] = 1
             inner_req_list[11] = 0
-            inner_req_list[17] = [[0]]
+            inner_req_list[17] = [[1]] if (chat and chat.cid) else [[0]]
             inner_req_list[18] = 0
             inner_req_list[27] = 1
             inner_req_list[30] = [4]
             inner_req_list[41] = [1]
+            inner_req_list[49] = 1 if deep_research else None
             inner_req_list[53] = 0
+            inner_req_list[54] = [[[[[1]]]]] if deep_research else None
+            inner_req_list[55] = [[1]] if deep_research else None
             inner_req_list[61] = []
-            inner_req_list[68] = 1
+            inner_req_list[68] = 2 if deep_research else 1
 
             # Per-request UUID shared between inner_req_list[59] and header
-            uuid_val = str(uuid.uuid4())
+            uuid_val = str(uuid.uuid4()).upper()
             inner_req_list[59] = uuid_val
             request_headers = {
                 **model.model_header,
@@ -679,11 +746,12 @@ class GeminiClient(ChatMixin, GemMixin):
                     session_state["had_response_data"] = False
 
                 if (
-                    chat
+                    not deep_research
+                    and chat
                     and chat.cid
                     and (
-                        session_state.get("original_cid") in ("", None)
-                        or session_state.get("had_response_data")
+                        session_state.get("had_response_data")
+                        or session_state.get("original_cid") in ("", None)
                     )
                 ):
                     # Recovery triggers in two cases:
@@ -753,7 +821,15 @@ class GeminiClient(ChatMixin, GemMixin):
                             f"response (rcid unchanged). Retrying stream."
                         )
                     # Some attempts returned None/errors — turn may exist
-                    # server-side. GeminiError prevents @running from retrying.
+                    # server-side. In deep research mode we let the caller decide
+                    # whether to continue via task polling instead of failing hard.
+                    if deep_research and isinstance(chat, ChatSession) and chat.cid:
+                        logger.warning(
+                            f"Deep research stream ended before chat history became readable for cid={chat.cid!r}. "
+                            "Returning control to caller for task-based recovery."
+                        )
+                        return
+
                     raise GeminiError(
                         f"Stream failed after Gemini assigned cid={chat.cid!r}. "
                         f"Recovery via READ_CHAT returned no data after "
@@ -763,7 +839,7 @@ class GeminiClient(ChatMixin, GemMixin):
 
             async with self.client.stream(
                 "POST",
-                Endpoint.GENERATE,
+                self._with_account_path("/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"),
                 params=params,
                 headers=request_headers,
                 data=request_data,
@@ -864,8 +940,6 @@ class GeminiClient(ChatMixin, GemMixin):
                                 m_data = get_nested_value(part_json, [1])
                                 if m_data and isinstance(chat, ChatSession):
                                     chat.metadata = m_data
-                                    if session_state is not None:
-                                        session_state["had_response_data"] = True
                                 context_str = get_nested_value(part_json, [25])
                                 if isinstance(context_str, str):
                                     is_completed = True
@@ -879,9 +953,11 @@ class GeminiClient(ChatMixin, GemMixin):
                                     output_candidates = []
                                     for i, candidate_data in enumerate(candidates_list):
                                         rcid = get_nested_value(candidate_data, [0])
+                                        if not rcid and deep_research:
+                                            rcid = f"dr_{i}"
                                         if not rcid:
                                             continue
-                                        if isinstance(chat, ChatSession):
+                                        if isinstance(chat, ChatSession) and rcid and not rcid.startswith("dr_"):
                                             chat.rcid = rcid
 
                                         # Text output and thoughts
@@ -1005,11 +1081,32 @@ class GeminiClient(ChatMixin, GemMixin):
                                             thoughts_delta = ""
                                             new_full_thought = ""
 
+                                        plan_data = extract_deep_research_plan(
+                                            candidate_data,
+                                            fallback_text=text,
+                                        )
+                                        deep_research_plan = (
+                                            DeepResearchPlan(
+                                                **plan_data,
+                                                metadata=get_nested_value(
+                                                    part_json, [1], []
+                                                ),
+                                                cid=(
+                                                    chat.cid
+                                                    if isinstance(chat, ChatSession)
+                                                    else None
+                                                ),
+                                            )
+                                            if plan_data
+                                            else None
+                                        )
+
                                         if (
                                             text_delta
                                             or thoughts_delta
                                             or web_images
                                             or generated_images
+                                            or deep_research_plan
                                         ):
                                             has_candidates = True
 
@@ -1031,10 +1128,28 @@ class GeminiClient(ChatMixin, GemMixin):
                                                 thoughts_delta=thoughts_delta,
                                                 web_images=web_images,
                                                 generated_images=generated_images,
+                                                deep_research_plan=deep_research_plan,
                                             )
                                         )
 
                                     if output_candidates:
+                                        if session_state is not None:
+                                            has_meaningful_content = any(
+                                                (
+                                                    (cand.text or "").strip()
+                                                    or (
+                                                        cand.deep_research_plan
+                                                        and (
+                                                            cand.deep_research_plan.title
+                                                            or cand.deep_research_plan.steps
+                                                            or cand.deep_research_plan.confirmation_url
+                                                        )
+                                                    )
+                                                )
+                                                for cand in output_candidates
+                                            )
+                                            if has_meaningful_content:
+                                                session_state["had_response_data"] = True
                                         is_thinking = False
                                         is_queueing = False
                                         yield ModelOutput(
@@ -1070,6 +1185,11 @@ class GeminiClient(ChatMixin, GemMixin):
                                 f"Queueing={is_queueing}. Retrying..."
                             )
                             await self.reset_connection()
+                            if deep_research:
+                                logger.warning(
+                                    "Deep research stream stalled; handing control back to workflow without retry loop."
+                                )
+                                return
                             if is_queueing and not has_candidates:
                                 raise APIError(
                                     "Gemini server is overloaded (request queued but never started processing). "
@@ -1089,6 +1209,8 @@ class GeminiClient(ChatMixin, GemMixin):
                         f"Stream interrupted (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                         "Polling again..."
                     )
+                    if deep_research:
+                        return
                     raise APIError("Stream interrupted or truncated.")
 
         except ReadTimeout:
@@ -1125,7 +1247,13 @@ class GeminiClient(ChatMixin, GemMixin):
         return ChatSession(geminiclient=self, **kwargs)
 
     @running(retry=2)
-    async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
+    async def _batch_execute(
+        self,
+        payloads: list[RPCData],
+        source_path: str = "/app",
+        close_on_error: bool = True,
+        **kwargs,
+    ) -> Response:
         """
         Execute a batch of requests to Gemini API.
 
@@ -1151,24 +1279,49 @@ class GeminiClient(ChatMixin, GemMixin):
                 "rpcids": ",".join([p.rpcid for p in payloads]),
                 "_reqid": _reqid,
                 "rt": "c",
-                "source-path": "/app",
+                "source-path": source_path,
+                "hl": "en",
+                "pageId": "none",
             }
             if self.build_label:
                 params["bl"] = self.build_label
             if self.session_id:
                 params["f.sid"] = self.session_id
 
+            request_data = {
+                "at": self.access_token,
+                "f.req": json.dumps(
+                    [[payload.serialize() for payload in payloads]]
+                ).decode("utf-8"),
+            }
+
             response = await self.client.post(
-                Endpoint.BATCH_EXEC,
+                self._with_account_path("/_/BardChatUi/data/batchexecute"),
                 params=params,
-                data={
-                    "at": self.access_token,
-                    "f.req": json.dumps(
-                        [[payload.serialize() for payload in payloads]]
-                    ).decode("utf-8"),
-                },
+                data=request_data,
                 **kwargs,
             )
+
+            if response.status_code == 405 and self.account_path:
+                fallback_source_path = source_path
+                if fallback_source_path.startswith(self.account_path):
+                    fallback_source_path = fallback_source_path[len(self.account_path) :]
+                    if not fallback_source_path:
+                        fallback_source_path = "/app"
+
+                fallback_params = dict(params)
+                fallback_params["source-path"] = fallback_source_path
+                # 405 usually means account-prefixed endpoint not accepted.
+                # Retry old endpoint without pageId/hl and account prefix.
+                fallback_params.pop("pageId", None)
+                fallback_params.pop("hl", None)
+
+                response = await self.client.post(
+                    Endpoint.BATCH_EXEC,
+                    params=fallback_params,
+                    data=request_data,
+                    **kwargs,
+                )
         except ReadTimeout:
             raise TimeoutError(
                 "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
@@ -1176,7 +1329,8 @@ class GeminiClient(ChatMixin, GemMixin):
             )
 
         if response.status_code != 200:
-            await self.close()
+            if close_on_error and response.status_code not in (405,):
+                await self.close()
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )

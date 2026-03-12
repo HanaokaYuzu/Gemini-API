@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 from .image import Image
 from .candidate import Candidate
+from .research import DeepResearchPlan
 
 
 class ModelOutput(BaseModel):
@@ -51,3 +52,7 @@ class ModelOutput(BaseModel):
     @property
     def rcid(self) -> str:
         return self.candidates[self.chosen].rcid
+
+    @property
+    def deep_research_plan(self) -> DeepResearchPlan | None:
+        return self.candidates[self.chosen].deep_research_plan

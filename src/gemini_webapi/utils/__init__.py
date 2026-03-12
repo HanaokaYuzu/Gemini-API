@@ -10,5 +10,13 @@ from .parsing import (
     get_nested_value,
     parse_response_by_frame,
 )
+from .research import (
+    collect_research_notes,
+    extract_chat_id,
+    extract_deep_research_plan,
+    extract_deep_research_status_payload,
+    extract_research_id,
+    iter_nested,
+)
 from .rotate_1psidts import rotate_1psidts
 from .upload_file import upload_file, parse_file_name

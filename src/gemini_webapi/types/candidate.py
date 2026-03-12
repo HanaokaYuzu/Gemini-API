@@ -2,6 +2,7 @@ import html
 from pydantic import BaseModel, field_validator
 
 from .image import Image, WebImage, GeneratedImage
+from .research import DeepResearchPlan
 
 
 class Candidate(BaseModel):
@@ -29,6 +30,7 @@ class Candidate(BaseModel):
     thoughts_delta: str | None = None
     web_images: list[WebImage] = []
     generated_images: list[GeneratedImage] = []
+    deep_research_plan: DeepResearchPlan | None = None
 
     def __str__(self):
         return self.text
