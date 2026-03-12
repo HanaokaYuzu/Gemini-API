@@ -2,7 +2,16 @@ import inspect
 import io
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
+
+@runtime_checkable
+class FileLike(Protocol):
+    def read(self, *args: Any, **kwargs: Any) -> Any:
+        ...
+
+    @property
+    def filename(self) -> str:
+        ...
 
 from httpx import AsyncClient
 from pydantic import ConfigDict, validate_call
@@ -20,7 +29,7 @@ def _generate_random_name(extension: str = ".txt") -> str:
 
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 async def upload_file(
-    file: Any,
+    file: str | Path | bytes | io.BytesIO | FileLike,
     proxy: str | None = None,
     filename: str | None = None,
 ) -> str:
@@ -83,13 +92,13 @@ async def upload_file(
         return response.text
 
 
-def parse_file_name(file: Any) -> str:
+def parse_file_name(file: str | Path | bytes | io.BytesIO | FileLike) -> str:
     """
     Parse the file name from the given path or generate a random one for in-memory data.
 
     Parameters
     ----------
-    file : `Any`
+    file : `str` | `Path` | `bytes` | `io.BytesIO` | `FileLike`
         Path to the file or file content.
 
     Returns
@@ -104,7 +113,9 @@ def parse_file_name(file: Any) -> str:
             raise ValueError(f"{file} is not a valid file.")
         return file.name
 
-    if hasattr(file, "filename") and isinstance(file.filename, str):
-        return file.filename
+    if hasattr(file, "filename"):
+        filename_attr = getattr(file, "filename")
+        if isinstance(filename_attr, str):
+            return filename_attr
 
     return _generate_random_name()
