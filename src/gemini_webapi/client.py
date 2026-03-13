@@ -687,9 +687,6 @@ class GeminiClient(GemMixin):
             session_state = {
                 "last_texts": {},
                 "last_thoughts": {},
-                "last_progress_time": time.time(),
-                "is_thinking": False,
-                "is_queueing": False,
             }
             output = None
             async for output in self._generate(
@@ -766,15 +763,7 @@ class GeminiClient(GemMixin):
             session_state = {
                 "last_texts": {},
                 "last_thoughts": {},
-                "last_progress_time": time.time(),
-                "is_thinking": False,
-                "is_queueing": False,
             }
-        else:
-            # Reset connection-specific states during a retry attempt
-            session_state["last_progress_time"] = time.time()
-            session_state["is_thinking"] = False
-            session_state["is_queueing"] = False
 
         has_generated_text = False
         sleep_time = 10
@@ -863,10 +852,10 @@ class GeminiClient(GemMixin):
 
                     last_texts: dict[str, str] = session_state["last_texts"]
                     last_thoughts: dict[str, str] = session_state["last_thoughts"]
-                    last_progress_time = session_state["last_progress_time"]
+                    last_progress_time: float = time.time()
 
-                    is_thinking = session_state["is_thinking"]
-                    is_queueing = session_state["is_queueing"]
+                    is_thinking = False
+                    is_queueing = False
                     has_candidates = False
                     is_completed = False  # Check if this conversation turn has been fully answered.
                     is_final_chunk = False  # Check if this turn is saved to history and marked complete or still pending (e.g., video generation).
@@ -925,7 +914,6 @@ class GeminiClient(GemMixin):
                             if isinstance(status, list) and status:
                                 if not is_thinking:
                                     is_queueing = True
-                                    session_state["is_queueing"] = True
                                     if not has_candidates:
                                         logger.debug(
                                             "Model is in a waiting state (queueing)..."
@@ -951,9 +939,7 @@ class GeminiClient(GemMixin):
                                     tool_name = get_nested_value(part_json, [6, 1, 0])
                                     if tool_name == "data_analysis_tool":
                                         is_thinking = True
-                                        session_state["is_thinking"] = True
                                         is_queueing = False
-                                        session_state["is_queueing"] = False
                                         if not has_candidates:
                                             logger.debug(
                                                 "Model is active (thinking/analyzing)..."
@@ -963,9 +949,7 @@ class GeminiClient(GemMixin):
                                     if isinstance(context_str, str):
                                         is_final_chunk = True
                                         is_thinking = False
-                                        session_state["is_thinking"] = False
                                         is_queueing = False
-                                        session_state["is_queueing"] = False
                                         if isinstance(chat, ChatSession):
                                             chat.metadata = [None] * 9 + [context_str]
 
@@ -1131,9 +1115,7 @@ class GeminiClient(GemMixin):
 
                                         if output_candidates:
                                             is_thinking = False
-                                            session_state["is_thinking"] = False
                                             is_queueing = False
-                                            session_state["is_queueing"] = False
                                             yield ModelOutput(
                                                 metadata=[cid, rid],
                                                 candidates=output_candidates,
@@ -1174,7 +1156,6 @@ class GeminiClient(GemMixin):
 
                         if got_update:
                             last_progress_time = time.time()
-                            session_state["last_progress_time"] = last_progress_time
                         else:
                             stall_threshold = (
                                 self.timeout

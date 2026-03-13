@@ -104,11 +104,11 @@ pip install -U gemini_webapi[browser]
 
 ```yaml
 services:
-    main:
-        environment:
-            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-        volumes:
-            - ./gemini_cookies:/tmp/gemini_webapi
+  main:
+    environment:
+      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+    volumes:
+      - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -485,9 +485,9 @@ You can ask Gemini to generate and edit images with Nano Banana, Google's latest
 >
 > Google has some limitations on Gemini's image generation feature, so availability may vary by region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
 >
-> > This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
+> > This feature's availability in any specific Gemini app is also limited to the supported languages and countries of that app.
 > >
-> > For now, this feature isn’t available to users under 18.
+> > For now, this feature isn't available to users under 18.
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 
@@ -517,7 +517,7 @@ asyncio.run(main())
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 > >
-> > Important: If you’re under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
+> > Important: If you're under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
 
 After activating extensions for your account, you can access them in your prompts either in natural language or by starting your prompt with "@" followed by the extension keyword.
 
