@@ -118,13 +118,14 @@ async def get_access_token(
 
     # Base cookies passed directly on initializing client
     # We use a Jar to merge extra_cookies and base_cookies safely (preserving domains)
-    if "__Secure-1PSID" in base_cookies and "__Secure-1PSIDTS" in base_cookies:
+    # Note: __Secure-1PSIDTS is preferred but not strictly required for the initial /app bootstrap.
+    if "__Secure-1PSID" in base_cookies:
         jar = Cookies(extra_cookies)
         jar.update(base_cookies)
         tasks.append(Task(send_request(jar, proxy=proxy, init_url=init_url)))
     elif verbose:
         logger.debug(
-            "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
+            "Skipping loading base cookies. __Secure-1PSID is not provided."
         )
 
     # Cached cookies in local file
