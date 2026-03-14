@@ -1,7 +1,5 @@
-import os
 import re
 import time
-from pathlib import Path
 
 from curl_cffi.requests import AsyncSession, Cookies, Response
 
@@ -9,7 +7,11 @@ import orjson as json
 
 from .load_browser_cookies import HAS_BC3, load_browser_cookies
 from .logger import logger
-from .rotate_1psidts import _extract_cookie_value
+from .rotate_1psidts import (
+    _extract_cookie_value,
+    _get_cookies_cache_path,
+    _get_cookie_cache_dir,
+)
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 
@@ -80,7 +82,7 @@ async def get_access_token(
 
     # Phase 1: Prepare Cache
     cookie_jars_to_test = []
-    tried_psid_ts = set()
+    tried_sessions: dict[str, set[str]] = {}
 
     if isinstance(base_cookies, Cookies):
         base_psid = _extract_cookie_value(base_cookies, "__Secure-1PSID")
@@ -89,29 +91,31 @@ async def get_access_token(
         base_psid = base_cookies.get("__Secure-1PSID")
         base_psidts = base_cookies.get("__Secure-1PSIDTS")
 
-    gemini_cookie_path = os.getenv("GEMINI_COOKIE_PATH")
-    if gemini_cookie_path:
-        cache_dir = Path(gemini_cookie_path)
-    else:
-        cache_dir = Path(__file__).parent / "temp"
-
     if base_psid:
-        filename = f".cached_cookies_{base_psid}.json"
-        cache_file = cache_dir / filename
+        jar = Cookies()
+        jar.set("__Secure-1PSID", base_psid, domain=".google.com")
+        cache_file = _get_cookies_cache_path(jar)
 
-        if cache_file.is_file():
+        if cache_file and cache_file.is_file():
             content = cache_file.read_text().strip()
             if content:
-                jar = Cookies(extra_cookies)
-                if isinstance(base_cookies, dict):
-                    for name, value in base_cookies.items():
-                        jar.set(name, value, domain=".google.com", path="/")
+                jar = Cookies()
+                if isinstance(base_cookies, Cookies):
+                    for cookie in base_cookies.jar:
+                        if not cookie.is_expired():
+                            jar.set(
+                                str(cookie.name),
+                                str(cookie.value),
+                                domain=cookie.domain,
+                                path=cookie.path,
+                            )
                 else:
-                    jar.update(base_cookies)
+                    for name, value in base_cookies.items():
+                        if value:
+                            jar.set(name, value, domain=".google.com", path="/")
                 try:
                     cookies_data = json.loads(content)
                     for cookie in cookies_data:
-                        # Skip expired cookies
                         expires = cookie.get("expires")
                         if expires and expires < time.time():
                             continue
@@ -122,13 +126,11 @@ async def get_access_token(
                             domain=cookie.get("domain", ".google.com"),
                             path=cookie.get("path", "/"),
                         )
+
+                    jar.update(extra_cookies)
                     cookie_jars_to_test.append((jar, "Cache"))
-                    tried_psid_ts.add(
-                        (
-                            base_psid,
-                            _extract_cookie_value(jar, "__Secure-1PSIDTS") or "",
-                        )
-                    )
+                    psidts = _extract_cookie_value(jar, "__Secure-1PSIDTS") or ""
+                    tried_sessions.setdefault(base_psid, set()).add(psidts)
                 except Exception as e:
                     logger.warning(f"Failed to parse cached cookies as JSON: {e}")
             elif verbose:
@@ -137,18 +139,16 @@ async def get_access_token(
             logger.debug("Skipping loading cached cookies. Cache file not found.")
 
     if not base_psid:
-        cache_files = list(cache_dir.glob(".cached_cookies_*.json"))
+        cache_files = list(_get_cookie_cache_dir().glob(".cached_cookies_*.json"))
         if cache_files:
-            # Only use the most recently modified cache file as the default
             cache_file = max(cache_files, key=lambda p: p.stat().st_mtime)
             psid = cache_file.stem[16:]
             content = cache_file.read_text().strip()
             if content:
-                jar = Cookies(extra_cookies)
+                jar = Cookies()
                 try:
                     cookies_data = json.loads(content)
                     for cookie in cookies_data:
-                        # Skip expired cookies
                         expires = cookie.get("expires")
                         if expires and expires < time.time():
                             continue
@@ -159,37 +159,40 @@ async def get_access_token(
                             domain=cookie.get("domain", ".google.com"),
                             path=cookie.get("path", "/"),
                         )
+
+                    jar.update(extra_cookies)
                     cookie_jars_to_test.append((jar, "Cache (Latest)"))
-                    tried_psid_ts.add(
-                        (psid, _extract_cookie_value(jar, "__Secure-1PSIDTS") or "")
-                    )
+                    psidts = _extract_cookie_value(jar, "__Secure-1PSIDTS") or ""
+                    tried_sessions.setdefault(psid, set()).add(psidts)
                 except Exception as e:
                     logger.warning(f"Failed to parse cached cookies as JSON: {e}")
 
     # Phase 2: Base Cookies
-    if base_psid and base_psidts:
-        if (base_psid, base_psidts) not in tried_psid_ts:
-            jar = Cookies(extra_cookies)
-            if isinstance(base_cookies, dict):
-                for name, value in base_cookies.items():
-                    jar.set(name, value, domain=".google.com", path="/")
-            else:
+    if base_psid:
+        psidts = base_psidts or ""
+        if psidts not in tried_sessions.get(base_psid, set()):
+            jar = Cookies()
+            if isinstance(base_cookies, Cookies):
                 for cookie in base_cookies.jar:
                     if not cookie.is_expired():
                         jar.set(
                             cookie.name,
                             cookie.value,
-                            domain=cookie.domain or ".google.com",
-                            path=cookie.path or "/",
+                            domain=cookie.domain,
+                            path=cookie.path,
                         )
+            else:
+                for name, value in base_cookies.items():
+                    if value:
+                        jar.set(name, value, domain=".google.com", path="/")
+
+            jar.update(extra_cookies)
             cookie_jars_to_test.append((jar, "Base Cookies"))
-            tried_psid_ts.add((base_psid, base_psidts))
+            tried_sessions.setdefault(base_psid, set()).add(psidts)
         elif verbose:
             logger.debug("Skipping base cookies as they match cached cookies.")
     elif verbose and not cookie_jars_to_test:
-        logger.debug(
-            "Skipping loading base cookies. Either __Secure-1PSID or __Secure-1PSIDTS is not provided."
-        )
+        logger.debug("Skipping loading base cookies. __Secure-1PSID is not provided.")
 
     # Phase 3: Browser Cookies
     try:
@@ -198,10 +201,9 @@ async def get_access_token(
         )
         if browser_cookies:
             for browser, cookie_list in browser_cookies.items():
-                # Extract identifiers for matching and deduplication
                 temp_cookies = {c["name"]: c["value"] for c in cookie_list}
                 secure_1psid = temp_cookies.get("__Secure-1PSID")
-                secure_1psidts = temp_cookies.get("__Secure-1PSIDTS")
+                secure_1psidts = temp_cookies.get("__Secure-1PSIDTS", "")
 
                 if secure_1psid:
                     if base_psid and base_psid != secure_1psid:
@@ -212,24 +214,30 @@ async def get_access_token(
                             )
                         continue
 
-                    if (secure_1psid, secure_1psidts or "") in tried_psid_ts:
-                        continue
+                    if secure_1psidts not in tried_sessions.get(secure_1psid, set()):
+                        jar = Cookies()
+                        for cookie in cookie_list:
+                            name = cookie["name"]
+                            # Load only __Secure-1PSID and __Secure-1PSIDTS to prevent HTTP 401 errors when rotating cookies.
+                            if name not in ["__Secure-1PSID", "__Secure-1PSIDTS"]:
+                                continue
 
-                    jar = Cookies(extra_cookies)
-                    for cookie in cookie_list:
-                        jar.set(
-                            cookie["name"],
-                            cookie["value"],
-                            domain=cookie["domain"],
-                            path=cookie["path"],
-                        )
+                            jar.set(
+                                cookie["name"],
+                                cookie["value"],
+                                domain=cookie["domain"],
+                                path=cookie["path"],
+                            )
 
-                    cookie_jars_to_test.append((jar, f"Browser ({browser})"))
-                    tried_psid_ts.add((secure_1psid, secure_1psidts or ""))
-                    if verbose:
-                        logger.debug(
-                            f"Prepared local browser cookies from {browser} ({len(cookie_list)} cookies)"
+                        jar.update(extra_cookies)
+                        cookie_jars_to_test.append((jar, f"Browser ({browser})"))
+                        tried_sessions.setdefault(secure_1psid, set()).add(
+                            secure_1psidts
                         )
+                        if verbose:
+                            logger.debug(
+                                f"Prepared essential browser cookies from {browser}."
+                            )
 
         if (
             HAS_BC3

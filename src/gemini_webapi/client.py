@@ -57,6 +57,7 @@ from .utils import (
     parse_response_by_frame,
     rotate_1psidts,
     running,
+    save_cookies,
     upload_file,
 )
 
@@ -257,7 +258,7 @@ class GeminiClient(GemMixin):
 
     async def close(self, delay: float = 0) -> None:
         """
-        Close the client after a certain period of inactivity, or call manually to close immediately.
+        Close the client and save cookies.
 
         Parameters
         ----------
@@ -282,6 +283,17 @@ class GeminiClient(GemMixin):
             self._cookies.update(self.client.cookies)
             await self.client.close()
             self.client = None
+
+        self.save_cookies()
+
+    def save_cookies(self) -> None:
+        """
+        Save current persistent cookies to the cache file.
+        """
+        try:
+            save_cookies(self._cookies, self.verbose)
+        except OSError as e:
+            logger.warning(f"Failed to save cookies to cache file: {e}")
 
     async def reset_close_task(self) -> None:
         """
