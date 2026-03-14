@@ -516,14 +516,11 @@ class ResearchMixin:
             if not plan.cid:
                 plan.cid = start_output.deep_research_plan.cid
         if not plan.research_id:
-            if start_output.deep_research_plan and start_output.deep_research_plan.research_id:
-                plan.research_id = start_output.deep_research_plan.research_id
-            else:
-                preview = (start_output.text or "")[:1200]
-                raise GeminiError(
-                    "Deep research confirmation succeeded, but no research task id was found. "
-                    f"Start response preview: {preview!r}"
-                )
+            preview = (start_output.text or "")[:1200]
+            raise GeminiError(
+                "Deep research confirmation succeeded, but no research task id was found. "
+                f"Start response preview: {preview!r}"
+            )
         result = await self.wait_for_deep_research(
             plan=plan,
             chat=chat,

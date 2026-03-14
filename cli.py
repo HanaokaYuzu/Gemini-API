@@ -509,7 +509,13 @@ async def run(args: argparse.Namespace) -> int:
         set_log_level("DEBUG")
 
     if args.proxy:
-        logger.info(f"Proxy enabled: {args.proxy}")
+        from urllib.parse import urlparse
+        parsed = urlparse(args.proxy)
+        if parsed.username:
+            redacted = parsed._replace(netloc=f"***:***@{parsed.hostname}" + (f":{parsed.port}" if parsed.port else ""))
+            logger.info(f"Proxy enabled: {redacted.geturl()}")
+        else:
+            logger.info(f"Proxy enabled: {args.proxy}")
     else:
         logger.info("Proxy disabled")
 
@@ -594,6 +600,7 @@ async def run(args: argparse.Namespace) -> int:
         proxy=args.proxy,
         account_index=args.account_index,
     )
+    client.auto_refresh = False
 
     await client.init(timeout=args.request_timeout, verbose=args.verbose)
 

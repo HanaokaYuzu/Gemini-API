@@ -148,14 +148,20 @@ class ChatMixin:
                 if get_nested_value(part, [1]) != GRPC.LIST_CHATS:
                     continue
 
+                part_reject = None
                 code = get_nested_value(part, [5, 0])
                 if isinstance(code, int):
-                    reject_code = code
+                    part_reject = code
 
                 raw = get_nested_value(part, [2])
                 if raw:
                     body = json.loads(raw)
+                    reject_code = part_reject
                     break
+
+                # Only record reject_code from parts without a body
+                if part_reject is not None:
+                    reject_code = part_reject
             return body, reject_code
 
         def _collect_rows(node):

@@ -102,9 +102,13 @@ async def rotate_1psidts(
             raise AuthError
         response.raise_for_status()
 
+        # Merge bootstrap cookies with rotation response so callers get the
+        # full updated jar (including refreshed SIDCC/PSIDCC from bootstrap).
+        merged_cookies.update(response.cookies)
+
         if new_1psidts := response.cookies.get("__Secure-1PSIDTS"):
             path.write_text(new_1psidts)
             path.chmod(0o600)  # Restrict cookie cache to owner read/write only
-            return new_1psidts, response.cookies
+            return new_1psidts, merged_cookies
 
-        return None, response.cookies
+        return None, merged_cookies
