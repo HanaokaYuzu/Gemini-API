@@ -15,135 +15,16 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from gemini_webapi import GeminiClient, logger, set_log_level  # noqa: E402
 from gemini_webapi.constants import Model  # noqa: E402
+from gemini_webapi.exceptions import AuthError  # noqa: E402
+from gemini_webapi.types.image import GeneratedImage, WebImage  # noqa: E402
+from gemini_webapi.utils import rotate_1psidts  # noqa: E402
+
+INIT_MAX_RETRIES = 3
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "CLI for gemini-webapi. Reads all cookies from --cookies-json "
-            "and auto-persists response cookies (SIDCC etc.) back after each run. "
-            "No manual cookie rotation needed."
-        )
-    )
-    parser.add_argument("--prompt", required=False, help="Research prompt")
-    parser.add_argument(
-        "--output",
-        required=False,
-        help="Markdown file path to write the captured deep research result",
-    )
-    parser.add_argument(
-        "--secure-1psid",
-        default=None,
-        help="Google __Secure-1PSID cookie (or set GEMINI_SECURE_1PSID)",
-    )
-    parser.add_argument(
-        "--secure-1psidts",
-        default=None,
-        help="Google __Secure-1PSIDTS cookie (or set GEMINI_SECURE_1PSIDTS)",
-    )
-    parser.add_argument(
-        "--cookie",
-        action="append",
-        default=[],
-        help=(
-            "Extra cookie in name=value format (can be provided multiple times). "
-            "Only needed for debugging special cases; not required in normal flow."
-        ),
-    )
-    parser.add_argument(
-        "--cookies-json",
-        default=None,
-        help=(
-            "Path to JSON cookie file. All cookies are loaded and used; "
-            "response Set-Cookie values are persisted back automatically."
-        ),
-    )
-    parser.add_argument(
-        "--proxy",
-        default=(
-            os.getenv("HTTPS_PROXY")
-            or os.getenv("https_proxy")
-            or os.getenv("HTTP_PROXY")
-            or os.getenv("http_proxy")
-        ),
-    )
-    parser.add_argument(
-        "--model",
-        default=Model.UNSPECIFIED.model_name,
-        help="Model name, default: unspecified (auto by account)",
-    )
-    parser.add_argument(
-        "--account-index",
-        type=int,
-        default=None,
-        help="Google account index in multi-login session (e.g. 2 => /u/2)",
-    )
-    parser.add_argument(
-        "--poll-interval",
-        type=float,
-        default=15,
-        help="Seconds between deep research status polls",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=1800,
-        help="Overall wait timeout in seconds",
-    )
-    parser.add_argument(
-        "--request-timeout",
-        type=float,
-        default=300,
-        help="Per-request HTTP timeout in seconds",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable debug logging",
-    )
-    parser.add_argument(
-        "--inspect-account",
-        action="store_true",
-        help="Only probe account capability RPCs and print JSON",
-    )
-    parser.add_argument(
-        "--list-chats",
-        action="store_true",
-        help="List chat history summaries",
-    )
-    parser.add_argument(
-        "--list-cursor",
-        default=None,
-        help="Pagination cursor for --list-chats",
-    )
-    parser.add_argument(
-        "--chat-id",
-        default=None,
-        help="Read one chat by id (e.g. c_xxx)",
-    )
-    parser.add_argument(
-        "--max-turns",
-        type=int,
-        default=30,
-        help="Max turns to fetch for --chat-id",
-    )
-    parser.add_argument(
-        "--raw",
-        action="store_true",
-        help="Include raw turn payload for --chat-id",
-    )
-    parser.add_argument(
-        "--inspect-cookies",
-        action="store_true",
-        help="Print parsed cookie expiry metadata (from --cookies-json) and exit",
-    )
-    parser.add_argument(
-        "--no-persist",
-        action="store_true",
-        help="Do not write updated cookies back to --cookies-json",
-    )
-    return parser
-
+# ---------------------------------------------------------------------------
+# Cookie helpers
+# ---------------------------------------------------------------------------
 
 def _parse_expiry(value):
     if value is None:
@@ -157,20 +38,17 @@ def _parse_expiry(value):
         if not raw:
             return None
 
-        # Numeric string epoch
         try:
             return int(float(raw))
         except ValueError:
             pass
 
-        # ISO-8601 (e.g. 2027-03-12T21:16:56.548Z)
         try:
             dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             return int(dt.timestamp())
         except ValueError:
             pass
 
-        # HTTP-date style
         try:
             dt = parsedate_to_datetime(raw)
             if dt.tzinfo is None:
@@ -228,7 +106,7 @@ def _load_cookies_with_meta(path: str | Path) -> tuple[dict[str, str], dict[str,
             _upsert(k, v)
         return cookies, meta
 
-    # {"cookies": {name: value, ...}} (flat dict, written by --persist)
+    # {"cookies": {name: value, ...}}
     if isinstance(data, dict) and isinstance(data.get("cookies"), dict):
         inner = data["cookies"]
         if all(isinstance(k, str) and isinstance(v, str) for k, v in inner.items()):
@@ -236,7 +114,7 @@ def _load_cookies_with_meta(path: str | Path) -> tuple[dict[str, str], dict[str,
                 _upsert(k, v)
             return cookies, meta
 
-    # {"cookies": [{name, value, expirationDate?...}, ...]}
+    # {"cookies": [{name, value, ...}, ...]}
     if isinstance(data, dict) and isinstance(data.get("cookies"), list):
         for item in data["cookies"]:
             if isinstance(item, dict):
@@ -244,7 +122,7 @@ def _load_cookies_with_meta(path: str | Path) -> tuple[dict[str, str], dict[str,
         if cookies:
             return cookies, meta
 
-    # [{name, value, expirationDate?...}, ...]
+    # [{name, value, ...}, ...]
     if isinstance(data, list):
         for item in data:
             if isinstance(item, dict):
@@ -257,222 +135,14 @@ def _load_cookies_with_meta(path: str | Path) -> tuple[dict[str, str], dict[str,
     )
 
 
-def _cookie_expiry_from_jar(cookie_jar, name: str) -> dict:
-    candidates = []
-    try:
-        for c in cookie_jar.jar:
-            if getattr(c, "name", None) == name:
-                candidates.append(c)
-    except Exception:
-        return {"found": False, "expires_epoch": None, "expires_iso": None}
-
-    if not candidates:
-        return {"found": False, "expires_epoch": None, "expires_iso": None}
-
-    expires_values = [getattr(c, "expires", None) for c in candidates]
-    expires_values = [v for v in expires_values if isinstance(v, (int, float))]
-    if not expires_values:
-        return {"found": True, "expires_epoch": None, "expires_iso": None}
-
-    exp = int(max(expires_values))
-    return {
-        "found": True,
-        "expires_epoch": exp,
-        "expires_iso": datetime.fromtimestamp(exp, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z"),
-    }
-
-
-
-def _analyze_expiry_group(
-    meta: dict[str, dict], names: list[str], present_names: set[str] | None = None
-) -> dict:
-    present_names = present_names or set()
-
-    expires = {}
-    for name in names:
-        epoch = (meta.get(name) or {}).get("expires_epoch")
-        if isinstance(epoch, (int, float)):
-            expires[name] = int(epoch)
-
-    present_without_expiry = [
-        n for n in names if n in present_names and n not in expires
-    ]
-
-    if not expires:
-        return {
-            "names": names,
-            "present_with_expiry": [],
-            "present_without_expiry": present_without_expiry,
-            "missing": [n for n in names if n not in present_names],
-            "spread_seconds": None,
-            "reference_expires_iso": None,
-        }
-
-    values = list(expires.values())
-    ref = max(values)
-    return {
-        "names": names,
-        "present_with_expiry": sorted(expires.keys()),
-        "present_without_expiry": present_without_expiry,
-        "missing": [n for n in names if n not in present_names],
-        "spread_seconds": max(values) - min(values),
-        "reference_expires_iso": datetime.fromtimestamp(ref, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z"),
-        "expires_by_name": {
-            n: datetime.fromtimestamp(v, tz=timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-            for n, v in expires.items()
-        },
-    }
-
-
-def _cookie_expiry_diagnostics(
-    meta: dict[str, dict], present_names: set[str] | None = None
-) -> dict:
-    ts_group_names = ["__Secure-1PSIDTS", "__Secure-3PSIDTS"]
-    cc_group_names = ["SIDCC", "__Secure-1PSIDCC", "__Secure-3PSIDCC"]
-
-    ts_group = _analyze_expiry_group(meta, ts_group_names, present_names=present_names)
-    cc_group = _analyze_expiry_group(meta, cc_group_names, present_names=present_names)
-
-    ts_ref = None
-    cc_ref = None
-    if ts_group.get("reference_expires_iso"):
-        ts_ref = max(
-            [
-                int((meta.get(n) or {}).get("expires_epoch"))
-                for n in ts_group_names
-                if isinstance((meta.get(n) or {}).get("expires_epoch"), (int, float))
-            ],
-            default=None,
-        )
-    if cc_group.get("reference_expires_iso"):
-        cc_ref = max(
-            [
-                int((meta.get(n) or {}).get("expires_epoch"))
-                for n in cc_group_names
-                if isinstance((meta.get(n) or {}).get("expires_epoch"), (int, float))
-            ],
-            default=None,
-        )
-
-    between = None
-    if isinstance(ts_ref, int) and isinstance(cc_ref, int):
-        between = cc_ref - ts_ref
-
-    # Find cookies whose expiry is closest to __Secure-1PSIDTS.
-    nearest = []
-    one_ts = (meta.get("__Secure-1PSIDTS") or {}).get("expires_epoch")
-    if isinstance(one_ts, (int, float)):
-        one_ts = int(one_ts)
-        pairs = []
-        for name, m in meta.items():
-            e = m.get("expires_epoch") if isinstance(m, dict) else None
-            if not isinstance(e, (int, float)):
-                continue
-            if name == "__Secure-1PSIDTS":
-                continue
-            pairs.append((abs(int(e) - one_ts), name, int(e)))
-        pairs.sort(key=lambda x: (x[0], x[1]))
-        nearest = [
-            {
-                "name": name,
-                "delta_seconds": delta,
-                "expires_iso": datetime.fromtimestamp(epoch, tz=timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z"),
-            }
-            for delta, name, epoch in pairs[:8]
-        ]
-
-    return {
-        "ts_group": ts_group,
-        "cc_group": cc_group,
-        "cc_minus_ts_seconds": between,
-        "nearest_to_1psidts": nearest,
-    }
-
-
-def _serialize_model_output(output):
-    if not output:
-        return None
-    return {
-        "metadata": list(output.metadata),
-        "rcid": output.rcid,
-        "text": output.text,
-        "candidate_count": len(output.candidates),
-    }
-
-
-def render_markdown(result) -> str:
-    plan = result.plan
-    lines = [
-        "# Gemini Deep Research",
-        "",
-        f"- Research ID: `{plan.research_id}`",
-        f"- Chat ID: `{plan.cid or ''}`",
-        f"- Done: `{result.done}`",
-        "",
-        "## Plan",
-        "",
-    ]
-
-    if plan.title:
-        lines.extend([f"**Title**: {plan.title}", ""])
-    if plan.eta_text:
-        lines.extend([f"**ETA**: {plan.eta_text}", ""])
-    if plan.response_text:
-        lines.extend(["### Confirmation message", "", plan.response_text, ""])
-    if plan.steps:
-        lines.append("### Steps")
-        lines.append("")
-        for step in plan.steps:
-            lines.append(f"- {step}")
-        lines.append("")
-
-    if result.start_output:
-        lines.extend([
-            "## Start response",
-            "",
-            result.start_output.text,
-            "",
-        ])
-
-    if result.statuses:
-        lines.extend(["## Status snapshots", ""])
-        for i, status in enumerate(result.statuses, 1):
-            lines.append(f"### {i}. {status.state}")
-            lines.append("")
-            if status.notes:
-                for note in status.notes[:6]:
-                    lines.append(f"- {note}")
-            else:
-                lines.append("- (no parsed notes)")
-            lines.append("")
-
-    lines.extend(["## Final response", ""])
-    if result.final_output:
-        lines.append(result.final_output.text)
-    else:
-        lines.append("(No final output captured)")
-    lines.append("")
-    return "\n".join(lines)
-
-
 def _persist_cookies(
     cookies_json_path: str | Path,
     original_cookies: dict[str, str],
     client_cookies,
     verbose: bool = False,
 ) -> None:
-    """Merge original cookies with any Set-Cookie updates from the client and write back."""
     merged = dict(original_cookies)
 
-    # Apply updates from httpx cookie jar (response Set-Cookie values)
     try:
         for cookie in client_cookies.jar:
             name = getattr(cookie, "name", None)
@@ -482,7 +152,6 @@ def _persist_cookies(
     except Exception:
         pass
 
-    # Check if anything actually changed
     if merged == original_cookies:
         if verbose:
             logger.debug("No cookie changes to persist")
@@ -504,7 +173,93 @@ def _persist_cookies(
         logger.debug(f"Persisted cookies to {cookies_json_path} (updated: {', '.join(changed)})")
 
 
-async def run(args: argparse.Namespace) -> int:
+def _cookie_expiry_diagnostics(
+    meta: dict[str, dict], present_names: set[str] | None = None
+) -> dict:
+    present_names = present_names or set()
+
+    def _analyze_group(names):
+        expires = {}
+        for name in names:
+            epoch = (meta.get(name) or {}).get("expires_epoch")
+            if isinstance(epoch, (int, float)):
+                expires[name] = int(epoch)
+        present_without = [n for n in names if n in present_names and n not in expires]
+        if not expires:
+            return {
+                "names": names,
+                "present_with_expiry": [],
+                "present_without_expiry": present_without,
+                "missing": [n for n in names if n not in present_names],
+                "spread_seconds": None,
+                "reference_expires_iso": None,
+            }
+        values = list(expires.values())
+        ref = max(values)
+        return {
+            "names": names,
+            "present_with_expiry": sorted(expires.keys()),
+            "present_without_expiry": present_without,
+            "missing": [n for n in names if n not in present_names],
+            "spread_seconds": max(values) - min(values),
+            "reference_expires_iso": datetime.fromtimestamp(ref, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "expires_by_name": {
+                n: datetime.fromtimestamp(v, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+                for n, v in expires.items()
+            },
+        }
+
+    ts_names = ["__Secure-1PSIDTS", "__Secure-3PSIDTS"]
+    cc_names = ["SIDCC", "__Secure-1PSIDCC", "__Secure-3PSIDCC"]
+    ts_group = _analyze_group(ts_names)
+    cc_group = _analyze_group(cc_names)
+
+    return {"ts_group": ts_group, "cc_group": cc_group}
+
+
+# ---------------------------------------------------------------------------
+# Client init / teardown helpers
+# ---------------------------------------------------------------------------
+
+def _build_client_and_cookies(args) -> tuple[GeminiClient, dict[str, str]]:
+    """Build GeminiClient instance (not yet initialized) and return json_cookies."""
+    json_cookies: dict[str, str] = {}
+    if args.cookies_json:
+        json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
+
+    secure_1psid = json_cookies.get("__Secure-1PSID") or os.getenv("GEMINI_SECURE_1PSID")
+    secure_1psidts = json_cookies.get("__Secure-1PSIDTS") or os.getenv("GEMINI_SECURE_1PSIDTS")
+
+    if not secure_1psid:
+        raise SystemExit(
+            "Missing required cookie: __Secure-1PSID. "
+            "Please export cookies from browser and provide via --cookies-json."
+        )
+    if not secure_1psidts:
+        logger.warning("__Secure-1PSIDTS not found. Session may still work with long-lived cookies.")
+
+    extra_cookies: dict[str, str] = {}
+    for k, v in json_cookies.items():
+        if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}:
+            extra_cookies[k] = v
+
+    client = GeminiClient(
+        secure_1psid=secure_1psid,
+        secure_1psidts=secure_1psidts or "",
+        cookies=extra_cookies or None,
+        proxy=args.proxy,
+        account_index=args.account_index,
+    )
+    client.auto_refresh = False
+    return client, json_cookies
+
+
+async def _init_client(args) -> tuple[GeminiClient, dict[str, str]]:
+    """Load cookies, create and init GeminiClient with auto-retry on AuthError."""
     if args.verbose:
         set_log_level("DEBUG")
 
@@ -516,43 +271,567 @@ async def run(args: argparse.Namespace) -> int:
             logger.info(f"Proxy enabled: {redacted.geturl()}")
         else:
             logger.info(f"Proxy enabled: {args.proxy}")
+
+    client, json_cookies = _build_client_and_cookies(args)
+    timeout = getattr(args, "request_timeout", 300)
+
+    last_error: AuthError | None = None
+    for attempt in range(1, INIT_MAX_RETRIES + 1):
+        try:
+            await client.init(timeout=timeout, verbose=args.verbose)
+            return client, json_cookies
+        except AuthError as e:
+            last_error = e
+            if attempt >= INIT_MAX_RETRIES:
+                break
+            logger.warning(f"Init attempt {attempt}/{INIT_MAX_RETRIES} failed: {e}")
+            logger.info("Rotating 1PSIDTS cookie and retrying...")
+            try:
+                new_1psidts, rotated_cookies = await rotate_1psidts(client.cookies, client.proxy)
+                if rotated_cookies:
+                    client.cookies.update(rotated_cookies)
+                    # Also update json_cookies so persist picks it up
+                    if new_1psidts:
+                        json_cookies["__Secure-1PSIDTS"] = new_1psidts
+                    try:
+                        for c in rotated_cookies.jar:
+                            name = getattr(c, "name", None)
+                            value = getattr(c, "value", None)
+                            if isinstance(name, str) and isinstance(value, str) and value:
+                                json_cookies[name] = value
+                    except Exception:
+                        pass
+                    # Persist rotated cookies immediately so next run picks them up
+                    if args.cookies_json and not args.no_persist:
+                        _persist_cookies(args.cookies_json, json_cookies, client.cookies, verbose=args.verbose)
+                    # Reset client internal state for re-init
+                    client._running = False
+                else:
+                    logger.warning("Cookie rotation returned no update")
+            except Exception as re:
+                logger.warning(f"Cookie rotation failed: {re}")
+
+    raise SystemExit(
+        f"Failed to initialize after {INIT_MAX_RETRIES} attempts. "
+        f"Last error: {last_error}\n"
+        "Please refresh cookies from browser."
+    )
+
+
+async def _cleanup(client: GeminiClient, args, json_cookies: dict[str, str]):
+    """Persist cookies and close client."""
+    if args.cookies_json and not args.no_persist:
+        _persist_cookies(args.cookies_json, json_cookies, client.cookies, verbose=args.verbose)
+    await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+def _print_images(output):
+    """Print image info from a ModelOutput if any."""
+    if not output or not output.images:
+        return
+    web = [img for img in output.images if isinstance(img, WebImage)]
+    gen = [img for img in output.images if isinstance(img, GeneratedImage)]
+    if web:
+        print("\n---\nImages:")
+        for img in web:
+            print(f"  {img.url}  {img.title or ''}")
+    if gen:
+        print("\n---\nGenerated images:")
+        for img in gen:
+            print(f"  {img.url}")
+
+
+def _print_chat_id(output):
+    """Print the chat ID from a ModelOutput."""
+    if output and output.metadata:
+        cid = output.metadata[0] if output.metadata else None
+        if cid:
+            print(f"\n---\nChat ID: {cid}")
+
+
+def _extract_grounding_sources(raw_turns: list) -> list[dict]:
+    """Extract grounding sources (search citations) from raw turns.
+
+    Sources live at cand[2][1] in the newest assistant turn:
+      each entry[2] = [[url, title, ...], ...]
+    """
+    from gemini_webapi.utils import get_nested_value
+
+    if not raw_turns:
+        return []
+
+    seen = set()
+    sources = []
+
+    for turn in raw_turns:
+        cand = get_nested_value(turn, [3, 0, 0])
+        if not cand or not isinstance(cand, list):
+            continue
+
+        grounding = get_nested_value(cand, [2, 1])
+        if not grounding or not isinstance(grounding, list):
+            continue
+
+        for entry in grounding:
+            src_list = get_nested_value(entry, [2])
+            if not src_list or not isinstance(src_list, list):
+                continue
+            for src in src_list:
+                if not isinstance(src, list) or len(src) < 2:
+                    continue
+                url = src[0] if isinstance(src[0], str) else None
+                title = src[1] if len(src) > 1 and isinstance(src[1], str) else ""
+                if url and url not in seen:
+                    seen.add(url)
+                    clean_url = url.split("#")[0] if "#:~:text=" in url else url
+                    sources.append({"url": clean_url, "title": title})
+        break  # Only need the newest turn
+
+    return sources
+
+
+async def _print_sources(client, output):
+    """Fetch and print grounding sources (search citations) if any."""
+    if not output or not output.metadata:
+        return
+    cid = output.metadata[0] if output.metadata else None
+    if not cid:
+        return
+    try:
+        raw = await client.read_chat_raw(cid, max_turns=3)
+        sources = _extract_grounding_sources(raw)
+        if sources:
+            print("\n---\nSources:")
+            for s in sources:
+                print(f"  {s['title']}")
+                print(f"  {s['url']}")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Subcommand implementations
+# ---------------------------------------------------------------------------
+
+async def cmd_ask(args) -> int:
+    client, json_cookies = await _init_client(args)
+    try:
+        files = [args.image] if getattr(args, "image", None) else None
+        model = args.model
+
+        if args.no_stream:
+            output = await client.generate_content(args.prompt, files=files, model=model)
+            print(output.text)
+            _print_images(output)
+            await _print_sources(client, output)
+            _print_chat_id(output)
+        else:
+            output = None
+            async for output in client.generate_content_stream(args.prompt, files=files, model=model):
+                delta = output.text_delta
+                if delta:
+                    print(delta, end="", flush=True)
+            if output:
+                print()  # final newline
+                _print_images(output)
+                await _print_sources(client, output)
+                _print_chat_id(output)
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+async def cmd_reply(args) -> int:
+    client, json_cookies = await _init_client(args)
+    try:
+        # Fetch latest turn to get rid/rcid for proper conversation continuation
+        latest = await client.fetch_latest_chat_response(args.chat_id)
+        if latest:
+            rcid = latest.rcid
+            metadata = list(latest.metadata)
+            chat = client.start_chat(metadata=metadata, cid=args.chat_id, rcid=rcid, model=args.model)
+        else:
+            chat = client.start_chat(cid=args.chat_id, model=args.model)
+
+        if args.no_stream:
+            output = await chat.send_message(args.prompt)
+            print(output.text)
+            _print_images(output)
+            await _print_sources(client, output)
+        else:
+            output = None
+            async for output in chat.send_message_stream(args.prompt):
+                delta = output.text_delta
+                if delta:
+                    print(delta, end="", flush=True)
+            if output:
+                print()
+                _print_images(output)
+                await _print_sources(client, output)
+
+        print(f"\n---\nChat ID: {args.chat_id}")
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+async def cmd_research_send(args) -> int:
+    client, json_cookies = await _init_client(args)
+    try:
+        plan = await client.create_deep_research_plan(
+            prompt=args.prompt,
+            model=args.model,
+        )
+        await client.start_deep_research(plan=plan)
+
+        if not plan.cid:
+            raise SystemExit("Deep research failed: no chat ID returned.")
+
+        # Human-friendly output
+        print("Deep Research task submitted\n")
+        if plan.title:
+            print(f"  Title:  {plan.title}")
+        if plan.eta_text:
+            print(f"  ETA:    {plan.eta_text}")
+        if plan.steps:
+            print("  Steps:")
+            for step in plan.steps:
+                print(f"    - {step}")
+        print(f"\n  Chat ID: {plan.cid}")
+        print(f"\n  Use 'research check {plan.cid}' to check progress")
+        print(f"  Use 'research get {plan.cid}' to fetch result")
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+async def cmd_research_check(args) -> int:
+    cid = args.chat_id
+    client, json_cookies = await _init_client(args)
+    try:
+        latest = await client.fetch_latest_chat_response(cid)
+        if latest:
+            text = latest.text or ""
+            lower = text.lower()
+            has_completion_phrase = (
+                "我已经完成了研究" in text
+                or "研究完成" in text
+                or "i have completed the research" in lower
+                or "i've completed the research" in lower
+                or "research is complete" in lower
+            )
+            looks_like_report = len(text) > 2000 and (text.lstrip().startswith("#") or "\n## " in text)
+            done = has_completion_phrase or looks_like_report
+            print(f"  Status: {'done' if done else 'in progress'}")
+            print(f"  Response length: {len(text)} chars")
+            if done:
+                print(f"\n  Use 'research get {cid}' to retrieve the full result.")
+        else:
+            print("  Status: waiting (no response yet)")
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+def _extract_research_result_from_raw(raw_turns: list) -> tuple[str, dict[int, dict]]:
+    """Extract the deep research report text and numbered sources from raw turns.
+
+    The deep research result lives at cand[30][0] in the newest turn:
+      [30][0][4] = report text
+      [30][0][5][0]["44"] = citation groups
+
+    Returns (text, sources_dict) where sources_dict maps ref_number -> {url, title}.
+    """
+    from gemini_webapi.utils import get_nested_value
+
+    text = ""
+    sources: dict[int, dict] = {}
+
+    for turn in raw_turns:
+        cand = get_nested_value(turn, [3, 0, 0])
+        if not cand or not isinstance(cand, list):
+            continue
+
+        # Check for deep research result at cand[30]
+        dr_data = get_nested_value(cand, [30, 0])
+        if not dr_data or not isinstance(dr_data, list) or len(dr_data) < 5:
+            continue
+
+        candidate_text = get_nested_value(dr_data, [4])
+        if not isinstance(candidate_text, str) or len(candidate_text) < 200:
+            continue
+
+        text = candidate_text
+
+        # Extract sources from [30][0][5][0]["44"]
+        citations_container = get_nested_value(dr_data, [5, 0])
+        if not isinstance(citations_container, dict):
+            break
+        citation_groups = citations_container.get("44", [])
+        if not isinstance(citation_groups, list):
+            break
+
+        for group in citation_groups:
+            if not isinstance(group, list) or len(group) < 2:
+                continue
+            for source_entries in group[1:]:
+                if not isinstance(source_entries, list):
+                    continue
+                for item in source_entries:
+                    if not isinstance(item, list) or len(item) < 4:
+                        continue
+                    inner = get_nested_value(item, [3])
+                    if not isinstance(inner, list) or len(inner) < 2:
+                        continue
+                    detail = inner[0]
+                    ref_num = inner[1] if len(inner) > 1 else None
+                    if isinstance(detail, list) and len(detail) >= 3 and isinstance(ref_num, int):
+                        url = detail[1]
+                        title = detail[2]
+                        if isinstance(url, str) and url.startswith("http"):
+                            sources[ref_num] = {"url": url, "title": title or ""}
+        break  # Only need the first matching turn
+
+    return text, sources
+
+
+def _format_sources_block(sources: dict[int, dict]) -> str:
+    """Format sources as a markdown references block."""
+    if not sources:
+        return ""
+    lines = ["\n\n---\n\n## References\n"]
+    for num in sorted(sources.keys()):
+        s = sources[num]
+        lines.append(f"[{num}] [{s['title']}]({s['url']})")
+    return "\n".join(lines) + "\n"
+
+
+async def cmd_research_get(args) -> int:
+    cid = args.chat_id
+
+    client, json_cookies = await _init_client(args)
+    try:
+        # Try raw turns first to get both text and sources
+        raw = await client.read_chat_raw(cid, max_turns=5)
+        text = ""
+        sources: dict[int, dict] = {}
+
+        if raw:
+            text, sources = _extract_research_result_from_raw(raw)
+
+        # Fallback to fetch_latest_chat_response if raw extraction failed
+        if not text:
+            latest = await client.fetch_latest_chat_response(cid)
+            if not latest:
+                raise SystemExit(f"No response found for chat {cid}. Research may still be running.")
+            text = latest.text or ""
+
+        result = text + _format_sources_block(sources)
+
+        output_file = getattr(args, "output", None)
+        if output_file:
+            p = Path(output_file)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(result, encoding="utf-8")
+            print(f"Saved research result to {output_file} ({len(sources)} sources)")
+        else:
+            print(result)
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+async def cmd_list(args) -> int:
+    client, json_cookies = await _init_client(args)
+    try:
+        listing = await client.list_chats(cursor=args.cursor)
+
+        err = str(listing.get("error") or "")
+        if "code=7" in err:
+            raise SystemExit("LIST_CHATS rejected with code=7. Please refresh cookies from browser.")
+
+        items = listing.get("items", [])
+        if not items:
+            print("No chats found.")
+            return 0
+
+        # Table output
+        id_w = max(len("ID"), max(len(it.get("cid", "")) for it in items))
+        title_w = max(len("Title"), max(len((it.get("title") or "")[:50]) for it in items))
+        upd_w = len("Updated")
+
+        header = f"{'ID':<{id_w}}  {'Title':<{title_w}}  {'Updated':<{upd_w}}"
+        print(header)
+        print("-" * len(header))
+
+        for it in items:
+            cid = it.get("cid", "")
+            title = (it.get("title") or "")[:50]
+            updated = (it.get("updated_at") or "")[:16]
+            print(f"{cid:<{id_w}}  {title:<{title_w}}  {updated}")
+
+        cursor = listing.get("cursor")
+        if cursor:
+            print(f"\n(next page: --cursor {cursor})")
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+async def cmd_read(args) -> int:
+    client, json_cookies = await _init_client(args)
+    try:
+        turns = await client.read_chat(args.chat_id, max_turns=args.max_turns)
+
+        if not turns:
+            print(f"No turns found for chat {args.chat_id}")
+            return 1
+
+        lines = []
+        for i, turn in enumerate(turns, 1):
+            lines.append(f"--- message {i} ---")
+            if turn.user_prompt:
+                lines.append(f"[User] {turn.user_prompt}")
+            if turn.assistant_response:
+                lines.append(f"[Gemini] {turn.assistant_response}")
+            lines.append("")
+
+        text = "\n".join(lines)
+        output_file = getattr(args, "output", None)
+        if output_file:
+            p = Path(output_file)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+            print(f"Saved chat to {output_file}")
+        else:
+            print(text)
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
+def _print_inspect_summary(snapshot: dict) -> None:
+    """Print a human-readable diagnostic summary before the raw JSON."""
+    summary = snapshot.get("summary", {})
+    rpc = snapshot.get("rpc", {})
+
+    print("=== Account Diagnostics ===\n")
+    print(f"  Source path:   {snapshot.get('source_path', '?')}")
+    print(f"  Account path:  {snapshot.get('account_path') or '(none — no multi-login detected)'}")
+
+    # RPC status table
+    print("\n  RPC Probes:")
+    for name, probe in rpc.items():
+        if not isinstance(probe, dict):
+            continue
+        if not probe.get("ok", False):
+            status = f"ERROR: {probe.get('error', '?')}"
+        elif probe.get("reject_code") is not None:
+            status = f"REJECTED (code={probe['reject_code']})"
+        elif probe.get("parsed"):
+            status = "OK"
+        else:
+            status = "OK (empty)"
+        print(f"    {name:<15} {status}")
+
+    # Rejected probes explanation
+    rejected = summary.get("rejected_probes", [])
+    if rejected:
+        print(f"\n  Rejected probes: {', '.join(rejected)}")
+        print("  → reject_code=7 typically means:")
+        print("    - Cookies are stale or incomplete (try re-exporting from browser)")
+        print("    - Exit IP is in a restricted region (try a different proxy)")
+        print("    - Account index mismatch (try --account-index 0, 1, 2...)")
     else:
-        logger.info("Proxy disabled")
+        print("\n  All probes passed.")
 
-    # --- Load cookies ---
+    # Deep research
+    dr = summary.get("deep_research_feature_present", False)
+    rl = summary.get("deep_research_rate_limited", False)
+    print(f"\n  Deep Research:")
+    print(f"    Feature detected:  {'yes' if dr else 'no'}")
+    print(f"    Rate limited:      {'YES' if rl else 'no'}")
+
+    quota = summary.get("quota_rows", [])
+    if quota:
+        print(f"    Quota:")
+        for row in quota:
+            print(f"      {row.get('key', '?')}: {row.get('remaining', '?')}/{row.get('limit', '?')}")
+
+    print()
+
+
+async def cmd_download(args) -> int:
+    url = args.url
+
+    # Load cookies for authenticated download
     json_cookies: dict[str, str] = {}
-    json_cookie_meta: dict[str, dict] = {}
     if args.cookies_json:
+        json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
+
+    from httpx import AsyncClient, Cookies
+
+    jar = Cookies()
+    for k, v in json_cookies.items():
+        jar.set(k, v, domain=".google.com")
+
+    # Determine output filename
+    output = args.output
+    if not output:
+        # Auto-generate from URL hash + timestamp
+        from hashlib import md5
+        url_hash = md5(url.encode()).hexdigest()[:8]
+        output = f"gemini-{url_hash}.png"
+
+    # Append =s2048 for full-size if not already specified
+    dl_url = url
+    if "googleusercontent.com" in url and "=" not in url.split("/")[-1]:
+        dl_url = url + "=s2048"
+
+    async with AsyncClient(
+        http2=True,
+        follow_redirects=True,
+        cookies=jar,
+        proxy=args.proxy,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+    ) as client:
+        resp = await client.get(dl_url)
+        if resp.status_code != 200:
+            raise SystemExit(f"Download failed: HTTP {resp.status_code}")
+
+        content_type = resp.headers.get("content-type", "")
+        if "image" not in content_type and "octet" not in content_type:
+            raise SystemExit(f"Unexpected content-type: {content_type}")
+
+        p = Path(output)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(resp.content)
+        size_kb = len(resp.content) / 1024
+        print(f"Saved to {output} ({size_kb:.1f} KB)")
+    return 0
+
+
+async def cmd_inspect(args) -> int:
+    if getattr(args, "cookies_only", False):
+        # Cookie diagnostics only — no client init needed
+        if not args.cookies_json:
+            raise SystemExit("--cookies-json is required for --cookies-only")
         json_cookies, json_cookie_meta = _load_cookies_with_meta(args.cookies_json)
-
-    # CLI args and env vars override cookies.json values
-    secure_1psid = (
-        args.secure_1psid
-        or json_cookies.get("__Secure-1PSID")
-        or os.getenv("GEMINI_SECURE_1PSID")
-    )
-    secure_1psidts = (
-        args.secure_1psidts
-        or json_cookies.get("__Secure-1PSIDTS")
-        or os.getenv("GEMINI_SECURE_1PSIDTS")
-    )
-
-    if args.verbose:
-        logger.debug(f"cookie __Secure-1PSID: present={bool(secure_1psid)}")
-        logger.debug(f"cookie __Secure-1PSIDTS: present={bool(secure_1psidts)}")
-        if json_cookies:
-            logger.debug(f"cookies-json keys: {sorted(json_cookies.keys())}")
-
-    if args.inspect_cookies:
         report = {
-            "cookies_json": str(args.cookies_json) if args.cookies_json else None,
+            "cookies_json": str(args.cookies_json),
             "required": {
                 "__Secure-1PSID": {
-                    "present": bool(secure_1psid),
+                    "present": "__Secure-1PSID" in json_cookies,
                     **json_cookie_meta.get("__Secure-1PSID", {}),
                 },
                 "__Secure-1PSIDTS": {
-                    "present": bool(secure_1psidts),
+                    "present": "__Secure-1PSIDTS" in json_cookies,
                     **json_cookie_meta.get("__Secure-1PSIDTS", {}),
                 },
             },
@@ -564,166 +843,143 @@ async def run(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
 
-    if not secure_1psid:
-        raise SystemExit(
-            "Missing required cookie: __Secure-1PSID. "
-            "Please export cookies from browser and provide via --cookies-json."
-        )
-
-    if not secure_1psidts:
-        logger.warning(
-            "__Secure-1PSIDTS not found. Session may still work with long-lived cookies."
-        )
-
-    # Build extra cookies: everything from cookies.json except 1PSID/1PSIDTS
-    # (those are passed as named params to GeminiClient)
-    extra_cookies: dict[str, str] = {}
-    for k, v in json_cookies.items():
-        if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}:
-            extra_cookies[k] = v
-
-    # --cookie overrides
-    for item in args.cookie or []:
-        if "=" not in item:
-            raise SystemExit(f"Invalid --cookie value: {item!r}, expected name=value")
-        name, value = item.split("=", 1)
-        name = name.strip()
-        if not name:
-            raise SystemExit(f"Invalid --cookie name in: {item!r}")
-        extra_cookies[name] = value
-
-    # --- Create client with ALL cookies ---
-    client = GeminiClient(
-        secure_1psid=secure_1psid,
-        secure_1psidts=secure_1psidts or "",
-        cookies=extra_cookies or None,
-        proxy=args.proxy,
-        account_index=args.account_index,
-    )
-    client.auto_refresh = False
-
-    await client.init(timeout=args.request_timeout, verbose=args.verbose)
-
-    if args.verbose:
-        for name in ("__Secure-1PSID", "__Secure-1PSIDTS"):
-            info = _cookie_expiry_from_jar(client.cookies, name)
-            if not info["found"]:
-                logger.debug(f"post-init jar: {name} not found")
-            elif info["expires_epoch"] is None:
-                logger.debug(
-                    f"post-init jar: {name} found but expires is unavailable"
-                )
-            else:
-                left_days = (
-                    info["expires_epoch"]
-                    - int(datetime.now(tz=timezone.utc).timestamp())
-                ) / 86400
-                logger.debug(
-                    f"post-init jar: {name} expires_at={info['expires_iso']} (in {left_days:.2f} days)"
-                )
-
+    client, json_cookies = await _init_client(args)
     try:
-        if args.inspect_account:
-            snapshot = await client.inspect_account_status()
-            print(json.dumps(snapshot, ensure_ascii=False, indent=2))
-            return 0
-
-        if args.list_chats:
-            listing = await client.list_chats(cursor=args.list_cursor)
-            print(json.dumps(listing, ensure_ascii=False, indent=2))
-            err = str(listing.get("error") or "")
-            if "code=7" in err:
-                raise SystemExit(
-                    "LIST_CHATS rejected with code=7. Please refresh cookies from browser."
-                )
-            return 0
-
-        if args.chat_id:
-            latest = await client.fetch_latest_chat_response(args.chat_id)
-            turns = await client.read_chat(args.chat_id, max_turns=args.max_turns)
-            raw_turns = None
-            if args.raw:
-                raw_turns = await client.read_chat_raw(
-                    args.chat_id,
-                    max_turns=args.max_turns,
-                )
-
-            payload = {
-                "cid": args.chat_id,
-                "latest": _serialize_model_output(latest),
-                "turns": [turn.model_dump(mode="json") for turn in turns],
-            }
-            if args.raw:
-                payload["raw_turns"] = raw_turns
-
-            data = json.dumps(payload, ensure_ascii=False, indent=2)
-            if args.output:
-                output_path = Path(args.output)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_text(data, encoding="utf-8")
-                print(f"Saved chat snapshot to {output_path}")
-            else:
-                print(data)
-
-            if not latest and not turns and raw_turns is None:
-                raise SystemExit(
-                    "READ_CHAT returned no data (likely reject_code=7). "
-                    "Please refresh cookies from browser."
-                )
-            return 0
-
         snapshot = await client.inspect_account_status()
 
-        # Fast permission gate before running deep research workflow
-        rpc = snapshot.get("rpc", {})
-        critical = ["activity", "model_state", "caps"]
-        rejected = [
-            name
-            for name in critical
-            if isinstance(rpc.get(name), dict) and rpc[name].get("reject_code") == 7
-        ]
-        if len(rejected) >= 2:
-            raise SystemExit(
-                "Deep research permission check failed (reject_code=7): "
-                + ", ".join(rejected)
-            )
-
-        summary = snapshot.get("summary", {})
-        if summary.get("deep_research_rate_limited"):
-            raise SystemExit(
-                "Deep research rate limit reached for current account/session. "
-                "Please wait for reset time shown in Gemini UI."
-            )
-
-        if not args.prompt or not args.output:
-            raise SystemExit(
-                "--prompt and --output are required unless --inspect-account/--list-chats/--chat-id is used"
-            )
-
-        result = await client.deep_research(
-            prompt=args.prompt,
-            model=args.model,
-            poll_interval=args.poll_interval,
-            timeout=args.timeout,
-        )
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(render_markdown(result), encoding="utf-8")
-        print(f"Saved deep research result to {output_path}")
+        _print_inspect_summary(snapshot)
         return 0
     finally:
-        # Auto-persist updated cookies (SIDCC etc. from response Set-Cookie)
-        if args.cookies_json and not args.no_persist:
-            _persist_cookies(
-                args.cookies_json, json_cookies, client.cookies,
-                verbose=args.verbose,
-            )
-        await client.close()
+        await _cleanup(client, args, json_cookies)
+
+
+# ---------------------------------------------------------------------------
+# Argparse setup
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="CLI for gemini-webapi",
+    )
+
+    # Global arguments
+    parser.add_argument("--cookies-json", default=None, help="Path to JSON cookie file")
+    parser.add_argument(
+        "--proxy",
+        default=(
+            os.getenv("HTTPS_PROXY")
+            or os.getenv("https_proxy")
+            or os.getenv("HTTP_PROXY")
+            or os.getenv("http_proxy")
+        ),
+    )
+    parser.add_argument("--account-index", type=int, default=None, help="Google account index (e.g. 2 => /u/2)")
+    parser.add_argument("--model", default=Model.UNSPECIFIED.model_name, help="Model name")
+    parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument("--no-persist", action="store_true", help="Do not write updated cookies back")
+    parser.add_argument("--request-timeout", type=float, default=300, help="Per-request HTTP timeout in seconds")
+
+    sub = parser.add_subparsers(dest="command")
+
+    # --- ask ---
+    p_ask = sub.add_parser("ask", help="Single-turn question")
+    p_ask.add_argument("prompt", help="Prompt text")
+    p_ask.add_argument("--no-stream", action="store_true", help="Wait for complete response")
+    p_ask.add_argument("--image", default=None, help="Attach an image/file")
+
+    # --- reply ---
+    p_reply = sub.add_parser("reply", help="Continue an existing chat")
+    p_reply.add_argument("chat_id", help="Chat ID (c_...)")
+    p_reply.add_argument("prompt", help="Prompt text")
+    p_reply.add_argument("--no-stream", action="store_true", help="Wait for complete response")
+
+    # --- research (nested) ---
+    p_research = sub.add_parser("research", help="Deep research workflow")
+    research_sub = p_research.add_subparsers(dest="research_command")
+
+    p_rs = research_sub.add_parser("send", help="Submit a deep research task")
+    p_rs.add_argument("--prompt", required=True, help="Research prompt")
+
+    p_rc = research_sub.add_parser("check", help="Check deep research progress")
+    p_rc.add_argument("chat_id", help="Chat ID from 'research send'")
+
+    p_rg = research_sub.add_parser("get", help="Get deep research result")
+    p_rg.add_argument("chat_id", help="Chat ID from 'research send'")
+    p_rg.add_argument("--output", default=None, help="Write result to file instead of stdout")
+
+    # --- list ---
+    p_list = sub.add_parser("list", help="List chat history")
+    p_list.add_argument("--cursor", default=None, help="Pagination cursor")
+
+    # --- read ---
+    p_read = sub.add_parser("read", help="Read a chat conversation")
+    p_read.add_argument("chat_id", help="Chat ID (c_...)")
+    p_read.add_argument("--max-turns", type=int, default=30, help="Max turns to fetch")
+    p_read.add_argument("--output", default=None, help="Write to file instead of stdout")
+
+    # --- download ---
+    p_dl = sub.add_parser("download", help="Download a generated image (requires cookies)")
+    p_dl.add_argument("url", help="Image URL (googleusercontent.com)")
+    p_dl.add_argument("--output", "-o", default=None, help="Output file path (default: auto from URL)")
+
+    # --- models ---
+    sub.add_parser("models", help="List available models")
+
+    # --- inspect ---
+    p_inspect = sub.add_parser("inspect", help="Account capability probe")
+    p_inspect.add_argument("--cookies-only", action="store_true", help="Cookie expiry diagnostics only")
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+async def run(args: argparse.Namespace) -> int:
+    cmd = args.command
+
+    if cmd == "ask":
+        return await cmd_ask(args)
+    elif cmd == "reply":
+        return await cmd_reply(args)
+    elif cmd == "research":
+        rc = getattr(args, "research_command", None)
+        if rc == "send":
+            return await cmd_research_send(args)
+        elif rc == "check":
+            return await cmd_research_check(args)
+        elif rc == "get":
+            return await cmd_research_get(args)
+        else:
+            raise SystemExit("Usage: cli.py research {send|check|get}")
+    elif cmd == "list":
+        return await cmd_list(args)
+    elif cmd == "read":
+        return await cmd_read(args)
+    elif cmd == "download":
+        return await cmd_download(args)
+    elif cmd == "models":
+        print("Available models for --model:\n")
+        for m in Model:
+            default = " (default)" if m == Model.UNSPECIFIED else ""
+            adv = " [advanced]" if m.advanced_only else ""
+            print(f"  {m.model_name}{default}{adv}")
+        print("\nNote: these map to specific request headers in the library.")
+        print("Use 'unspecified' to let Gemini auto-select.")
+        return 0
+    elif cmd == "inspect":
+        return await cmd_inspect(args)
+    else:
+        raise SystemExit("Usage: cli.py {ask|reply|research|list|read|models|inspect} ...")
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        return 1
     return asyncio.run(run(args))
 
 
