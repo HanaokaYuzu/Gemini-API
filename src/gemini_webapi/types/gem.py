@@ -27,9 +27,19 @@ class Gem(BaseModel):
     predefined: bool
 
     def __str__(self) -> str:
+        prompt = (
+            self.prompt
+            if not self.prompt or len(self.prompt) <= 100
+            else self.prompt[:97] + "..."
+        )
+        desc = (
+            self.description
+            if not self.description or len(self.description) <= 100
+            else self.description[:97] + "..."
+        )
         return (
-            f"Gem(id='{self.id}', name='{self.name}', description='{self.description}', "
-            f"prompt='{self.prompt}', predefined={self.predefined})"
+            f"Gem(id='{self.id}', name='{self.name}', description='{desc}', "
+            f"prompt='{prompt}', predefined={self.predefined})"
         )
 
 
@@ -75,9 +85,9 @@ class GemJar(dict[str, Gem]):
             If neither id nor name is provided.
         """
 
-        assert not (
-            id is None and name is None
-        ), "At least one of gem id or name must be provided."
+        assert not (id is None and name is None), (
+            "At least one of gem id or name must be provided."
+        )
 
         if id is not None:
             gem_candidate = super().get(id)

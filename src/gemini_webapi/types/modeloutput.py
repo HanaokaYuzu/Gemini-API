@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 from .image import Image
 from .candidate import Candidate
+from .video import GeneratedVideo, GeneratedMedia
 
 
 class ModelOutput(BaseModel):
@@ -23,7 +24,8 @@ class ModelOutput(BaseModel):
     chosen: int = 0
 
     def __str__(self):
-        return self.text
+        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
+        return text
 
     def __repr__(self):
         return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
@@ -47,6 +49,14 @@ class ModelOutput(BaseModel):
     @property
     def images(self) -> list[Image]:
         return self.candidates[self.chosen].images
+
+    @property
+    def videos(self) -> list[GeneratedVideo]:
+        return self.candidates[self.chosen].generated_videos
+
+    @property
+    def media(self) -> list[GeneratedMedia]:
+        return self.candidates[self.chosen].generated_media
 
     @property
     def rcid(self) -> str:
