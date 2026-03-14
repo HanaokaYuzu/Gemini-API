@@ -254,7 +254,6 @@ def _build_client_and_cookies(args) -> tuple[GeminiClient, dict[str, str]]:
         proxy=args.proxy,
         account_index=args.account_index,
     )
-    client.auto_refresh = False
     return client, json_cookies
 
 
@@ -278,7 +277,7 @@ async def _init_client(args) -> tuple[GeminiClient, dict[str, str]]:
     last_error: AuthError | None = None
     for attempt in range(1, INIT_MAX_RETRIES + 1):
         try:
-            await client.init(timeout=timeout, verbose=args.verbose)
+            await client.init(timeout=timeout, auto_refresh=False, verbose=args.verbose)
             return client, json_cookies
         except AuthError as e:
             last_error = e
