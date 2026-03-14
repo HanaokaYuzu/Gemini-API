@@ -284,12 +284,6 @@ class GeminiClient(GemMixin):
             await self.client.close()
             self.client = None
 
-        self.save_cookies()
-
-    def save_cookies(self) -> None:
-        """
-        Save current persistent cookies to the cache file.
-        """
         try:
             save_cookies(self._cookies, self.verbose)
         except OSError as e:
