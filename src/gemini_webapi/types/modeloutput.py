@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from textwrap import shorten
 
 from .image import Image
 from .candidate import Candidate
@@ -24,11 +25,10 @@ class ModelOutput(BaseModel):
     chosen: int = 0
 
     def __str__(self):
-        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
-        return text
+        return shorten(self.text, width=100)
 
     def __repr__(self):
-        return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
+        return f"ModelOutput(metadata={self.metadata!r}, chosen={self.chosen!r}, candidates={self.candidates!r})"
 
     @property
     def text(self) -> str:

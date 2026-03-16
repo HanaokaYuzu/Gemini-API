@@ -22,8 +22,8 @@ class GRPC(StrEnum):
     # Chat methods
     LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
-    DELETE_CHAT = "GzXR5e"
-    DELETE_CHAT_SECOND = "qWymEb"
+    DELETE_CHAT_1 = "GzXR5e"
+    DELETE_CHAT_2 = "qWymEb"
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
@@ -31,11 +31,11 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    BARD_SETTINGS = "ESY5D"
-
     LIST_MODELS = "otAQ7b"
 
-    IMAGE_FULL_SIZE = "c8o8Fe"
+    GET_FULL_SIZE_IMAGE = "c8o8Fe"
+
+    BARD_SETTINGS = "ESY5D"
 
 
 class Headers(Enum):
@@ -63,8 +63,8 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    G_3_PRO_AI_FREE = (
-        "gemini-3-pro-ai-free",
+    BASIC_PRO = (
+        "gemini-3-pro",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -72,8 +72,8 @@ class Model(Enum):
         },
         False,
     )
-    G_3_FLASH_AI_FREE = (
-        "gemini-3-flash-ai-free",
+    BASIC_FLASH = (
+        "gemini-3-flash",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -81,8 +81,8 @@ class Model(Enum):
         },
         False,
     )
-    G_3_FLASH_THINKING_AI_FREE = (
-        "gemini-3-flash-thinking-ai-free",
+    BASIC_THINKING = (
+        "gemini-3-flash-thinking",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -90,8 +90,8 @@ class Model(Enum):
         },
         False,
     )
-    G_3_PRO_AI_PRO = (
-        "gemini-3-pro-ai-pro",
+    ADVANCED_PRO = (
+        "gemini-3-pro-advanced",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -99,8 +99,8 @@ class Model(Enum):
         },
         True,
     )
-    G_3_FLASH_AI_PRO = (
-        "gemini-3-flash-ai-pro",
+    ADVANCED_FLASH = (
+        "gemini-3-flash-advanced",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -108,8 +108,8 @@ class Model(Enum):
         },
         True,
     )
-    G_3_FLASH_THINKING_AI_PRO = (
-        "gemini-3-flash-thinking-ai-pro",
+    ADVANCED_THINKING = (
+        "gemini-3-flash-thinking-advanced",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]',
             "x-goog-ext-73010989-jspb": "[0]",

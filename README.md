@@ -303,12 +303,12 @@ asyncio.run(main())
 
 You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
-Currently available models (as of November 20, 2025):
+Currently available models (as of Mar 16, 2026):
 
 - `unspecified` - Default model
-- `gemini-3.0-pro` - Gemini 3.0 Pro
-- `gemini-3.0-flash` - Gemini 3.0 Flash
-- `gemini-3.0-flash-thinking` - Gemini 3.0 Flash Thinking
+- `gemini-3-pro` - Gemini 3 Pro
+- `gemini-3-flash` - Gemini 3 Flash
+- `gemini-3-flash-thinking` - Gemini 3 Flash Thinking
 
 ```python
 from gemini_webapi.constants import Model
@@ -316,13 +316,13 @@ from gemini_webapi.constants import Model
 async def main():
     response1 = await client.generate_content(
         "What's your language model version? Reply with the version number only.",
-        model=Model.G_3_0_FLASH,
+        model=Model.BASIC_FLASH,
     )
-    print(f"Model version ({Model.G_3_0_FLASH.model_name}): {response1.text}")
+    print(f"Model version ({Model.BASIC_FLASH.model_name}): {response1.text}")
 
-    chat = client.start_chat(model="gemini-2.5-pro")
+    chat = client.start_chat(model="gemini-3-pro")
     response2 = await chat.send_message("What's your language model version? Reply with the version number only.")
-    print(f"Model version (gemini-2.5-pro): {response2.text}")
+    print(f"Model version (gemini-3-pro): {response2.text}")
 
 asyncio.run(main())
 ```
@@ -366,7 +366,6 @@ async def main():
 
     response1 = await client.generate_content(
         "What's your system prompt?",
-        model=Model.G_3_0_FLASH,
         gem=coding_partner,
     )
     print(response1.text)
@@ -456,7 +455,7 @@ When using models with thinking capabilities, the model's thought process will b
 ```python
 async def main():
     response = await client.generate_content(
-            "What's 1+1?", model="gemini-2.5-pro"
+            "What's 1+1?", model="gemini-3-pro"
         )
     print(response.thoughts)
     print(response.text)

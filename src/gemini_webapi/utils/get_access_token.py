@@ -2,7 +2,6 @@ import re
 import time
 
 from curl_cffi.requests import AsyncSession, Cookies, Response
-
 import orjson as json
 
 from .load_browser_cookies import HAS_BC3, load_browser_cookies
@@ -16,12 +15,13 @@ from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
 
 
-async def send_request(
+async def _send_request(
     client: AsyncSession, cookies: dict | Cookies, verbose: bool = False
 ) -> Response:
     """
     Send http request with provided cookies using a shared session.
     """
+
     client.cookies.clear()
     if isinstance(cookies, Cookies):
         client.cookies.update(cookies)
@@ -113,6 +113,7 @@ async def get_access_token(
                     for name, value in base_cookies.items():
                         if value:
                             jar.set(name, value, domain=".google.com", path="/")
+
                 try:
                     cookies_data = json.loads(content)
                     for cookie in cookies_data:
@@ -257,7 +258,7 @@ async def get_access_token(
     for jar, group_name in cookie_jars_to_test:
         current_attempt += 1
         try:
-            res = await send_request(client, jar, verbose=verbose)
+            res = await _send_request(client, jar, verbose=verbose)
             snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', res.text)
             cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
             fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
@@ -280,5 +281,6 @@ async def get_access_token(
 
     await client.close()
     raise AuthError(
-        f"Failed to initialize client after {current_attempt} attempts. SECURE_1PSIDTS could get expired frequently, please make sure cookie values are up to date."
+        f"Failed to initialize client after {current_attempt} attempts. SECURE_1PSIDTS "
+        "could get expired frequently, please make sure cookie values are up to date."
     )

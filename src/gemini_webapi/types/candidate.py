@@ -1,5 +1,5 @@
 import html
-import reprlib
+from textwrap import shorten
 
 from pydantic import BaseModel, field_validator
 
@@ -40,11 +40,13 @@ class Candidate(BaseModel):
     generated_media: list[GeneratedMedia] = []
 
     def __str__(self):
-        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
-        return text
+        return shorten(self.text, width=100)
 
     def __repr__(self):
-        return f"Candidate(rcid='{self.rcid}', text='{reprlib.repr(self.text)}', images={self.images}, videos={self.generated_videos}, media={self.generated_media})"
+        return (
+            f"Candidate(rcid={self.rcid!r}, text={shorten(self.text, width=100)!r}, "
+            f"images={self.images!r}, videos={self.generated_videos!r}, media={self.generated_media!r})"
+        )
 
     @field_validator("text", "thoughts")
     @classmethod

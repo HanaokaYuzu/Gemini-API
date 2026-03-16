@@ -3,16 +3,18 @@ import time
 from pathlib import Path
 
 import orjson as json
-
 from curl_cffi.requests import AsyncSession, Cookies
 
+from .logger import logger
 from ..constants import Endpoint, Headers
 from ..exceptions import AuthError
-from .logger import logger
 
 
 def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
-    """Extract a cookie value from a curl_cffi Cookies jar."""
+    """
+    Extract a cookie value from a curl_cffi Cookies jar.
+    """
+
     for cookie in cookies.jar:
         if cookie.name == name:
             return cookie.value
@@ -21,13 +23,19 @@ def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
 
 
 def _get_cookie_cache_dir() -> Path:
-    """Lazy helper to get the cookie cache directory."""
+    """
+    Lazy helper to get the cookie cache directory.
+    """
+
     _path = os.getenv("GEMINI_COOKIE_PATH")
     return Path(_path) if _path else Path(__file__).parent.parent / "temp"
 
 
 def _get_cookies_cache_path(cookies: Cookies, verbose: bool = False) -> Path | None:
-    """Helper to get and ensure the cache file path based on __Secure-1PSID."""
+    """
+    Helper to get and ensure the cache file path based on __Secure-1PSID.
+    """
+
     secure_1psid = _extract_cookie_value(cookies, "__Secure-1PSID")
     if not secure_1psid:
         if verbose:
@@ -91,12 +99,17 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
         return new_1psidts
 
     cookie_names = [c.name for c in client.cookies.jar]
-    logger.debug(f"Rotation response cookies: {cookie_names}")
+    logger.debug(
+        f"Rotation completed but __Secure-1PSIDTS not found. Response cookies: {cookie_names}"
+    )
     return None
 
 
 def save_cookies(cookies: Cookies, verbose: bool = False) -> None:
-    """Save persistent cookies to cache file."""
+    """
+    Save persistent cookies to cache file.
+    """
+
     path = _get_cookies_cache_path(cookies, verbose)
     if not path:
         return

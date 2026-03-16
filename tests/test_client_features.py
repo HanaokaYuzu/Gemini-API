@@ -29,7 +29,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_successful_request(self):
         response = await self.geminiclient.generate_content(
             "Tell me a fact about today in history and illustrate it with a youtube video",
-            model=Model.G_3_FLASH_AI_FREE,
+            model=Model.BASIC_FLASH,
         )
         logger.debug(response.text)
 
@@ -104,7 +104,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_video_generation(self):
         response = await self.geminiclient.generate_content(
             "Generate a short video of a sunset over the beach",
-            model=Model.G_3_PRO_AI_PRO,
+            model=Model.ADVANCED_PRO,
         )
         self.assertTrue(response.videos)
         logger.debug(response.text)
@@ -124,7 +124,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_music_generation(self):
         response = await self.geminiclient.generate_content(
             "Generate a 15-second pop music track",
-            model=Model.G_3_PRO_AI_PRO,
+            model=Model.ADVANCED_PRO,
         )
         self.assertTrue(response.media)
         logger.debug(response.text)
@@ -152,7 +152,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_generation_with_gem(self):
         response = await self.geminiclient.generate_content(
             "What's your system prompt?",
-            model=Model.G_3_FLASH_AI_FREE,
+            model=Model.BASIC_FLASH,
             gem=Gem(id="coding-partner", name="Coding partner", predefined=True),
         )
         logger.debug(response.text)
@@ -161,7 +161,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
             "1+1=?",
-            model=Model.G_3_PRO_AI_FREE,
+            model=Model.BASIC_PRO,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)

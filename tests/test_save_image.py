@@ -55,7 +55,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             image.url = original_url
 
             with patch.object(
-                self.geminiclient, "_get_image_full_size", new_callable=AsyncMock
+                self.geminiclient, "_get_full_size_image", new_callable=AsyncMock
             ) as mock_rpc:
                 mock_rpc.side_effect = Exception("Simulated RPC failure for testing")
                 await image.save(verbose=True, full_size=True)

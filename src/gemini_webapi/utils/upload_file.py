@@ -3,12 +3,12 @@ import mimetypes
 import random
 from pathlib import Path
 
-import curl_cffi
+from curl_cffi import CurlMime
 from curl_cffi.requests import AsyncSession
 from pydantic import ConfigDict, validate_call
 
-from ..constants import Endpoint, Headers
 from .logger import logger
+from ..constants import Endpoint, Headers
 
 
 def _generate_random_name(extension: str = ".txt") -> str:
@@ -72,8 +72,8 @@ async def upload_file(
 
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-    mp = curl_cffi.CurlMime()
-    mp.addpart(
+    mime_part = CurlMime()
+    mime_part.addpart(
         name="file",
         content_type=content_type,
         filename=filename,
@@ -89,7 +89,7 @@ async def upload_file(
         response = await client.post(
             url=Endpoint.UPLOAD,
             headers=request_headers,
-            multipart=mp,
+            multipart=mime_part,
             allow_redirects=True,
         )
         if verbose:
@@ -99,7 +99,7 @@ async def upload_file(
         response.raise_for_status()
         return response.text
     finally:
-        mp.close()
+        mime_part.close()
 
 
 def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:

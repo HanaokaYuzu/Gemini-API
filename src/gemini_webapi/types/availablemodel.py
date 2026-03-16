@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+
 from ..constants import Model
 
 
@@ -27,4 +28,7 @@ class AvailableModel(BaseModel):
         return self.name
 
     def __repr__(self) -> str:
-        return f"AvailableModel(id='{self.id}', name='{self.name}', model={self.model}, description='{self.description}')"
+        return (
+            f"AvailableModel(id={self.id!r}, name={self.name!r}, "
+            f"model={self.model!r}, description={self.description!r})"
+        )

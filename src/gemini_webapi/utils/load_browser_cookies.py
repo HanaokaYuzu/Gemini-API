@@ -31,6 +31,7 @@ def load_browser_cookies(domain_name: str = "", verbose: bool = False) -> dict:
         Each cookie is a dictionary: `{"name": str, "value": str, "domain": str, "path": str, "expires": int}`.
         Only browsers that have cookies for the specified domain will be included.
     """
+
     if not HAS_BC3 or bc3 is None:
         if verbose:
             logger.debug(

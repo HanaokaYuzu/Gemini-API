@@ -871,14 +871,7 @@ class GeminiClient(GemMixin):
                     async def _process_parts(
                         parts: list[Any],
                     ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal \
-                            is_thinking, \
-                            is_queueing, \
-                            has_candidates, \
-                            is_completed, \
-                            is_final_chunk, \
-                            cid, \
-                            rid
+                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, cid, rid
                         for part in parts:
                             # Check for fatal error codes
                             error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -1331,7 +1324,7 @@ class GeminiClient(GemMixin):
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_CHAT,
+                    rpcid=GRPC.DELETE_CHAT_1,
                     payload=json.dumps([cid]).decode("utf-8"),
                 ),
             ]
@@ -1339,7 +1332,7 @@ class GeminiClient(GemMixin):
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_CHAT_SECOND,
+                    rpcid=GRPC.DELETE_CHAT_2,
                     payload=json.dumps([cid, [1, None, 0, 1]]).decode("utf-8"),
                 ),
             ]
@@ -1620,7 +1613,7 @@ class GeminiClient(GemMixin):
             generated_media,
         )
 
-    async def _get_image_full_size(
+    async def _get_full_size_image(
         self, cid: str, rid: str, rcid: str, image_id: str
     ) -> str | None:
         """
@@ -1649,7 +1642,7 @@ class GeminiClient(GemMixin):
             response = await self._batch_execute(
                 [
                     RPCData(
-                        rpcid=GRPC.IMAGE_FULL_SIZE,
+                        rpcid=GRPC.GET_FULL_SIZE_IMAGE,
                         payload=json.dumps(payload).decode("utf-8"),
                     ),
                 ]
@@ -1661,7 +1654,7 @@ class GeminiClient(GemMixin):
             )
         except Exception:
             logger.debug(
-                "[_get_image_full_size] Could not retrieve full size URL via RPC."
+                "_get_full_size_image Could not retrieve full size URL via RPC."
             )
             return None
 
@@ -1795,7 +1788,7 @@ class ChatSession:
             self.rcid = rcid
 
     def __str__(self):
-        return f"ChatSession(cid='{self.cid}', rid='{self.rid}', rcid='{self.rcid}')"
+        return f"ChatSession(cid={self.cid!r}, rid={self.rid!r}, rcid={self.rcid!r})"
 
     __repr__ = __str__
 

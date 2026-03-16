@@ -1,4 +1,4 @@
-import reprlib
+from textwrap import shorten
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -25,11 +25,10 @@ class ChatTurn(BaseModel):
     info: Optional[ModelOutput] = None
 
     def __str__(self):
-        text = self.text if len(self.text) <= 100 else self.text[:97] + "..."
-        return f"{self.role.upper()}: {text}"
+        return f"{self.role.upper()}: {shorten(self.text, width=100)}"
 
     def __repr__(self):
-        return f"ChatTurn(role='{self.role}', text='{reprlib.repr(self.text)}')"
+        return f"ChatTurn(role={self.role!r}, text={shorten(self.text, width=100)!r})"
 
 
 class ChatHistory(BaseModel):
@@ -51,7 +50,7 @@ class ChatHistory(BaseModel):
     turns: List[ChatTurn]
 
     def __str__(self) -> str:
-        return f"ChatHistory(cid='{self.cid}', turns={len(self.turns)})"
+        return f"ChatHistory(cid={self.cid!r})"
 
     def __repr__(self) -> str:
-        return f"ChatHistory(cid='{self.cid}', turns={len(self.turns)})"
+        return f"ChatHistory(cid={self.cid!r}, turns={self.turns!r})"

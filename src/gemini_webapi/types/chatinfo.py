@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -24,10 +25,13 @@ class ChatInfo(BaseModel):
     timestamp: float
 
     def __str__(self) -> str:
-        pin = "[P] " if self.is_pinned else ""
+        pin = "[Pinned] " if self.is_pinned else ""
         title = self.title or f"Chat({self.cid})"
         dt = datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d %H:%M:%S")
         return f"{pin}{title} ({dt})"
 
     def __repr__(self) -> str:
-        return f"ChatInfo(cid='{self.cid}', title='{self.title}', is_pinned={self.is_pinned}, timestamp={self.timestamp})"
+        return (
+            f"ChatInfo(cid={self.cid!r}, title={self.title!r}, "
+            f"is_pinned={self.is_pinned!r}, timestamp={self.timestamp!r})"
+        )
