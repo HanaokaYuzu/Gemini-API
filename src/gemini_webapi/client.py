@@ -1419,17 +1419,17 @@ class ChatSession:
         self.__metadata[0] = value
 
     @property
-    def rcid(self):
-        return self.__metadata[2]
-
-    @rcid.setter
-    def rcid(self, value: str):
-        self.__metadata[2] = value
-
-    @property
     def rid(self):
         return self.__metadata[1]
 
     @rid.setter
     def rid(self, value: str):
         self.__metadata[1] = value
+
+    @property
+    def rcid(self):
+        return self.__metadata[2]
+
+    @rcid.setter
+    def rcid(self, value: str):
+        self.__metadata[2] = value

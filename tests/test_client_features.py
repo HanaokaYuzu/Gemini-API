@@ -133,7 +133,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_retrieve_previous_conversation(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Fine weather today")
-        self.assertTrue(len(chat.metadata) == 3)
+        self.assertTrue(chat.cid and chat.rid and chat.rcid)
         previous_session = chat.metadata
         logger.debug(previous_session)
         previous_chat = self.geminiclient.start_chat(metadata=previous_session)
