@@ -90,6 +90,33 @@ class Model(Enum):
         },
         False,
     )
+    PLUS_PRO = (
+        "gemini-3-pro-plus",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,4]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    PLUS_FLASH = (
+        "gemini-3-flash-plus",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,4]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    PLUS_THINKING = (
+        "gemini-3-flash-thinking-plus",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,4]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
     ADVANCED_PRO = (
         "gemini-3-pro-advanced",
         {
