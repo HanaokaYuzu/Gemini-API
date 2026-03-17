@@ -104,11 +104,11 @@ pip install -U gemini_webapi[browser]
 
 ```yaml
 services:
-    main:
-        environment:
-            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-        volumes:
-            - ./gemini_cookies:/tmp/gemini_webapi
+  main:
+    environment:
+      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+    volumes:
+      - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -303,12 +303,12 @@ asyncio.run(main())
 
 You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
-Currently available models (as of November 20, 2025):
+Currently available models (as of Mar 16, 2026):
 
 - `unspecified` - Default model
-- `gemini-3.0-pro` - Gemini 3.0 Pro
-- `gemini-3.0-flash` - Gemini 3.0 Flash
-- `gemini-3.0-flash-thinking` - Gemini 3.0 Flash Thinking
+- `gemini-3-pro` - Gemini 3 Pro
+- `gemini-3-flash` - Gemini 3 Flash
+- `gemini-3-flash-thinking` - Gemini 3 Flash Thinking
 
 ```python
 from gemini_webapi.constants import Model
@@ -316,13 +316,13 @@ from gemini_webapi.constants import Model
 async def main():
     response1 = await client.generate_content(
         "What's your language model version? Reply with the version number only.",
-        model=Model.G_3_0_FLASH,
+        model=Model.BASIC_FLASH,
     )
-    print(f"Model version ({Model.G_3_0_FLASH.model_name}): {response1.text}")
+    print(f"Model version ({Model.BASIC_FLASH.model_name}): {response1.text}")
 
-    chat = client.start_chat(model="gemini-2.5-pro")
+    chat = client.start_chat(model="gemini-3-pro")
     response2 = await chat.send_message("What's your language model version? Reply with the version number only.")
-    print(f"Model version (gemini-2.5-pro): {response2.text}")
+    print(f"Model version (gemini-3-pro): {response2.text}")
 
 asyncio.run(main())
 ```
@@ -366,7 +366,6 @@ async def main():
 
     response1 = await client.generate_content(
         "What's your system prompt?",
-        model=Model.G_3_0_FLASH,
         gem=coding_partner,
     )
     print(response1.text)
@@ -456,7 +455,7 @@ When using models with thinking capabilities, the model's thought process will b
 ```python
 async def main():
     response = await client.generate_content(
-            "What's 1+1?", model="gemini-2.5-pro"
+            "What's 1+1?", model="gemini-3-pro"
         )
     print(response.thoughts)
     print(response.text)
@@ -485,13 +484,13 @@ You can ask Gemini to generate and edit images with Nano Banana, Google's latest
 >
 > Google has some limitations on Gemini's image generation feature, so availability may vary by region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
 >
-> > This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
+> > This feature's availability in any specific Gemini app is also limited to the supported languages and countries of that app.
 > >
-> > For now, this feature isn’t available to users under 18.
+> > For now, this feature isn't available to users under 18.
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 
-You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function, and skip images with invalid file names by passing `skip_invalid_filename=True`. This works for both `WebImage` and `GeneratedImage`.
+You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function. This works for both `WebImage` and `GeneratedImage`.
 
 ```python
 async def main():
@@ -517,7 +516,7 @@ asyncio.run(main())
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 > >
-> > Important: If you’re under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
+> > Important: If you're under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
 
 After activating extensions for your account, you can access them in your prompts either in natural language or by starting your prompt with "@" followed by the extension keyword.
 

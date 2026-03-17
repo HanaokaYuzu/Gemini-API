@@ -1,7 +1,14 @@
+import re
 from enum import Enum, IntEnum, StrEnum
 
 
+STREAMING_FLAG_INDEX = 7
+GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
+
+CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
+ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
+DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
 
 class Endpoint(StrEnum):
@@ -21,7 +28,8 @@ class GRPC(StrEnum):
     # Chat methods
     LIST_CHATS = "MaZiqc"
     READ_CHAT = "hNvQHb"
-    DELETE_CHAT = "GzXR5e"
+    DELETE_CHAT_1 = "GzXR5e"
+    DELETE_CHAT_2 = "qWymEb"
 
     # Gem methods
     LIST_GEMS = "CNgdBe"
@@ -29,38 +37,49 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    # Activity methods
-    BARD_ACTIVITY = "ESY5D"
+    LIST_MODELS = "otAQ7b"
+
+    GET_FULL_SIZE_IMAGE = "c8o8Fe"
+
+    BARD_SETTINGS = "ESY5D"
 
 
 class Headers(Enum):
-    GEMINI = {
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-        "Host": "gemini.google.com",
+    REFERER = {
         "Origin": "https://gemini.google.com",
         "Referer": "https://gemini.google.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
+    }
+    SAME_DOMAIN = {
         "X-Same-Domain": "1",
+    }
+    GEMINI = {
+        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        **REFERER,
     }
     ROTATE_COOKIES = {
         "Content-Type": "application/json",
+        "Origin": "https://accounts.google.com",
     }
-    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz"}
+    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz", "x-tenant-id": "bard-storage"}
+    BATCH_EXEC = {
+        "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4]]",
+        "x-goog-ext-73010989-jspb": "[0]",
+    }
 
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    G_3_1_PRO = (
-        "gemini-3.1-pro",
+    BASIC_PRO = (
+        "gemini-3-pro",
         {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]',
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
             "x-goog-ext-73010990-jspb": "[0]",
         },
         False,
     )
-    G_3_0_FLASH = (
-        "gemini-3.0-flash",
+    BASIC_FLASH = (
+        "gemini-3-flash",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -68,14 +87,68 @@ class Model(Enum):
         },
         False,
     )
-    G_3_0_FLASH_THINKING = (
-        "gemini-3.0-flash-thinking",
+    BASIC_THINKING = (
+        "gemini-3-flash-thinking",
         {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
             "x-goog-ext-73010990-jspb": "[0]",
         },
         False,
+    )
+    PLUS_PRO = (
+        "gemini-3-pro-plus",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,4]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    PLUS_FLASH = (
+        "gemini-3-flash-plus",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,4]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    PLUS_THINKING = (
+        "gemini-3-flash-thinking-plus",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,4]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    ADVANCED_PRO = (
+        "gemini-3-pro-advanced",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    ADVANCED_FLASH = (
+        "gemini-3-flash-advanced",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
+    )
+    ADVANCED_THINKING = (
+        "gemini-3-flash-thinking-advanced",
+        {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+        True,
     )
 
     def __init__(self, name, header, advanced_only):
@@ -85,12 +158,8 @@ class Model(Enum):
 
     @classmethod
     def from_name(cls, name: str):
-        # Legacy name mappings for backward compatibility
-        legacy_names = {"gemini-3.0-pro": "gemini-3.1-pro"}
-        resolved = legacy_names.get(name, name)
-
         for model in cls:
-            if model.model_name == resolved:
+            if model.model_name == name:
                 return model
 
         raise ValueError(

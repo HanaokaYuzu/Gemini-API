@@ -1,10 +1,13 @@
 import io
+import mimetypes
 import random
 from pathlib import Path
 
-from httpx import AsyncClient
+from curl_cffi import CurlMime
+from curl_cffi.requests import AsyncSession
 from pydantic import ConfigDict, validate_call
 
+from .logger import logger
 from ..constants import Endpoint, Headers
 
 
@@ -19,8 +22,9 @@ def _generate_random_name(extension: str = ".txt") -> str:
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 async def upload_file(
     file: str | Path | bytes | io.BytesIO,
-    proxy: str | None = None,
+    client: AsyncSession,
     filename: str | None = None,
+    verbose: bool = False,
 ) -> str:
     """
     Upload a file to Google's server and return its identifier.
@@ -29,10 +33,12 @@ async def upload_file(
     ----------
     file : `str` | `Path` | `bytes` | `io.BytesIO`
         Path to the file or file content to be uploaded.
-    proxy: `str`, optional
-        Proxy URL.
+    client: `curl_cffi.requests.AsyncSession`
+        Shared async session to use for upload.
     filename: `str`, optional
         Name of the file to be uploaded. Required if file is bytes or BytesIO.
+    verbose: `bool`, optional
+        If `True`, will print more infomation in logs.
 
     Returns
     -------
@@ -42,7 +48,7 @@ async def upload_file(
 
     Raises
     ------
-    `httpx.HTTPStatusError`
+    `curl_cffi.requests.exceptions.HTTPError`
         If the upload request failed.
     """
 
@@ -64,15 +70,36 @@ async def upload_file(
     else:
         raise ValueError(f"Unsupported file type: {type(file)}")
 
-    async with AsyncClient(http2=True, proxy=proxy) as client:
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    mime_part = CurlMime()
+    mime_part.addpart(
+        name="file",
+        content_type=content_type,
+        filename=filename,
+        data=file_content,
+    )
+
+    try:
+        request_headers = {
+            **Headers.REFERER.value,
+            **Headers.UPLOAD.value,
+        }
+
         response = await client.post(
             url=Endpoint.UPLOAD,
-            headers=Headers.UPLOAD.value,
-            files={"file": (filename, file_content)},
-            follow_redirects=True,
+            headers=request_headers,
+            multipart=mime_part,
+            allow_redirects=True,
         )
+        if verbose:
+            logger.debug(
+                f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
+            )
         response.raise_for_status()
         return response.text
+    finally:
+        mime_part.close()
 
 
 def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:

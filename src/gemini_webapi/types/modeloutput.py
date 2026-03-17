@@ -1,7 +1,9 @@
 from pydantic import BaseModel
+from textwrap import shorten
 
 from .image import Image
 from .candidate import Candidate
+from .video import GeneratedVideo, GeneratedMedia
 
 
 class ModelOutput(BaseModel):
@@ -23,10 +25,10 @@ class ModelOutput(BaseModel):
     chosen: int = 0
 
     def __str__(self):
-        return self.text
+        return shorten(self.text, width=100)
 
     def __repr__(self):
-        return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
+        return f"ModelOutput(metadata={self.metadata!r}, chosen={self.chosen!r}, candidates={self.candidates!r})"
 
     @property
     def text(self) -> str:
@@ -47,6 +49,14 @@ class ModelOutput(BaseModel):
     @property
     def images(self) -> list[Image]:
         return self.candidates[self.chosen].images
+
+    @property
+    def videos(self) -> list[GeneratedVideo]:
+        return self.candidates[self.chosen].generated_videos
+
+    @property
+    def media(self) -> list[GeneratedMedia]:
+        return self.candidates[self.chosen].generated_media
 
     @property
     def rcid(self) -> str:
