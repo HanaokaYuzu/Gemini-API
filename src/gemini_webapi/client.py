@@ -2,7 +2,6 @@ import asyncio
 import codecs
 import io
 import random
-import re
 import time
 import uuid
 from asyncio import Task
@@ -23,6 +22,9 @@ from .constants import (
     TEMPORARY_CHAT_FLAG_INDEX,
     STREAMING_FLAG_INDEX,
     GEM_FLAG_INDEX,
+    CARD_CONTENT_RE,
+    ARTIFACTS_RE,
+    DEFAULT_METADATA,
 )
 from .exceptions import (
     APIError,
@@ -60,10 +62,6 @@ from .utils import (
     save_cookies,
     upload_file,
 )
-
-_CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
-_ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
-_DEFAULT_METADATA: list[Any] = ["", "", "", None, None, None, None, None, None, ""]
 
 
 class GeminiClient(GemMixin):
@@ -139,10 +137,9 @@ class GeminiClient(GemMixin):
         self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
         self.verbose: bool = True
-        self.watchdog_timeout: float = 90
+        self.watchdog_timeout: float = 90  # seconds before declaring a zombie stream
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
-
         self._available_models: list[AvailableModel] | None = None
         self._recent_chats: list[ChatInfo] | None = None
         self.kwargs = kwargs
@@ -338,6 +335,7 @@ class GeminiClient(GemMixin):
         """
         Send initial RPC calls to set up the session.
         """
+
         await self._fetch_models()
         await self._send_bard_settings()
         await self._send_bard_activity()
@@ -347,6 +345,7 @@ class GeminiClient(GemMixin):
         """
         Fetch and parse available models.
         """
+
         response = await self._batch_execute(
             [
                 RPCData(
@@ -405,6 +404,7 @@ class GeminiClient(GemMixin):
         """
         Fetch and parse recent chats.
         """
+
         response_chats1 = await self._batch_execute(
             [
                 RPCData(
@@ -470,6 +470,7 @@ class GeminiClient(GemMixin):
         """
         Send required setup activity to Gemini.
         """
+
         await self._batch_execute(
             [
                 RPCData(
@@ -483,6 +484,7 @@ class GeminiClient(GemMixin):
         """
         Send warmup RPC calls before querying.
         """
+
         await self._batch_execute(
             [
                 RPCData(
@@ -495,12 +497,15 @@ class GeminiClient(GemMixin):
     def list_models(self) -> list[AvailableModel] | None:
         """
         List all available models for the current account.
+        Model list is only available after GeminiClient.init() is successfully called.
 
         Returns
         -------
-        `list[gemini_webapi.types.AvailableModel]`
-            List of models with their name and description. Returns `None` if the client holds no session cache.
+        `list[gemini_webapi.types.AvailableModel] | None`
+            List of models with their name and description.
+            Returns `None` if the client holds no session cache.
         """
+
         return self._available_models
 
     async def generate_content(
@@ -756,9 +761,9 @@ class GeminiClient(GemMixin):
         if chat:
             chat_backup = {
                 "metadata": (
-                    list(chat.metadata)
+                    chat.metadata
                     if getattr(chat, "metadata", None)
-                    else list(_DEFAULT_METADATA)
+                    else DEFAULT_METADATA
                 ),
                 "cid": getattr(chat, "cid", ""),
                 "rid": getattr(chat, "rid", ""),
@@ -794,7 +799,7 @@ class GeminiClient(GemMixin):
             try:
                 inner_req_list: list[Any] = [None] * 69
                 inner_req_list[0] = message_content
-                inner_req_list[2] = chat.metadata if chat else list(_DEFAULT_METADATA)
+                inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
                 inner_req_list[STREAMING_FLAG_INDEX] = 1
                 if gem_id:
                     inner_req_list[GEM_FLAG_INDEX] = gem_id
@@ -1216,7 +1221,7 @@ class GeminiClient(GemMixin):
                                     and recovered_history.turns
                                     and recovered_history.turns[0].role == "model"
                                 ):
-                                    recovered = recovered_history.turns[0].info
+                                    recovered = recovered_history.turns[0].model_output
                                     if (
                                         recovered
                                         and recovered.candidates
@@ -1275,14 +1280,14 @@ class GeminiClient(GemMixin):
                 )
             except (UsageLimitExceeded, GeminiError, APIError):
                 if not has_generated_text and chat and chat_backup:
-                    chat.metadata = list(chat_backup["metadata"])  # type: ignore
+                    chat.metadata = chat_backup["metadata"]
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
                 raise
             except Exception as e:
                 if not has_generated_text and chat and chat_backup:
-                    chat.metadata = list(chat_backup["metadata"])  # type: ignore
+                    chat.metadata = chat_backup["metadata"]
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
@@ -1347,6 +1352,7 @@ class GeminiClient(GemMixin):
         `list[gemini_webapi.types.ChatInfo] | None`
             The list of conversations. Returns `None` if the client holds no session cache.
         """
+
         return self._recent_chats
 
     async def read_chat(self, cid: str, limit: int = 10) -> ChatHistory | None:
@@ -1356,7 +1362,7 @@ class GeminiClient(GemMixin):
         Parameters
         ----------
         cid: `str`
-            The ID of the conversation to read (e.g. "c_...").
+            The ID of the chat to read (e.g. "c_...").
         limit: `int`, optional
             The maximum number of turns to fetch, by default 10.
 
@@ -1365,6 +1371,7 @@ class GeminiClient(GemMixin):
         :class:`ChatHistory` | None
             The conversation history, or None if reading failed.
         """
+
         try:
             response = await self._batch_execute(
                 [
@@ -1456,7 +1463,7 @@ class GeminiClient(GemMixin):
                                 ChatTurn(
                                     role="model",
                                     text=model_output.text,
-                                    info=model_output,
+                                    model_output=model_output,
                                 )
                             )
 
@@ -1465,7 +1472,7 @@ class GeminiClient(GemMixin):
                     if user_text:
                         chat_turns.append(ChatTurn(role="user", text=user_text))
 
-                return ChatHistory(cid=cid, metadata=[cid], turns=chat_turns)
+                return ChatHistory(cid=cid, turns=chat_turns)
 
             return None
         except Exception:
@@ -1487,27 +1494,35 @@ class GeminiClient(GemMixin):
         """
         Parses individual candidate data from the Gemini response.
 
-        Args:
-            candidate_data (list[Any]): The raw candidate list from the API response.
-            cid (str): Conversation ID.
-            rid (str): Response ID.
-            rcid (str): Response Candidate ID.
+        Parameters
+        ----------
+        candidate_data: `list[Any]`
+            The raw candidate list from the API response.
+        cid: `str`
+            Chat ID.
+        rid: `str`
+            Reply ID.
+        rcid: `str`
+            Reply candidate ID.
 
-        Returns:
-            tuple: A tuple containing:
-                - text (str): The main response text.
-                - thoughts (str): The model's reasoning or internal thoughts.
-                - web_images (list[WebImage]): List of images found on the web.
-                - generated_images (list[GeneratedImage]): List of images generated by the model.
-                - generated_videos (list[GeneratedVideo]): List of videos generated by the model.
-                - generated_media (list[GeneratedMedia]): List of media (music/audio) generated by the model.
+        Returns
+        -------
+        `tuple[str, str, list[WebImage], list[GeneratedImage], list[GeneratedVideo], list[GeneratedMedia]]`
+            By order, the returned tuple contains:
+                - text: The main response text.
+                - thoughts: The model's reasoning or internal thoughts.
+                - web_images: List of images found on the web.
+                - generated_images: List of images generated by the model.
+                - generated_videos: List of videos generated by the model.
+                - generated_media: List of media (music/audio) generated by the model.
         """
+
         text = get_nested_value(candidate_data, [1, 0], "")
-        if _CARD_CONTENT_RE.match(text):
+        if CARD_CONTENT_RE.match(text):
             text = get_nested_value(candidate_data, [22, 0]) or text
 
         # Cleanup googleusercontent artifacts
-        text = _ARTIFACTS_RE.sub("", text)
+        text = ARTIFACTS_RE.sub("", text)
 
         thoughts = get_nested_value(candidate_data, [37, 0, 0]) or ""
 
@@ -1619,6 +1634,7 @@ class GeminiClient(GemMixin):
         """
         Get the full size URL of an image.
         """
+
         try:
             payload = [
                 [
@@ -1740,11 +1756,11 @@ class ChatSession:
     metadata: `list[str]`, optional
         List of chat metadata `[cid, rid, rcid]`, can be shorter than 3 elements, like `[cid, rid]` or `[cid]` only.
     cid: `str`, optional
-        Chat id, if provided together with metadata, will override the first value in it.
+        Chat ID, if provided together with metadata, will override the first value in it.
     rid: `str`, optional
-        Reply id, if provided together with metadata, will override the second value in it.
+        Reply ID, if provided together with metadata, will override the second value in it.
     rcid: `str`, optional
-        Reply candidate id, if provided together with metadata, will override the third value in it.
+        Reply candidate ID, if provided together with metadata, will override the third value in it.
     model: `Model | str | dict`, optional
         Specify the model to use for generation.
         Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
@@ -1772,7 +1788,7 @@ class ChatSession:
         model: Model | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
-        self.__metadata: list[Any] = list(_DEFAULT_METADATA)
+        self.__metadata: list[Any] = DEFAULT_METADATA
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
         self.model: Model | str | dict = model
@@ -1949,8 +1965,10 @@ class ChatSession:
         :class:`ChatHistory` | None
             The conversation history, or None if reading failed or cid is missing.
         """
+
         if not self.cid:
             return None
+
         return await self.geminiclient.read_chat(self.cid, limit=limit)
 
     @property

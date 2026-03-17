@@ -16,13 +16,13 @@ class ChatTurn(BaseModel):
         The role of the message sender, either "user" or "model".
     text: `str`
         The text content of the message.
-    info: `ModelOutput`, optional
+    model_output: `ModelOutput`, optional
         The full model output if the role is "model". This contains candidates, images, and metadata.
     """
 
     role: str
     text: str
-    info: Optional[ModelOutput] = None
+    model_output: Optional[ModelOutput] = None
 
     def __str__(self):
         return f"{self.role.upper()}: {shorten(self.text, width=100)}"
@@ -38,15 +38,12 @@ class ChatHistory(BaseModel):
     Parameters
     ----------
     cid: `str`
-        The chat ID.
-    metadata: `list[str]`
-        The chat metadata.
+        Chat ID.
     turns: `list[ChatTurn]`
         The list of messages in the conversation.
     """
 
     cid: str
-    metadata: List[str]
     turns: List[ChatTurn]
 
     def __str__(self) -> str:

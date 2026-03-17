@@ -7,7 +7,7 @@ from typing import Any
 
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from ..constants import Headers
 from ..utils import logger
@@ -27,16 +27,17 @@ class Image(BaseModel):
         Optional description of the image.
     proxy: `str`, optional
         Proxy used when saving image.
-    client: `Any`, optional
-        Reference to the client object.
-        Used for saving the image with authentication if needed.
+    client: `AsyncSession`, optional
+        Used for saving file with authentication if needed.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     url: str
     title: str = "[Image]"
     alt: str = ""
     proxy: str | None = None
-    client: Any = None
+    client: AsyncSession | None = None
     _default_filename_suffix: str = "image"
 
     def _get_url_for_hash(self) -> str:
@@ -173,9 +174,9 @@ class GeneratedImage(Image):
     cid: `str`, optional
         Chat ID.
     rid: `str`, optional
-        Response ID.
+        Reply ID.
     rcid: `str`, optional
-        Response candidate ID.
+        Reply candidate ID.
     image_id: `str`, optional
         Image ID generated.
     """

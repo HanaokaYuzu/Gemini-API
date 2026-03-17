@@ -10,7 +10,7 @@ class ChatInfo(BaseModel):
     Parameters
     ----------
     cid: `str`
-        The ID of the chat conversation (cid).
+        Chat ID.
     title: `str`
         The display title of the chat conversation.
     is_pinned: `bool`, optional

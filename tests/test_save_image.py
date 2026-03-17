@@ -46,6 +46,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         if isinstance(image, GeneratedImage):
             original_url = image.url
 
+            await image.save(verbose=True, full_size=False)
             await image.save(verbose=True, full_size=True)
             self.assertFalse(
                 "=s2048-rj" in image.url,

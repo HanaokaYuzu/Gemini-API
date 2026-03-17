@@ -46,6 +46,9 @@ async def get_access_token(
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
 
+    Returns the **live** AsyncSession that succeeded so the caller can reuse
+    the same TLS connection for subsequent requests.
+
     Parameters
     ----------
     base_cookies: `dict | curl_cffi.requests.Cookies`
@@ -57,8 +60,15 @@ async def get_access_token(
     verify: `bool`, optional
         Whether to verify SSL certificates.
 
-    Returns the **live** AsyncSession that succeeded so the caller can reuse
-    the same TLS connection for subsequent requests.
+    Returns
+    -------
+    `tuple[str | None, str | None, str | None, AsyncSession]`
+        By order: access token; build label; session id; live AsyncSession of the successful request.
+
+    Raises
+    ------
+    `gemini_webapi.AuthError`
+        If all requests failed.
     """
 
     client = AsyncSession(
@@ -140,7 +150,7 @@ async def get_access_token(
             logger.debug("Skipping loading cached cookies. Cache file not found.")
 
     if not base_psid:
-        cache_files = list(_get_cookie_cache_dir().glob(".cached_cookies_*.json"))
+        cache_files = _get_cookie_cache_dir().glob(".cached_cookies_*.json")
         if cache_files:
             cache_file = max(cache_files, key=lambda p: p.stat().st_mtime)
             psid = cache_file.stem[16:]

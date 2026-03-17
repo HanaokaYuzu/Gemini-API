@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from ..constants import Headers
 from ..utils import logger
@@ -19,16 +19,22 @@ class Video(BaseModel):
 
     Parameters
     ----------
-        url (str): URL of the video.
-        title (str, optional): Title of the video. Defaults to "[Video]".
-        proxy (str, optional): Proxy used when saving video.
-        client (Any, optional): Reference to the client object.
+    url: `str`
+        URL of the video.
+    title: `str`, optional
+        Title of the video. Defaults to "[Video]".
+    proxy: `str`, optional
+        Proxy used when saving video.
+    client: `AsyncSession`, optional
+        Used for saving file with authentication if needed.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     url: str
     title: str = "[Video]"
     proxy: str | None = None
-    client: Any = None
+    client: AsyncSession | None = None
     _default_filename_suffix: str = "video"
 
     def _get_url_for_hash(self) -> str:
@@ -170,9 +176,9 @@ class GeneratedVideo(Video):
     cid: `str`, optional
         Chat ID.
     rid: `str`, optional
-        Response ID.
+        Reply ID.
     rcid: `str`, optional
-        Response candidate ID.
+        Reply candidate ID.
     """
 
     client_ref: Any = None

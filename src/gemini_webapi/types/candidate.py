@@ -61,4 +61,4 @@ class Candidate(BaseModel):
 
     @property
     def images(self) -> list[Image]:
-        return list(self.web_images) + list(self.generated_images)  # type: ignore
+        return self.web_images + self.generated_images

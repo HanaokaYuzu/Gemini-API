@@ -1,8 +1,14 @@
+import re
 from enum import Enum, IntEnum, StrEnum
+
 
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
+
+CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
+ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
+DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
 
 class Endpoint(StrEnum):
