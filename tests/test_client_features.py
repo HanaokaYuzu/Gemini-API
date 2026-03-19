@@ -250,7 +250,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             self.skipTest("Models list is None")
         self.assertTrue(len(models) > 0)
         for model in models:
-            logger.debug(f"{model.id}: {model.name} - {model.description}")
+            logger.debug(f"{model.display_name}: {model!r}")
 
     @logger.catch(reraise=True)
     async def test_list_chats(self):

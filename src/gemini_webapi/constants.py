@@ -9,15 +9,16 @@ CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
 ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
 DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
-HEADER_KEY_MODEL = "x-goog-ext-525001261-jspb"
+MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
 
 def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:
     """
     Builds the complete HTTP header dictionary required for model selection.
     """
+
     return {
-        HEADER_KEY_MODEL: f'[1,null,null,null,"{model_id}",null,null,0,[4],null,null,{capacity_tail}]',
+        MODEL_HEADER_KEY: f'[1,null,null,null,"{model_id}",null,null,0,[4],null,null,{capacity_tail}]',
         "x-goog-ext-73010989-jspb": "[0]",
         "x-goog-ext-73010990-jspb": "[0]",
     }
@@ -81,14 +82,26 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    BASIC_PRO = ("gemini-3-pro", build_model_header("9d8ca3786ebdfbea", 1), False)
-    BASIC_FLASH = ("gemini-3-flash", build_model_header("fbb127bbb056c959", 1), False)
+    BASIC_PRO = (
+        "gemini-3-pro",
+        build_model_header("9d8ca3786ebdfbea", 1),
+        False,
+    )
+    BASIC_FLASH = (
+        "gemini-3-flash",
+        build_model_header("fbb127bbb056c959", 1),
+        False,
+    )
     BASIC_THINKING = (
         "gemini-3-flash-thinking",
         build_model_header("5bf011840784117a", 1),
         False,
     )
-    PLUS_PRO = ("gemini-3-pro-plus", build_model_header("e6fa609c3fa255c0", 4), True)
+    PLUS_PRO = (
+        "gemini-3-pro-plus",
+        build_model_header("e6fa609c3fa255c0", 4),
+        True,
+    )
     PLUS_FLASH = (
         "gemini-3-flash-plus",
         build_model_header("56fdd199312815e2", 4),
