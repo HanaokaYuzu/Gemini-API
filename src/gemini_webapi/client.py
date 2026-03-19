@@ -1938,7 +1938,6 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
-            language=language,
             **kwargs,
         )
 
@@ -1981,7 +1980,6 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
-            language=language,
             **kwargs,
         ):
             yield output
