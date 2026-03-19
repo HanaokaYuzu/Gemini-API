@@ -72,7 +72,7 @@ class Headers(Enum):
         "Content-Type": "application/json",
         "Origin": "https://accounts.google.com",
     }
-    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz", "x-tenant-id": "bard-storage"}
+    UPLOAD = {"X-Tenant-Id": "bard-storage"}
     BATCH_EXEC = {
         "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4]]",
         "x-goog-ext-73010989-jspb": "[0]",

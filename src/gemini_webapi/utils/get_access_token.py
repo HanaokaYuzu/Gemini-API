@@ -41,7 +41,9 @@ async def get_access_token(
     proxy: str | None = None,
     verbose: bool = False,
     verify: bool = True,
-) -> tuple[str | None, str | None, str | None, str | None, AsyncSession]:
+) -> tuple[
+    str | None, str | None, str | None, str | None, str | None, str | None, AsyncSession
+]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -62,8 +64,8 @@ async def get_access_token(
 
     Returns
     -------
-    `tuple[str | None, str | None, str | None, str | None, AsyncSession]`
-        By order: access token; build label; session id; language; live AsyncSession of the successful request.
+    `tuple[str | None, str | None, str | None, str | None, str | None, str | None, AsyncSession]`
+        By order: access token; build label; session id; language; push id; client pctx; live AsyncSession of the successful request.
 
     Raises
     ------
@@ -273,7 +275,9 @@ async def get_access_token(
             cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
             fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
             tux5cc = re.search(r'"TuX5cc":\s*"(.*?)"', res.text)
-            if snlm0e or cfb2h or fdrfje or tux5cc:
+            qkiaye = re.search(r'"qKIAYe":\s*"(.*?)"', res.text)
+            ylro7b = re.search(r'"Ylro7b":\s*"(.*?)"', res.text)
+            if snlm0e or cfb2h or fdrfje or tux5cc or qkiaye or ylro7b:
                 if verbose:
                     logger.debug(
                         f"Init attempt ({current_attempt}) from {group_name} succeeded."
@@ -283,6 +287,8 @@ async def get_access_token(
                     cfb2h.group(1) if cfb2h else None,
                     fdrfje.group(1) if fdrfje else None,
                     tux5cc.group(1) if tux5cc else None,
+                    qkiaye.group(1) if qkiaye else None,
+                    ylro7b.group(1) if ylro7b else None,
                     client,
                 )
         except Exception:
