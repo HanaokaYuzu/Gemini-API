@@ -1893,7 +1893,6 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1910,8 +1909,6 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -1950,7 +1947,6 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1969,8 +1965,6 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
 
