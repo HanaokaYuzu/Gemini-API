@@ -97,7 +97,7 @@ class AvailableModel(BaseModel):
         return 1, 12
 
     @staticmethod
-    def _build_model_id_map() -> dict[str, str]:
+    def build_model_id_map() -> dict[str, str]:
         """Build a `model_id` to `code_name` mapping from the :class:`Model` enum."""
 
         result: dict[str, str] = {}

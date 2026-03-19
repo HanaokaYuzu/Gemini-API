@@ -112,6 +112,7 @@ class GeminiClient(GemMixin):
         "_gems",  # From GemMixin
         "_model_registry",
         "_recent_chats",
+        "language",
         "kwargs",
     ]
 
@@ -143,6 +144,7 @@ class GeminiClient(GemMixin):
         self._reqid: int = random.randint(10000, 99999)
         self._model_registry: dict[str, AvailableModel] = {}
         self._recent_chats: list[ChatInfo] | None = None
+        self.language: str = "en"
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -214,7 +216,13 @@ class GeminiClient(GemMixin):
             try:
                 self.verbose = verbose
                 self.watchdog_timeout = watchdog_timeout
-                access_token, build_label, session_id, session = await get_access_token(
+                (
+                    access_token,
+                    build_label,
+                    session_id,
+                    language,
+                    session,
+                ) = await get_access_token(
                     base_cookies=self.cookies,
                     proxy=self.proxy,
                     verbose=self.verbose,
@@ -227,6 +235,7 @@ class GeminiClient(GemMixin):
                 self.access_token = access_token
                 self.build_label = build_label
                 self.session_id = session_id
+                self.language = language or "en"
                 self._running = True
                 self._reqid = random.randint(10000, 99999)
 
@@ -382,7 +391,7 @@ class GeminiClient(GemMixin):
                     tier_flags, capability_flags
                 )
 
-                model_id_map = AvailableModel._build_model_id_map()
+                model_id_map = AvailableModel.build_model_id_map()
 
                 for model_data in models_list:
                     if isinstance(model_data, list):
@@ -557,7 +566,6 @@ class GeminiClient(GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> ModelOutput:
         """
@@ -581,8 +589,6 @@ class GeminiClient(GemMixin):
             If None, will automatically generate a new chat id when sending post request.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -642,7 +648,6 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
-                language=language,
                 **kwargs,
             ):
                 pass
@@ -672,7 +677,6 @@ class GeminiClient(GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -696,8 +700,6 @@ class GeminiClient(GemMixin):
             Chat data to retrieve conversation history.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
@@ -749,7 +751,6 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
-                language=language,
                 **kwargs,
             ):
                 yield output
@@ -774,7 +775,6 @@ class GeminiClient(GemMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
-        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -834,7 +834,7 @@ class GeminiClient(GemMixin):
             0,
         ]
 
-        params: dict[str, Any] = {"_reqid": _reqid, "rt": "c"}
+        params: dict[str, Any] = {"hl": self.language, "_reqid": _reqid, "rt": "c"}
         if self.build_label:
             params["bl"] = self.build_label
         if self.session_id:
@@ -851,7 +851,7 @@ class GeminiClient(GemMixin):
                 if temporary:
                     inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
-                inner_req_list[1] = [f"{language}"]
+                inner_req_list[1] = [self.language]
                 inner_req_list[6] = [1]
                 inner_req_list[10] = 1
                 inner_req_list[11] = 0
@@ -1751,6 +1751,7 @@ class GeminiClient(GemMixin):
         try:
             params: dict[str, Any] = {
                 "rpcids": ",".join([p.rpcid for p in payloads]),
+                "hl": self.language,
                 "_reqid": _reqid,
                 "rt": "c",
                 "source-path": "/app",
