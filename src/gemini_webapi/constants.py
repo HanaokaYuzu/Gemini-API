@@ -1,7 +1,6 @@
 import re
 from enum import Enum, IntEnum, StrEnum
 
-
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
@@ -9,6 +8,19 @@ TEMPORARY_CHAT_FLAG_INDEX = 45
 CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
 ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
 DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
+
+HEADER_KEY_MODEL = "x-goog-ext-525001261-jspb"
+
+
+def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:
+    """
+    Builds the complete HTTP header dictionary required for model selection.
+    """
+    return {
+        HEADER_KEY_MODEL: f'[1,null,null,null,"{model_id}",null,null,0,[4],null,null,{capacity_tail}]',
+        "x-goog-ext-73010989-jspb": "[0]",
+        "x-goog-ext-73010990-jspb": "[0]",
+    }
 
 
 class Endpoint(StrEnum):
@@ -69,85 +81,37 @@ class Headers(Enum):
 
 class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
-    BASIC_PRO = (
-        "gemini-3-pro",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
-        False,
-    )
-    BASIC_FLASH = (
-        "gemini-3-flash",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
-        False,
-    )
+    BASIC_PRO = ("gemini-3-pro", build_model_header("9d8ca3786ebdfbea", 1), False)
+    BASIC_FLASH = ("gemini-3-flash", build_model_header("fbb127bbb056c959", 1), False)
     BASIC_THINKING = (
         "gemini-3-flash-thinking",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("5bf011840784117a", 1),
         False,
     )
-    PLUS_PRO = (
-        "gemini-3-pro-plus",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,4]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
-        True,
-    )
+    PLUS_PRO = ("gemini-3-pro-plus", build_model_header("e6fa609c3fa255c0", 4), True)
     PLUS_FLASH = (
         "gemini-3-flash-plus",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,4]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("56fdd199312815e2", 4),
         True,
     )
     PLUS_THINKING = (
         "gemini-3-flash-thinking-plus",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,4]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e051ce1aa80aa576", 4),
         True,
     )
     ADVANCED_PRO = (
         "gemini-3-pro-advanced",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e6fa609c3fa255c0", 2),
         True,
     )
     ADVANCED_FLASH = (
         "gemini-3-flash-advanced",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("56fdd199312815e2", 2),
         True,
     )
     ADVANCED_THINKING = (
         "gemini-3-flash-thinking-advanced",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e051ce1aa80aa576", 2),
         True,
     )
 

@@ -25,6 +25,7 @@ from .constants import (
     CARD_CONTENT_RE,
     ARTIFACTS_RE,
     DEFAULT_METADATA,
+    HEADER_KEY_MODEL,
 )
 from .exceptions import (
     APIError,
@@ -109,7 +110,7 @@ class GeminiClient(GemMixin):
         "_lock",
         "_reqid",
         "_gems",  # From GemMixin
-        "_available_models",
+        "_model_registry",
         "_recent_chats",
         "kwargs",
     ]
@@ -140,7 +141,7 @@ class GeminiClient(GemMixin):
         self.watchdog_timeout: float = 90  # seconds before declaring a zombie stream
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
-        self._available_models: list[AvailableModel] | None = None
+        self._model_registry: dict[str, AvailableModel] = {}
         self._recent_chats: list[ChatInfo] | None = None
         self.kwargs = kwargs
 
@@ -343,7 +344,10 @@ class GeminiClient(GemMixin):
 
     async def _fetch_models(self) -> None:
         """
-        Fetch and parse available models.
+        Fetch and parse available models dynamically from the Gemini API.
+
+        Builds :class:`AvailableModel` instances from the RPC response so that
+        model headers are always up-to-date without hardcoded values.
         """
 
         response = await self._batch_execute(
@@ -357,7 +361,8 @@ class GeminiClient(GemMixin):
 
         response_json = extract_json_from_response(response.text)
 
-        available_models = []
+        model_registry: dict[str, AvailableModel] = {}
+
         for part in response_json:
             part_body_str = get_nested_value(part, [2])
             if not part_body_str:
@@ -367,38 +372,37 @@ class GeminiClient(GemMixin):
 
             models_list = get_nested_value(part_body, [15])
             if isinstance(models_list, list):
-                for model_data in models_list:
-                    if isinstance(model_data, list) and len(model_data) > 2:
-                        model_id = get_nested_value(model_data, [0], "")
-                        name = get_nested_value(model_data, [10]) or get_nested_value(
-                            model_data, [1], ""
-                        )
-                        description = get_nested_value(
-                            model_data, [12]
-                        ) or get_nested_value(model_data, [2], "")
-                        core_model = Model.UNSPECIFIED
-                        code_name = "unspecified"
-                        for enum_model in Model:
-                            val = enum_model.model_header.get(
-                                "x-goog-ext-525001261-jspb", ""
-                            )
-                            if val and (model_id in val):
-                                core_model = enum_model
-                                code_name = enum_model.model_name
-                                break
+                tier_flags = get_nested_value(part_body, [16], [])
+                capability_flags = get_nested_value(part_body, [17], [])
+                tier_flags = tier_flags if isinstance(tier_flags, list) else []
+                capability_flags = (
+                    capability_flags if isinstance(capability_flags, list) else []
+                )
+                capacity, capacity_field = AvailableModel.compute_capacity(
+                    tier_flags, capability_flags
+                )
 
-                        if model_id and name:
-                            available_models.append(
-                                AvailableModel(
-                                    id=code_name,
-                                    name=name,
-                                    model=core_model,
-                                    description=description,
-                                )
+                model_id_map = AvailableModel._build_model_id_map()
+
+                for model_data in models_list:
+                    if isinstance(model_data, list):
+                        model_id = get_nested_value(model_data, [0], "")
+                        display_name = get_nested_value(model_data, [1], "")
+                        description = get_nested_value(model_data, [2], "")
+
+                        if model_id and display_name:
+                            model = AvailableModel(
+                                model_id=model_id,
+                                display_name=display_name,
+                                description=description,
+                                capacity=capacity,
+                                capacity_field=capacity_field,
+                                code_name=model_id_map.get(model_id, ""),
                             )
+                            model_registry[model_id] = model
                 break
 
-        self._available_models = available_models
+        self._model_registry = model_registry
 
     async def _fetch_recent_chats(self, recent: int = 13) -> None:
         """
@@ -506,13 +510,50 @@ class GeminiClient(GemMixin):
             Returns `None` if the client holds no session cache.
         """
 
-        return self._available_models
+        return list(self._model_registry.values()) if self._model_registry else None
+
+    def _resolve_model_by_name(self, name: str) -> Model | AvailableModel:
+        """
+        Resolve a model name string to an :class:`AvailableModel` (preferred)
+        or fall back to the :class:`Model` enum.
+        """
+        if name in self._model_registry:
+            return self._model_registry[name]
+
+        for m in self._model_registry.values():
+            if m.code_name == name or m.display_name == name:
+                return m
+
+        return Model.from_name(name)
+
+    def _resolve_enum_model(self, model: Model) -> Model | AvailableModel:
+        """
+        Try to upgrade a :class:`Model` enum to an :class:`AvailableModel`
+        from the dynamic registry.  Falls back to the enum itself if no match
+        is found.
+        """
+        if model is Model.UNSPECIFIED:
+            return model
+
+        header_value = model.model_header.get(HEADER_KEY_MODEL, "")
+        if not header_value:
+            return model
+
+        try:
+            parsed = json.loads(header_value)
+            model_id = get_nested_value(parsed, [4], "")
+            if model_id and model_id in self._model_registry:
+                return self._model_registry[model_id]
+        except json.JSONDecodeError:
+            pass
+
+        return model
 
     async def generate_content(
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
@@ -627,7 +668,7 @@ class GeminiClient(GemMixin):
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
@@ -728,7 +769,7 @@ class GeminiClient(GemMixin):
         self,
         prompt: str,
         req_file_data: list[Any] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
@@ -742,13 +783,17 @@ class GeminiClient(GemMixin):
 
         assert prompt, "Prompt cannot be empty."
 
-        if isinstance(model, str):
-            model = Model.from_name(model)
+        if isinstance(model, AvailableModel):
+            pass
+        elif isinstance(model, str):
+            model = self._resolve_model_by_name(model)
         elif isinstance(model, dict):
             model = Model.from_dict(model)
-        elif not isinstance(model, Model):
+        elif isinstance(model, Model):
+            model = self._resolve_enum_model(model)
+        else:
             raise TypeError(
-                f"'model' must be a `gemini_webapi.constants.Model` instance, "
+                f"'model' must be a Model enum, AvailableModel, "
                 f"string, or dictionary; got `{type(model).__name__}`"
             )
 
@@ -876,7 +921,14 @@ class GeminiClient(GemMixin):
                     async def _process_parts(
                         parts: list[Any],
                     ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, cid, rid
+                        nonlocal \
+                            is_thinking, \
+                            is_queueing, \
+                            has_candidates, \
+                            is_completed, \
+                            is_final_chunk, \
+                            cid, \
+                            rid
                         for part in parts:
                             # Check for fatal error codes
                             error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -1785,13 +1837,13 @@ class ChatSession:
         cid: str = "",  # chat id
         rid: str = "",  # reply id
         rcid: str = "",  # reply candidate id
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
         self.__metadata: list[Any] = DEFAULT_METADATA
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
-        self.model: Model | str | dict = model
+        self.model: Model | AvailableModel | str | dict = model
         self.gem: Gem | str | None = gem
 
         if metadata:
