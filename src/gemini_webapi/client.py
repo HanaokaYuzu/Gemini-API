@@ -338,11 +338,11 @@ class GeminiClient(GemMixin):
                 raise
             except AuthError:
                 logger.warning(
-                    "AuthError: Failed to refresh cookies. Retrying in next interval."
+                    "AuthError: Failed to refresh cookies. The cookies may be invalid. Retrying in next interval."
                 )
-            except Exception:
+            except Exception as e:
                 logger.warning(
-                    "Unexpected error while refreshing cookies. Retrying in next interval."
+                    f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
 
     async def _init_rpc(self) -> None:
