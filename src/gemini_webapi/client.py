@@ -114,7 +114,6 @@ class GeminiClient(GemMixin):
         "_recent_chats",
         "language",
         "push_id",
-        "client_pctx",
         "kwargs",
     ]
 
@@ -148,7 +147,6 @@ class GeminiClient(GemMixin):
         self._recent_chats: list[ChatInfo] | None = None
         self.language: str | None = None
         self.push_id: str | None = None
-        self.client_pctx: str | None = None
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -226,7 +224,6 @@ class GeminiClient(GemMixin):
                     session_id,
                     language,
                     push_id,
-                    client_pctx,
                     session,
                 ) = await get_access_token(
                     base_cookies=self.cookies,
@@ -243,7 +240,6 @@ class GeminiClient(GemMixin):
                 self.session_id = session_id
                 self.language = language or "en"
                 self.push_id = push_id or "feeds/mcudyrk2a4khkz"
-                self.client_pctx = client_pctx or "CgcSBWjK7pYx"
                 self._running = True
                 self._reqid = random.randint(10000, 99999)
 
@@ -632,7 +628,6 @@ class GeminiClient(GemMixin):
                         file,
                         client=self.client,
                         push_id=self.push_id,
-                        client_pctx=self.client_pctx,
                         verbose=self.verbose,
                     )
                     for file in files
@@ -744,7 +739,6 @@ class GeminiClient(GemMixin):
                         file,
                         client=self.client,
                         push_id=self.push_id,
-                        client_pctx=self.client_pctx,
                         verbose=self.verbose,
                     )
                     for file in files

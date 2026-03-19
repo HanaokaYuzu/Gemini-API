@@ -42,7 +42,7 @@ async def get_access_token(
     verbose: bool = False,
     verify: bool = True,
 ) -> tuple[
-    str | None, str | None, str | None, str | None, str | None, str | None, AsyncSession
+    str | None, str | None, str | None, str | None, str | None, AsyncSession
 ]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
@@ -64,8 +64,8 @@ async def get_access_token(
 
     Returns
     -------
-    `tuple[str | None, str | None, str | None, str | None, str | None, str | None, AsyncSession]`
-        By order: access token; build label; session id; language; push id; client pctx; live AsyncSession of the successful request.
+    `tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]`
+        By order: access token; build label; session id; language; push id; live AsyncSession of the successful request.
 
     Raises
     ------
@@ -276,8 +276,7 @@ async def get_access_token(
             fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
             tux5cc = re.search(r'"TuX5cc":\s*"(.*?)"', res.text)
             qkiaye = re.search(r'"qKIAYe":\s*"(.*?)"', res.text)
-            ylro7b = re.search(r'"Ylro7b":\s*"(.*?)"', res.text)
-            if snlm0e or cfb2h or fdrfje or tux5cc or qkiaye or ylro7b:
+            if snlm0e or cfb2h or fdrfje or tux5cc or qkiaye:
                 if verbose:
                     logger.debug(
                         f"Init attempt ({current_attempt}) from {group_name} succeeded."
@@ -288,7 +287,6 @@ async def get_access_token(
                     fdrfje.group(1) if fdrfje else None,
                     tux5cc.group(1) if tux5cc else None,
                     qkiaye.group(1) if qkiaye else None,
-                    ylro7b.group(1) if ylro7b else None,
                     client,
                 )
         except Exception:

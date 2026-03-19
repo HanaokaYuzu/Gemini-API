@@ -24,7 +24,6 @@ async def upload_file(
     file: str | Path | bytes | io.BytesIO,
     client: AsyncSession,
     push_id: str,
-    client_pctx: str,
     filename: str | None = None,
     verbose: bool = False,
 ) -> str:
@@ -39,8 +38,6 @@ async def upload_file(
         Shared async session to use for upload.
     push_id: `str`
         Push-ID header.
-    client_pctx: `str`
-        X-Client-Pctx header.
     filename: `str`, optional
         Name of the file to be uploaded. Required if file is bytes or BytesIO.
     verbose: `bool`, optional
@@ -91,7 +88,6 @@ async def upload_file(
             **Headers.REFERER.value,
             **Headers.UPLOAD.value,
             "Push-ID": push_id,
-            "X-Client-Pctx": client_pctx,
         }
 
         response = await client.post(
