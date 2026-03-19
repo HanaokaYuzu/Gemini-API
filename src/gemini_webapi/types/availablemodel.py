@@ -37,8 +37,8 @@ class AvailableModel(BaseModel):
 
     @property
     def id(self) -> str:
-        """Alias for model_id."""
-        return self.model_id
+        """User-friendly identifier string. Fallback to model_id."""
+        return self.code_name or self.model_id
 
     @property
     def name(self) -> str:
@@ -122,7 +122,4 @@ class AvailableModel(BaseModel):
         return self.code_name or self.display_name
 
     def __repr__(self) -> str:
-        return (
-            f"AvailableModel(code_name={self.code_name!r}, model_id={self.model_id!r}, "
-            f"capacity={self.capacity}, field={self.capacity_field})"
-        )
+        return f"<AvailableModel: {self.id!r} ('{self.display_name}')>"
