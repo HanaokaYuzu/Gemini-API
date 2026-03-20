@@ -1,5 +1,5 @@
 import orjson as json
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..constants import build_model_header, MODEL_HEADER_KEY, Model
 from ..utils import get_nested_value
@@ -11,8 +11,11 @@ class AvailableModel(BaseModel):
 
     Combines model identity, display info, and request header building
     into a single class.  Headers are constructed at runtime from
-    `model_id` and `capacity` so the library stays up-to-date
-    with new models without code changes.
+    `model_id` and internal capacity attributes so the library stays
+    up-to-date with new models without code changes.
+
+    Note: `capacity` and `capacity_field` are internal attributes
+    and are excluded from public fields/serialization.
 
     Parameters
     ----------
@@ -25,24 +28,24 @@ class AvailableModel(BaseModel):
     description: `str`
         Brief description of the model's capabilities.
     capacity: `int`
-        Tier/capacity value.
+        Internal tier/capacity value.
     capacity_field: `int`
-        Proto field number that holds capacity.
+        Internal proto field number.
     """
 
     model_id: str
     model_name: str
     display_name: str
     description: str
-    capacity: int
-    capacity_field: int = 12
+    capacity: int = Field(exclude=True, repr=False)
+    capacity_field: int = Field(default=12, exclude=True, repr=False)
 
     def __str__(self) -> str:
         return self.model_name or self.display_name
 
     def __repr__(self) -> str:
         return (
-            f"AvailableModel(model_id={self.model_id!r}, f"
+            f"AvailableModel(model_id={self.model_id!r}, "
             f"model_name={self.model_name!r}, description={self.description!r})"
         )
 
@@ -78,7 +81,7 @@ class AvailableModel(BaseModel):
         Returns
         -------
         tuple[int, int]
-            (capacity_value, proto_field_number)
+            (capacity, capacity_field)
         """
 
         # highest priority: override capacity_field = 13
