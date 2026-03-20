@@ -1,6 +1,6 @@
 import re
+import orjson as json
 from enum import Enum, IntEnum, StrEnum
-
 
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
@@ -9,6 +9,20 @@ TEMPORARY_CHAT_FLAG_INDEX = 45
 CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
 ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
 DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
+
+MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
+
+
+def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:
+    """
+    Builds the complete HTTP header dictionary required for model selection.
+    """
+
+    return {
+        MODEL_HEADER_KEY: f'[1,null,null,null,"{model_id}",null,null,0,[4],null,null,{capacity_tail}]',
+        "x-goog-ext-73010989-jspb": "[0]",
+        "x-goog-ext-73010990-jspb": "[0]",
+    }
 
 
 class Endpoint(StrEnum):
@@ -37,7 +51,7 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    LIST_MODELS = "otAQ7b"
+    GET_USER_STATUS = "otAQ7b"
 
     GET_FULL_SIZE_IMAGE = "c8o8Fe"
 
@@ -60,7 +74,7 @@ class Headers(Enum):
         "Content-Type": "application/json",
         "Origin": "https://accounts.google.com",
     }
-    UPLOAD = {"Push-ID": "feeds/mcudyrk2a4khkz", "x-tenant-id": "bard-storage"}
+    UPLOAD = {"X-Tenant-Id": "bard-storage"}
     BATCH_EXEC = {
         "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4]]",
         "x-goog-ext-73010989-jspb": "[0]",
@@ -71,83 +85,47 @@ class Model(Enum):
     UNSPECIFIED = ("unspecified", {}, False)
     BASIC_PRO = (
         "gemini-3-pro",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("9d8ca3786ebdfbea", 1),
         False,
     )
     BASIC_FLASH = (
         "gemini-3-flash",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("fbb127bbb056c959", 1),
         False,
     )
     BASIC_THINKING = (
         "gemini-3-flash-thinking",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("5bf011840784117a", 1),
         False,
     )
     PLUS_PRO = (
         "gemini-3-pro-plus",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,4]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e6fa609c3fa255c0", 4),
         True,
     )
     PLUS_FLASH = (
         "gemini-3-flash-plus",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,4]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("56fdd199312815e2", 4),
         True,
     )
     PLUS_THINKING = (
         "gemini-3-flash-thinking-plus",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,4]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e051ce1aa80aa576", 4),
         True,
     )
     ADVANCED_PRO = (
         "gemini-3-pro-advanced",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e6fa609c3fa255c0",null,null,0,[4],null,null,2]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e6fa609c3fa255c0", 2),
         True,
     )
     ADVANCED_FLASH = (
         "gemini-3-flash-advanced",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"56fdd199312815e2",null,null,0,[4],null,null,2]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("56fdd199312815e2", 2),
         True,
     )
     ADVANCED_THINKING = (
         "gemini-3-flash-thinking-advanced",
-        {
-            "x-goog-ext-525001261-jspb": '[1,null,null,null,"e051ce1aa80aa576",null,null,0,[4],null,null,2]',
-            "x-goog-ext-73010989-jspb": "[0]",
-            "x-goog-ext-73010990-jspb": "[0]",
-        },
+        build_model_header("e051ce1aa80aa576", 2),
         True,
     )
 
@@ -155,6 +133,22 @@ class Model(Enum):
         self.model_name = name
         self.model_header = header
         self.advanced_only = advanced_only
+
+    @property
+    def model_id(self) -> str:
+        """
+        Extract the internal model_id from the model_header.
+        """
+        header_value = self.model_header.get(MODEL_HEADER_KEY)
+        if not header_value:
+            return ""
+        try:
+            from .utils.parsing import get_nested_value
+
+            parsed = json.loads(header_value)
+            return get_nested_value(parsed, [4], "")
+        except json.JSONDecodeError:
+            return ""
 
     @classmethod
     def from_name(cls, name: str):
@@ -194,3 +188,58 @@ class ErrorCode(IntEnum):
     MODEL_INCONSISTENT = 1050
     MODEL_HEADER_INVALID = 1052
     IP_TEMPORARILY_BLOCKED = 1060
+
+
+class AccountStatus(IntEnum):
+    """
+    Numeric status codes returned by the GetUserStatus RPC and their descriptions.
+    """
+
+    AVAILABLE = 1000
+    """Account is authorized and has normal access."""
+
+    ACCESS_TEMPORARILY_UNAVAILABLE = 1014
+    """Access is restricted, possibly due to regional or temporary session issues."""
+
+    UNAUTHENTICATED = 1016
+    """Session is not authenticated or cookies have expired. Please check your cookies."""
+
+    ACCOUNT_REJECTED = 1021
+    """Account access is rejected. Please check your Google Account settings."""
+
+    ACCOUNT_UNTRUSTED = 1033
+    """Account did not pass safety or trust checks for some features."""
+
+    TOS_PENDING = 1040
+    """You need to accept the latest Terms of Service to continue."""
+
+    TOS_OUT_OF_DATE = 1042
+    """Terms of Service are out of date; please accept the new ones."""
+
+    ACCOUNT_REJECTED_BY_GUARDIAN = 1054
+    """Access is blocked by a parent or guardian."""
+
+    GUARDIAN_APPROVAL_REQUIRED = 1057
+    """Access requires parent or guardian approval."""
+
+    LOCATION_REJECTED = 1060
+    """Gemini is not currently supported in your country/region."""
+
+    @property
+    def description(self) -> str:
+        """
+        Get a human-friendly description of the status.
+        """
+        descriptions = {
+            AccountStatus.AVAILABLE: "Account is authorized and has normal access.",
+            AccountStatus.ACCESS_TEMPORARILY_UNAVAILABLE: "Access is restricted, possibly due to regional or temporary session issues.",
+            AccountStatus.UNAUTHENTICATED: "Session is not authenticated or cookies have expired. Please check your cookies.",
+            AccountStatus.ACCOUNT_REJECTED: "Account access is rejected. Please check your Google Account settings.",
+            AccountStatus.ACCOUNT_UNTRUSTED: "Account did not pass safety or trust checks for some features.",
+            AccountStatus.TOS_PENDING: "You need to accept the latest Terms of Service to continue.",
+            AccountStatus.TOS_OUT_OF_DATE: "Terms of Service are out of date; please accept the new ones.",
+            AccountStatus.ACCOUNT_REJECTED_BY_GUARDIAN: "Access is blocked by a parent or guardian.",
+            AccountStatus.GUARDIAN_APPROVAL_REQUIRED: "Access requires parent or guardian approval.",
+            AccountStatus.LOCATION_REJECTED: "Gemini is not currently supported in your country/region.",
+        }
+        return descriptions.get(self, descriptions[AccountStatus.ACCOUNT_REJECTED])
