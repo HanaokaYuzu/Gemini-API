@@ -92,7 +92,7 @@ class AvailableModel(BaseModel):
             return 4, 12
         if 16 in tier_flags or 106 in capability_flags:
             return 3, 12
-        if 8 in tier_flags:
+        if 8 in tier_flags or (106 not in capability_flags and 19 in capability_flags):
             return 2, 12
 
         return 1, 12
