@@ -26,6 +26,7 @@ from .constants import (
     ARTIFACTS_RE,
     DEFAULT_METADATA,
     MODEL_HEADER_KEY,
+    AccountStatus,
 )
 from .exceptions import (
     APIError,
@@ -114,6 +115,7 @@ class GeminiClient(GemMixin):
         "_gems",  # From GemMixin
         "_model_registry",
         "_recent_chats",
+        "account_status",
         "kwargs",
     ]
 
@@ -147,6 +149,7 @@ class GeminiClient(GemMixin):
         self._reqid: int = random.randint(10000, 99999)
         self._model_registry: dict[str, AvailableModel] = {}
         self._recent_chats: list[ChatInfo] | None = None
+        self.account_status: AccountStatus = AccountStatus.AVAILABLE
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -300,6 +303,29 @@ class GeminiClient(GemMixin):
         except OSError as e:
             logger.warning(f"Failed to save cookies to cache file: {e}")
 
+    @staticmethod
+    def _map_account_status(status_code: int | None) -> AccountStatus:
+        """
+        Map numeric account status codes to AccountStatus enum members.
+
+        Parameters
+        ----------
+        status_code: `int`, optional
+            Numeric status code from the GetUserStatus RPC response.
+
+        Returns
+        -------
+        `AccountStatus`
+             The mapped AccountStatus enum member.
+        """
+        if status_code is None or status_code == 1000:
+            return AccountStatus.AVAILABLE
+
+        try:
+            return AccountStatus(status_code)
+        except ValueError:
+            return AccountStatus.ACCOUNT_REJECTED
+
     async def reset_close_task(self) -> None:
         """
         Reset the timer for closing the client when a new request is made.
@@ -353,14 +379,14 @@ class GeminiClient(GemMixin):
         Send initial RPC calls to set up the session.
         """
 
-        await self._fetch_models()
+        await self._fetch_user_status()
         await self._send_bard_settings()
         await self._send_bard_activity()
         await self._fetch_recent_chats()
 
-    async def _fetch_models(self) -> None:
+    async def _fetch_user_status(self) -> None:
         """
-        Fetch and parse available models dynamically from the Gemini API.
+        Fetch user status and parse available models dynamically from the Gemini API.
 
         Builds :class:`AvailableModel` instances from the RPC response so that
         model headers are always up-to-date without hardcoded values.
@@ -369,7 +395,7 @@ class GeminiClient(GemMixin):
         response = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_MODELS,
+                    rpcid=GRPC.GET_USER_STATUS,
                     payload="[]",
                 )
             ]
@@ -383,6 +409,29 @@ class GeminiClient(GemMixin):
                 continue
 
             part_body = json.loads(part_body_str)
+
+            status_code = get_nested_value(part_body, [14])
+            self.account_status = self._map_account_status(status_code)
+
+            if self.account_status == AccountStatus.AVAILABLE:
+                logger.info(
+                    f"Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+            else:
+                logger.warning(
+                    f"Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+                if self.account_status in [
+                    AccountStatus.LOCATION_REJECTED,
+                    AccountStatus.ACCOUNT_REJECTED,
+                    AccountStatus.ACCESS_TEMPORARILY_UNAVAILABLE,
+                    AccountStatus.ACCOUNT_REJECTED_BY_GUARDIAN,
+                    AccountStatus.GUARDIAN_APPROVAL_REQUIRED,
+                ]:
+                    logger.warning(
+                        f"Hard block detected ({self.account_status.name}). Skipping model discovery."
+                    )
+                    continue
 
             models_list = get_nested_value(part_body, [15])
             if isinstance(models_list, list):
@@ -405,6 +454,11 @@ class GeminiClient(GemMixin):
                         description = get_nested_value(model_data, [2], "")
 
                         if model_id and display_name:
+                            is_model_available = True
+                            if self.account_status == AccountStatus.UNAUTHENTICATED:
+                                if model_id != Model.BASIC_FLASH.model_id:
+                                    is_model_available = False
+
                             model = AvailableModel(
                                 model_id=model_id,
                                 model_name=id_name_mapping.get(model_id, ""),
@@ -412,6 +466,7 @@ class GeminiClient(GemMixin):
                                 description=description,
                                 capacity=capacity,
                                 capacity_field=capacity_field,
+                                is_available=is_model_available,
                             )
                             self._model_registry[model_id] = model
 

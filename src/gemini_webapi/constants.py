@@ -1,4 +1,5 @@
 import re
+import orjson as json
 from enum import Enum, IntEnum, StrEnum
 
 STREAMING_FLAG_INDEX = 7
@@ -50,7 +51,7 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    LIST_MODELS = "otAQ7b"
+    GET_USER_STATUS = "otAQ7b"
 
     GET_FULL_SIZE_IMAGE = "c8o8Fe"
 
@@ -133,6 +134,22 @@ class Model(Enum):
         self.model_header = header
         self.advanced_only = advanced_only
 
+    @property
+    def model_id(self) -> str:
+        """
+        Extract the internal model_id from the model_header.
+        """
+        header_value = self.model_header.get(MODEL_HEADER_KEY)
+        if not header_value:
+            return ""
+        try:
+            from .utils.parsing import get_nested_value
+
+            parsed = json.loads(header_value)
+            return get_nested_value(parsed, [4], "")
+        except json.JSONDecodeError:
+            return ""
+
     @classmethod
     def from_name(cls, name: str):
         for model in cls:
@@ -171,3 +188,58 @@ class ErrorCode(IntEnum):
     MODEL_INCONSISTENT = 1050
     MODEL_HEADER_INVALID = 1052
     IP_TEMPORARILY_BLOCKED = 1060
+
+
+class AccountStatus(IntEnum):
+    """
+    Numeric status codes returned by the GetUserStatus RPC and their descriptions.
+    """
+
+    AVAILABLE = 1000
+    """Account is authorized and has normal access."""
+
+    ACCESS_TEMPORARILY_UNAVAILABLE = 1014
+    """Access is restricted, possibly due to regional or temporary session issues."""
+
+    UNAUTHENTICATED = 1016
+    """Session is not authenticated or cookies have expired. Please check your cookies."""
+
+    ACCOUNT_REJECTED = 1021
+    """Account access is rejected. Please check your Google Account settings."""
+
+    ACCOUNT_UNTRUSTED = 1033
+    """Account did not pass safety or trust checks for some features."""
+
+    TOS_PENDING = 1040
+    """You need to accept the latest Terms of Service to continue."""
+
+    TOS_OUT_OF_DATE = 1042
+    """Terms of Service are out of date; please accept the new ones."""
+
+    ACCOUNT_REJECTED_BY_GUARDIAN = 1054
+    """Access is blocked by a parent or guardian."""
+
+    GUARDIAN_APPROVAL_REQUIRED = 1057
+    """Access requires parent or guardian approval."""
+
+    LOCATION_REJECTED = 1060
+    """Gemini is not currently supported in your country/region."""
+
+    @property
+    def description(self) -> str:
+        """
+        Get a human-friendly description of the status.
+        """
+        descriptions = {
+            AccountStatus.AVAILABLE: "Account is authorized and has normal access.",
+            AccountStatus.ACCESS_TEMPORARILY_UNAVAILABLE: "Access is restricted, possibly due to regional or temporary session issues.",
+            AccountStatus.UNAUTHENTICATED: "Session is not authenticated or cookies have expired. Please check your cookies.",
+            AccountStatus.ACCOUNT_REJECTED: "Account access is rejected. Please check your Google Account settings.",
+            AccountStatus.ACCOUNT_UNTRUSTED: "Account did not pass safety or trust checks for some features.",
+            AccountStatus.TOS_PENDING: "You need to accept the latest Terms of Service to continue.",
+            AccountStatus.TOS_OUT_OF_DATE: "Terms of Service are out of date; please accept the new ones.",
+            AccountStatus.ACCOUNT_REJECTED_BY_GUARDIAN: "Access is blocked by a parent or guardian.",
+            AccountStatus.GUARDIAN_APPROVAL_REQUIRED: "Access requires parent or guardian approval.",
+            AccountStatus.LOCATION_REJECTED: "Gemini is not currently supported in your country/region.",
+        }
+        return descriptions.get(self, descriptions[AccountStatus.ACCOUNT_REJECTED])
