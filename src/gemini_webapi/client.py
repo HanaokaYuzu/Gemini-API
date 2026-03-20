@@ -331,14 +331,17 @@ class GeminiClient(GemMixin):
 
                     if not new_1psidts:
                         logger.warning(
-                            "Rotation response did not contain a new __Secure-1PSIDTS. "
-                            "Session might expire soon if this persists."
+                            "Rotation response did not contain a __Secure-1PSIDTS. "
+                            "The current cookies may have been invalidated by the server. "
+                            "Retrying in next interval."
                         )
             except asyncio.CancelledError:
                 raise
             except AuthError:
                 logger.warning(
-                    "AuthError: Failed to refresh cookies. The cookies may be invalid. Retrying in next interval."
+                    "AuthError: Failed to refresh cookies. "
+                    "The current cookies may have been invalidated by the server. "
+                    "Retrying in next interval."
                 )
             except Exception as e:
                 logger.warning(
