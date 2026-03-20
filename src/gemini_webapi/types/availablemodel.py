@@ -24,13 +24,15 @@ class AvailableModel(BaseModel):
     model_name: `str`
         User-friendly name of the model (e.g. "gemini-3-pro").
     display_name: `str`
-        Localised display name shown in the Gemini web UI (e.g. "Fast/Thinking/Pro").
+        Localised display name shown in the Gemini web UI (e.g. "Fast", "Thinking", "Pro").
     description: `str`
         Brief description of the model's capabilities.
     capacity: `int`
         Internal tier/capacity value.
     capacity_field: `int`
         Internal proto field number.
+    is_available: `bool`, optional
+        Whether the model is available for use based on account status. Defaults to `True`.
     """
 
     model_id: str
@@ -39,6 +41,7 @@ class AvailableModel(BaseModel):
     description: str
     capacity: int = Field(exclude=True, repr=False)
     capacity_field: int = Field(default=12, exclude=True, repr=False)
+    is_available: bool = True
 
     def __str__(self) -> str:
         return self.model_name or self.display_name
@@ -51,7 +54,14 @@ class AvailableModel(BaseModel):
 
     @property
     def model_header(self) -> dict[str, str]:
-        """Dynamically build the request header from model_id and capacity."""
+        """
+        Dynamically build the request header for this model.
+
+        Returns
+        -------
+        dict[str, str]
+            A dictionary containing the required headers for model selection.
+        """
 
         if self.capacity_field == 13:
             tail = f"null,{self.capacity}"
@@ -62,7 +72,9 @@ class AvailableModel(BaseModel):
 
     @property
     def advanced_only(self) -> bool:
-        """Basic tier has capacity=1 and capacity_field=12 exclusively."""
+        """
+        Check if the model is restricted to Gemini Advanced/Plus tiers.
+        """
 
         return not (self.capacity == 1 and self.capacity_field == 12)
 
@@ -73,15 +85,15 @@ class AvailableModel(BaseModel):
 
         Parameters
         ----------
-        tier_flags : list
-            part_body[16] — account tier flags.
-        capability_flags : list
-            part_body[17] — account capabilities.
+        tier_flags : `list`
+            Account tier flags from `part_body[16]`.
+        capability_flags : `list`
+            Account capabilities from `part_body[17]`.
 
         Returns
         -------
-        tuple[int, int]
-            (capacity, capacity_field)
+        `tuple[int, int]`
+            A tuple of (capacity, capacity_field) for header construction.
         """
 
         # highest priority: override capacity_field = 13
@@ -102,7 +114,12 @@ class AvailableModel(BaseModel):
 
     @staticmethod
     def build_model_id_name_mapping() -> dict[str, str]:
-        """Build a `model_id` to `model_name` mapping from the :class:`Model` enum."""
+        """
+        Build a mapping from `model_id` to `model_name` for all registered models.
+
+        This uses the :class:`Model` enum to resolve hex identifiers to their
+        canonical names (e.g., "gemini-3-pro").
+        """
 
         result: dict[str, str] = {}
         for member in Model:
