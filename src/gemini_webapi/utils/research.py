@@ -74,12 +74,18 @@ def collect_research_notes(data: Any, *, exclude: set[str] | None = None) -> lis
     return notes
 
 
+def _find_first_dict_key(data: Any, key: str) -> dict[str, Any] | None:
+    for item in iter_nested(data):
+        if isinstance(item, dict) and key in item:
+            return item
+    return None
+
+
 def extract_deep_research_plan(candidate_data: list, fallback_text: str = "") -> dict[str, Any] | None:
     meta_dict = None
     payload = None
 
     for key in ("56", "57"):
-        from .research import _find_first_dict_key
         meta_dict = _find_first_dict_key(candidate_data, key)
         if meta_dict and isinstance(meta_dict.get(key), list):
             payload = meta_dict[key]
@@ -147,12 +153,6 @@ def extract_deep_research_plan(candidate_data: list, fallback_text: str = "") ->
     }
 
 
-def _find_first_dict_key(data: Any, key: str) -> dict[str, Any] | None:
-    for item in iter_nested(data):
-        if isinstance(item, dict) and key in item:
-            return item
-    return None
-
 
 def extract_deep_research_status_payload(payload: list | dict | str) -> dict[str, Any] | None:
     data = payload[0] if isinstance(payload, list) and payload and isinstance(payload[0], list) else payload
@@ -172,7 +172,7 @@ def extract_deep_research_status_payload(payload: list | dict | str) -> dict[str
         item for item in iter_nested(data) if isinstance(item, str) and item
     ]
     done = any(
-        "immersive_entry_chip" in item or "我已经完成了研究" in item
+        "immersive_entry_chip" in item
         for item in marker_strings
     )
     awaiting_confirmation = any(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import orjson as json
 
@@ -35,12 +35,19 @@ class ResearchMixin:
     Adapted for upstream curl_cffi backend.
     """
 
+    def _get_source_path(self, cid: str = "") -> str:
+        """Return the source-path param for batch execute RPCs."""
+        fn = getattr(self, "_source_path", None)
+        if callable(fn):
+            return fn(cid)
+        return "/app"
+
     async def inspect_account_status(
         self,
         chat: Optional["ChatSession"] = None,
     ) -> dict:
         """Probe account/model capability RPCs and return raw parsed snapshots."""
-        source_path = getattr(self, "_source_path", lambda s="": "/app")(
+        source_path = self._get_source_path(
             chat.cid if chat and chat.cid else ""
         )
 
@@ -145,7 +152,7 @@ class ResearchMixin:
     async def _deep_research_preflight(
         self, chat: Optional["ChatSession"] = None,
     ) -> None:
-        source_path = getattr(self, "_source_path", lambda s="": "/app")(
+        source_path = self._get_source_path(
             chat.cid if chat and chat.cid else ""
         )
 
@@ -218,6 +225,28 @@ class ResearchMixin:
         model: Model | str | dict = Model.UNSPECIFIED,
         **kwargs,
     ) -> DeepResearchPlan:
+        """
+        Send a deep research prompt and extract the plan Gemini proposes.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Research topic or question.
+        chat: `ChatSession`, optional
+            Existing chat session to reuse.
+        model: `Model | str | dict`, optional
+            Model to use for generation.
+
+        Returns
+        -------
+        :class:`DeepResearchPlan`
+            The research plan with steps, title, and confirmation prompt.
+
+        Raises
+        ------
+        `gemini_webapi.GeminiError`
+            If the account is ineligible or no plan is returned.
+        """
         if chat is None:
             chat = self.start_chat(model=model)
 
@@ -247,6 +276,23 @@ class ResearchMixin:
         confirm_prompt: str | None = None,
         **kwargs,
     ) -> "ModelOutput":
+        """
+        Confirm and start a deep research plan.
+
+        Parameters
+        ----------
+        plan: `DeepResearchPlan`
+            Plan returned by ``create_deep_research_plan``.
+        chat: `ChatSession`, optional
+            Existing session. Created from plan metadata if omitted.
+        confirm_prompt: `str`, optional
+            Override the default confirmation text.
+
+        Returns
+        -------
+        :class:`ModelOutput`
+            The model's initial response after starting research.
+        """
         if chat is None:
             chat = self.start_chat(
                 metadata=list(plan.metadata), cid=plan.cid
@@ -260,7 +306,7 @@ class ResearchMixin:
         research_id: str,
         chat: Optional["ChatSession"] = None,
     ) -> DeepResearchStatus | None:
-        source_path = getattr(self, "_source_path", lambda s="": "/app")(
+        source_path = self._get_source_path(
             chat.cid if chat and chat.cid else ""
         )
         response = await self._batch_execute(
@@ -289,8 +335,27 @@ class ResearchMixin:
         plan: DeepResearchPlan,
         poll_interval: float = 10.0,
         timeout: float = 600.0,
-        on_status: callable | None = None,
+        on_status: Callable[[DeepResearchStatus], None] | None = None,
     ) -> DeepResearchResult:
+        """
+        Poll deep research status until completion or timeout.
+
+        Parameters
+        ----------
+        plan: `DeepResearchPlan`
+            Active research plan.
+        poll_interval: `float`, optional
+            Seconds between status checks. Default 10.
+        timeout: `float`, optional
+            Maximum seconds to wait. Default 600.
+        on_status: `Callable`, optional
+            Callback invoked with each ``DeepResearchStatus``.
+
+        Returns
+        -------
+        :class:`DeepResearchResult`
+            Result with status history and final output.
+        """
         start = time.time()
         statuses: list[DeepResearchStatus] = []
         chat = self.start_chat(
@@ -305,11 +370,21 @@ class ResearchMixin:
                 )
             if status:
                 statuses.append(status)
+                logger.debug(
+                    f"Deep research [{plan.research_id}] "
+                    f"status: {status.state}"
+                )
                 if on_status:
                     on_status(status)
                 if status.done:
                     break
             await asyncio.sleep(poll_interval)
+
+        if not statuses or not statuses[-1].done:
+            logger.warning(
+                f"Deep research [{plan.research_id}] timed out "
+                f"after {timeout}s with {len(statuses)} status updates"
+            )
 
         final_output = None
         if chat.cid:
@@ -330,7 +405,7 @@ class ResearchMixin:
         prompt: str,
         poll_interval: float = 10.0,
         timeout: float = 600.0,
-        on_status: callable | None = None,
+        on_status: Callable[[DeepResearchStatus], None] | None = None,
         **kwargs,
     ) -> DeepResearchResult:
         """Run a full deep research cycle: plan → start → wait → result."""

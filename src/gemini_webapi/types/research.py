@@ -53,4 +53,6 @@ class DeepResearchResult(BaseModel):
 
     @property
     def text(self) -> str:
-        return self.final_output.text if self.final_output else ""
+        if self.final_output and hasattr(self.final_output, "text"):
+            return self.final_output.text or ""
+        return ""

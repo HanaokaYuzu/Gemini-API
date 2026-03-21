@@ -1494,15 +1494,35 @@ class GeminiClient(GemMixin, ResearchMixin):
     async def fetch_latest_chat_response(self, cid: str) -> ModelOutput | None:
         """
         Fetch the latest model response from a chat by its cid.
-        Used by ResearchMixin for fallback recovery.
+
+        ``read_chat`` returns turns newest-first, so the first model turn
+        is the most recent response. Used by ``ResearchMixin`` for fallback
+        recovery when a streaming request fails but the server may have
+        already produced a response.
+
+        Parameters
+        ----------
+        cid: `str`
+            The chat ID to read (e.g. ``"c_..."``).
+
+        Returns
+        -------
+        :class:`ModelOutput` | None
+            The latest model output, or ``None`` if unavailable.
         """
         try:
             history = await self.read_chat(cid, limit=5)
             if not history or not history.turns:
+                logger.debug(f"fetch_latest_chat_response({cid!r}): no turns")
                 return None
-            for turn in history.turns:
+            for turn in history.turns:  # newest-first
                 if turn.role == "model" and turn.model_output:
+                    logger.debug(
+                        f"fetch_latest_chat_response({cid!r}): "
+                        f"found model turn with {len(turn.text)} chars"
+                    )
                     return turn.model_output
+            logger.debug(f"fetch_latest_chat_response({cid!r}): no model turns")
             return None
         except Exception as e:
             logger.debug(
@@ -1718,7 +1738,6 @@ class GeminiClient(GemMixin, ResearchMixin):
             return None
         return DeepResearchPlan(
             **plan_data,
-            metadata=get_nested_value(part_json, [1], []),
             cid=chat.cid if hasattr(chat, "cid") else None,
         )
 
