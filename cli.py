@@ -183,25 +183,17 @@ async def _init_client(args):
     client, json_cookies = _build_client(args)
     timeout = getattr(args, "request_timeout", 300)
 
-    last_error = None
-    for attempt in range(1, INIT_MAX_RETRIES + 1):
-        try:
-            await client.init(
-                timeout=timeout, auto_refresh=False,
-                verbose=args.verbose,
-            )
-            return client, json_cookies
-        except AuthError as e:
-            last_error = e
-            if attempt >= INIT_MAX_RETRIES:
-                break
-            logger.warning(f"Init attempt {attempt} failed: {e}")
-            client._running = False
-
-    raise SystemExit(
-        f"Failed to initialize after {INIT_MAX_RETRIES} attempts. "
-        f"Last error: {last_error}\nPlease refresh cookies."
-    )
+    try:
+        await client.init(
+            timeout=timeout, auto_refresh=False,
+            verbose=args.verbose,
+        )
+        return client, json_cookies
+    except AuthError as e:
+        raise SystemExit(
+            f"Authentication failed: {e}\n"
+            "Please re-export cookies from your browser."
+        )
 
 
 async def _cleanup(client, args, json_cookies):
@@ -430,6 +422,44 @@ async def cmd_read(args):
         await _cleanup(client, args, json_cookies)
 
 
+async def cmd_download(args):
+    """Download a generated image using authenticated curl_cffi session."""
+    json_cookies = {}
+    if args.cookies_json:
+        json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
+
+    from curl_cffi.requests import AsyncSession
+
+    url = args.url
+    # Append =s2048 for full-size if not already specified
+    if "googleusercontent.com" in url and "=" not in url.split("/")[-1]:
+        url += "=s2048"
+
+    output = args.output
+    if not output:
+        from hashlib import md5
+        url_hash = md5(args.url.encode()).hexdigest()[:8]
+        output = f"gemini-{url_hash}.png"
+
+    async with AsyncSession(
+        impersonate="chrome",
+        cookies=json_cookies,
+        proxy=args.proxy,
+    ) as session:
+        resp = await session.get(url)
+        if resp.status_code != 200:
+            raise SystemExit(f"Download failed: HTTP {resp.status_code}")
+        ct = resp.headers.get("content-type", "")
+        if "image" not in ct and "octet" not in ct:
+            raise SystemExit(f"Unexpected content-type: {ct}")
+        p = Path(output)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(resp.content)
+        size_kb = len(resp.content) / 1024
+        print(f"Saved to {output} ({size_kb:.1f} KB)")
+    return 0
+
+
 async def cmd_inspect(args):
     client, json_cookies = await _init_client(args)
     try:
@@ -548,6 +578,11 @@ def build_parser():
     # models
     sub.add_parser("models", help="List models")
 
+    # download
+    p_dl = sub.add_parser("download", help="Download image")
+    p_dl.add_argument("url", help="Image URL")
+    p_dl.add_argument("--output", "-o", default=None)
+
     # inspect
     sub.add_parser("inspect", help="Account probe")
 
@@ -578,6 +613,8 @@ async def run(args):
         return await cmd_list(args)
     elif cmd == "read":
         return await cmd_read(args)
+    elif cmd == "download":
+        return await cmd_download(args)
     elif cmd == "models":
         print("Available models:\n")
         for m in Model:
