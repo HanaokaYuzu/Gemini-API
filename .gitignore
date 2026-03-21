@@ -202,3 +202,8 @@ Temporary Items
 
 # Temporary files
 .temp/
+
+# Cookies and credentials
+cookies.json
+*.cookies
+src/gemini_webapi/temp/

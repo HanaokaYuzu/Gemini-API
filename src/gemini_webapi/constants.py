@@ -42,6 +42,15 @@ class GRPC(StrEnum):
     GET_FULL_SIZE_IMAGE = "c8o8Fe"
 
     BARD_SETTINGS = "ESY5D"
+    BARD_ACTIVITY = "ESY5D"  # alias used by deep research
+
+    # Deep research methods
+    DEEP_RESEARCH_STATUS = "kwDCne"
+    DEEP_RESEARCH_PREFS = "L5adhe"
+    DEEP_RESEARCH_BOOTSTRAP = "ku4Jyf"
+    DEEP_RESEARCH_MODEL_STATE = "qpEbW"
+    DEEP_RESEARCH_CAPS = "aPya6c"
+    DEEP_RESEARCH_ACK = "PCck7e"
 
 
 class Headers(Enum):

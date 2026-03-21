@@ -9,3 +9,4 @@ from .modeloutput import ModelOutput
 from .availablemodel import AvailableModel
 from .chatinfo import ChatInfo
 from .chathistory import ChatTurn, ChatHistory
+from .research import DeepResearchPlan, DeepResearchStatus, DeepResearchResult
