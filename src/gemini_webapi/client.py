@@ -3,6 +3,7 @@ import codecs
 import io
 import random
 import time
+import secrets
 import uuid
 from asyncio import Task
 from pathlib import Path
@@ -814,6 +815,9 @@ class GeminiClient(GemMixin, ResearchMixin):
                     inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
                 inner_req_list[1] = [f"{language}"]
+                if deep_research:
+                    inner_req_list[3] = "!" + secrets.token_urlsafe(2600)
+                    inner_req_list[4] = uuid.uuid4().hex
                 inner_req_list[6] = [1]
                 inner_req_list[10] = 1
                 inner_req_list[11] = 0
@@ -822,7 +826,10 @@ class GeminiClient(GemMixin, ResearchMixin):
                 inner_req_list[27] = 1
                 inner_req_list[30] = [4]
                 inner_req_list[41] = [1]
+                inner_req_list[49] = 1 if deep_research else None
                 inner_req_list[53] = 0
+                inner_req_list[54] = [[[[[1]]]]] if deep_research else None
+                inner_req_list[55] = [[1]] if deep_research else None
                 inner_req_list[61] = []
                 inner_req_list[68] = 2
 

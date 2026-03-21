@@ -180,6 +180,8 @@ def _build_client(args):
 async def _init_client(args):
     if args.verbose:
         set_log_level("DEBUG")
+    else:
+        set_log_level("WARNING")
     client, json_cookies = _build_client(args)
     timeout = getattr(args, "request_timeout", 300)
 

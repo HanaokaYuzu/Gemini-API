@@ -20,7 +20,6 @@ from ..utils import (
     extract_deep_research_status_payload,
     extract_json_from_response,
     get_nested_value,
-    iter_nested,
     logger,
 )
 
@@ -111,23 +110,27 @@ class ResearchMixin:
                 }
 
         # Summary for quick permission diagnostics
-        all_strings = []
-        for probe in result["rpc"].values():
-            for item in probe.get("parsed", []):
-                all_strings.extend(
-                    [x for x in iter_nested(item) if isinstance(x, str)]
-                )
+        rejected = [
+            name
+            for name, probe in result["rpc"].items()
+            if isinstance(probe, dict)
+            and probe.get("reject_code") == 7
+        ]
+
+        # Deep research is available when the three DR-specific probes
+        # all succeed without rejection.  The old heuristic looked for a
+        # literal "DEEP_RESEARCH" string in the responses, but the RPC
+        # payloads only contain numeric/boolean data.
+        dr_probes = ("bootstrap", "model_state", "caps")
+        dr_available = all(
+            result["rpc"].get(p, {}).get("ok", False)
+            and result["rpc"].get(p, {}).get("reject_code") is None
+            for p in dr_probes
+        )
 
         result["summary"] = {
-            "deep_research_feature_present": any(
-                s == "DEEP_RESEARCH" for s in all_strings
-            ),
-            "rejected_probes": [
-                name
-                for name, probe in result["rpc"].items()
-                if isinstance(probe, dict)
-                and probe.get("reject_code") == 7
-            ],
+            "deep_research_feature_present": dr_available,
+            "rejected_probes": rejected,
         }
 
         return result
