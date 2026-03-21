@@ -627,7 +627,7 @@ async def run(args):
         return await cmd_inspect(args)
     else:
         raise SystemExit(
-            "Usage: cli.py {ask|reply|research|list|read|models|inspect}"
+            "Usage: cli.py {ask|reply|research|list|read|models|download|inspect}"
         )
 
 

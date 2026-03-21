@@ -139,17 +139,18 @@ class ResearchMixin:
         self, chat: Optional["ChatSession"] = None,
     ) -> None:
         snapshot = await self.inspect_account_status(chat=chat)
-        rpc = snapshot.get("rpc", {})
-        critical = ["activity", "model_state", "caps"]
-        rejected = [
-            name for name in critical
-            if isinstance(rpc.get(name), dict)
-            and rpc[name].get("reject_code") == 7
-        ]
-        if len(rejected) >= 2:
+        summary = snapshot.get("summary", {})
+
+        if not summary.get("deep_research_feature_present", False):
+            rejected = summary.get("rejected_probes", [])
+            rpc = snapshot.get("rpc", {})
+            failed = [
+                name for name, probe in rpc.items()
+                if isinstance(probe, dict) and not probe.get("ok", False)
+            ]
             raise GeminiError(
                 "Current account/session appears not eligible for "
-                f"deep research. Rejected RPCs: {rejected}"
+                f"deep research. Rejected: {rejected}, Failed: {failed}"
             )
 
     async def _deep_research_preflight(
@@ -226,7 +227,6 @@ class ResearchMixin:
         prompt: str,
         chat: Optional["ChatSession"] = None,
         model: Model | str | dict = Model.UNSPECIFIED,
-        **kwargs,
     ) -> DeepResearchPlan:
         """
         Send a deep research prompt and extract the plan Gemini proposes.
@@ -277,7 +277,6 @@ class ResearchMixin:
         plan: DeepResearchPlan,
         chat: Optional["ChatSession"] = None,
         confirm_prompt: str | None = None,
-        **kwargs,
     ) -> "ModelOutput":
         """
         Confirm and start a deep research plan.
@@ -359,6 +358,12 @@ class ResearchMixin:
         :class:`DeepResearchResult`
             Result with status history and final output.
         """
+        if not plan.research_id:
+            raise GeminiError(
+                "Cannot poll deep research status: plan.research_id is missing. "
+                "The research task may not have started successfully."
+            )
+
         start = time.time()
         statuses: list[DeepResearchStatus] = []
         chat = self.start_chat(
@@ -409,10 +414,9 @@ class ResearchMixin:
         poll_interval: float = 10.0,
         timeout: float = 600.0,
         on_status: Callable[[DeepResearchStatus], None] | None = None,
-        **kwargs,
     ) -> DeepResearchResult:
         """Run a full deep research cycle: plan → start → wait → result."""
-        plan = await self.create_deep_research_plan(prompt, **kwargs)
+        plan = await self.create_deep_research_plan(prompt)
         start_output = await self.start_deep_research(plan)
         result = await self.wait_for_deep_research(
             plan,

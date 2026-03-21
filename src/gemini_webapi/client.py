@@ -1129,7 +1129,7 @@ class GeminiClient(GemMixin, ResearchMixin):
                                                     generated_videos=generated_videos,
                                                     generated_media=generated_media,
                                                     deep_research_plan=self._extract_dr_plan(
-                                                        candidate_data, part_json, text, chat
+                                                        candidate_data, text, chat
                                                     ) if deep_research else None,
                                                 )
                                             )
@@ -1734,7 +1734,6 @@ class GeminiClient(GemMixin, ResearchMixin):
     def _extract_dr_plan(
         self,
         candidate_data,
-        part_json,
         fallback_text,
         chat,
     ) -> DeepResearchPlan | None:
