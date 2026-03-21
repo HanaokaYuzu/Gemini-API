@@ -5,6 +5,7 @@ from pydantic import BaseModel, field_validator
 
 from .image import Image, WebImage, GeneratedImage
 from .video import GeneratedVideo, GeneratedMedia
+from .research import DeepResearchPlan
 
 
 class Candidate(BaseModel):
@@ -38,6 +39,7 @@ class Candidate(BaseModel):
     generated_images: list[GeneratedImage] = []
     generated_videos: list[GeneratedVideo] = []
     generated_media: list[GeneratedMedia] = []
+    deep_research_plan: DeepResearchPlan | None = None
 
     def __str__(self):
         return shorten(self.text, width=100)

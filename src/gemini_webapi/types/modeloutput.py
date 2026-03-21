@@ -61,3 +61,7 @@ class ModelOutput(BaseModel):
     @property
     def rcid(self) -> str:
         return self.candidates[self.chosen].rcid
+
+    @property
+    def deep_research_plan(self):
+        return self.candidates[self.chosen].deep_research_plan

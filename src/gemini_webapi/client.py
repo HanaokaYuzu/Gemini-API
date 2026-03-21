@@ -12,7 +12,7 @@ import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies, Response
 from curl_cffi.requests.exceptions import ReadTimeout
 
-from .components import GemMixin
+from .components import GemMixin, ResearchMixin
 from .constants import (
     Endpoint,
     ErrorCode,
@@ -48,6 +48,7 @@ from .types import (
     ChatHistory,
     GeneratedVideo,
     GeneratedMedia,
+    DeepResearchPlan,
 )
 from .utils import (
     extract_json_from_response,
@@ -61,10 +62,11 @@ from .utils import (
     running,
     save_cookies,
     upload_file,
+    extract_deep_research_plan,
 )
 
 
-class GeminiClient(GemMixin):
+class GeminiClient(GemMixin, ResearchMixin):
     """
     Async requests client interface for gemini.google.com.
 
@@ -517,6 +519,7 @@ class GeminiClient(GemMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         language: str = "en",
+        deep_research: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -602,6 +605,7 @@ class GeminiClient(GemMixin):
                 temporary=temporary,
                 session_state=session_state,
                 language=language,
+                deep_research=deep_research,
                 **kwargs,
             ):
                 pass
@@ -632,6 +636,7 @@ class GeminiClient(GemMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         language: str = "en",
+        deep_research: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -709,6 +714,7 @@ class GeminiClient(GemMixin):
                 temporary=temporary,
                 session_state=session_state,
                 language=language,
+                deep_research=deep_research,
                 **kwargs,
             ):
                 yield output
@@ -734,6 +740,7 @@ class GeminiClient(GemMixin):
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
         language: str = "en",
+        deep_research: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1114,6 +1121,9 @@ class GeminiClient(GemMixin):
                                                     generated_images=generated_images,
                                                     generated_videos=generated_videos,
                                                     generated_media=generated_media,
+                                                    deep_research_plan=self._extract_dr_plan(
+                                                        candidate_data, part_json, text, chat
+                                                    ) if deep_research else None,
                                                 )
                                             )
 
@@ -1481,6 +1491,26 @@ class GeminiClient(GemMixin):
             )
             return None
 
+    async def fetch_latest_chat_response(self, cid: str) -> ModelOutput | None:
+        """
+        Fetch the latest model response from a chat by its cid.
+        Used by ResearchMixin for fallback recovery.
+        """
+        try:
+            history = await self.read_chat(cid, limit=5)
+            if not history or not history.turns:
+                return None
+            for turn in history.turns:
+                if turn.role == "model" and turn.model_output:
+                    return turn.model_output
+            return None
+        except Exception as e:
+            logger.debug(
+                f"fetch_latest_chat_response({cid!r}) failed: "
+                f"{type(e).__name__}: {e}"
+            )
+            return None
+
     def _parse_candidate(
         self, candidate_data: list[Any], cid: str, rid: str, rcid: str
     ) -> tuple[
@@ -1674,8 +1704,32 @@ class GeminiClient(GemMixin):
             )
             return None
 
+    def _extract_dr_plan(
+        self,
+        candidate_data,
+        part_json,
+        fallback_text,
+        chat,
+    ) -> DeepResearchPlan | None:
+        plan_data = extract_deep_research_plan(
+            candidate_data, fallback_text=fallback_text,
+        )
+        if not plan_data:
+            return None
+        return DeepResearchPlan(
+            **plan_data,
+            metadata=get_nested_value(part_json, [1], []),
+            cid=chat.cid if hasattr(chat, "cid") else None,
+        )
+
     @running(retry=2)
-    async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
+    async def _batch_execute(
+        self,
+        payloads: list[RPCData],
+        source_path: str = "/app",
+        close_on_error: bool = True,
+        **kwargs,
+    ) -> Response:
         """
         Execute a batch of requests to Gemini API.
 
@@ -1701,7 +1755,7 @@ class GeminiClient(GemMixin):
                 "rpcids": ",".join([p.rpcid for p in payloads]),
                 "_reqid": _reqid,
                 "rt": "c",
-                "source-path": "/app",
+                "source-path": source_path,
             }
             if self.build_label:
                 params["bl"] = self.build_label
@@ -1737,7 +1791,8 @@ class GeminiClient(GemMixin):
             )
 
         if response.status_code != 200:
-            await self.close()
+            if close_on_error:
+                await self.close()
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )
@@ -1821,6 +1876,7 @@ class ChatSession:
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
         language: str = "en",
+        deep_research: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1869,6 +1925,7 @@ class ChatSession:
             chat=self,
             temporary=temporary,
             language=language,
+            deep_research=deep_research,
             **kwargs,
         )
 
