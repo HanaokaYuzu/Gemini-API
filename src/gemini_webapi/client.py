@@ -14,17 +14,19 @@ from curl_cffi.requests.exceptions import ReadTimeout
 
 from .components import GemMixin
 from .constants import (
+    AccountStatus,
     Endpoint,
     ErrorCode,
     GRPC,
-    Model,
     Headers,
+    Model,
     TEMPORARY_CHAT_FLAG_INDEX,
     STREAMING_FLAG_INDEX,
     GEM_FLAG_INDEX,
     CARD_CONTENT_RE,
     ARTIFACTS_RE,
     DEFAULT_METADATA,
+    MODEL_HEADER_KEY,
 )
 from .exceptions import (
     APIError,
@@ -54,13 +56,13 @@ from .utils import (
     get_access_token,
     get_delta_by_fp_len,
     get_nested_value,
-    logger,
     parse_file_name,
     parse_response_by_frame,
     rotate_1psidts,
     running,
     save_cookies,
     upload_file,
+    logger,
 )
 
 
@@ -97,6 +99,8 @@ class GeminiClient(GemMixin):
         "access_token",
         "build_label",
         "session_id",
+        "language",
+        "push_id",
         "timeout",
         "auto_close",
         "close_delay",
@@ -109,8 +113,9 @@ class GeminiClient(GemMixin):
         "_lock",
         "_reqid",
         "_gems",  # From GemMixin
-        "_available_models",
+        "_model_registry",
         "_recent_chats",
+        "account_status",
         "kwargs",
     ]
 
@@ -129,6 +134,8 @@ class GeminiClient(GemMixin):
         self.access_token: str | None = None
         self.build_label: str | None = None
         self.session_id: str | None = None
+        self.language: str | None = None
+        self.push_id: str | None = None
         self.timeout: float = 450
         self.auto_close: bool = False
         self.close_delay: float = 450
@@ -140,8 +147,9 @@ class GeminiClient(GemMixin):
         self.watchdog_timeout: float = 90  # seconds before declaring a zombie stream
         self._lock = asyncio.Lock()
         self._reqid: int = random.randint(10000, 99999)
-        self._available_models: list[AvailableModel] | None = None
+        self._model_registry: dict[str, AvailableModel] = {}
         self._recent_chats: list[ChatInfo] | None = None
+        self.account_status: AccountStatus = AccountStatus.AVAILABLE
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -213,7 +221,14 @@ class GeminiClient(GemMixin):
             try:
                 self.verbose = verbose
                 self.watchdog_timeout = watchdog_timeout
-                access_token, build_label, session_id, session = await get_access_token(
+                (
+                    access_token,
+                    build_label,
+                    session_id,
+                    language,
+                    push_id,
+                    session,
+                ) = await get_access_token(
                     base_cookies=self.cookies,
                     proxy=self.proxy,
                     verbose=self.verbose,
@@ -226,6 +241,8 @@ class GeminiClient(GemMixin):
                 self.access_token = access_token
                 self.build_label = build_label
                 self.session_id = session_id
+                self.language = language or "en"
+                self.push_id = push_id or "feeds/mcudyrk2a4khkz"
                 self._running = True
                 self._reqid = random.randint(10000, 99999)
 
@@ -317,18 +334,21 @@ class GeminiClient(GemMixin):
 
                     if not new_1psidts:
                         logger.warning(
-                            "Rotation response did not contain a new __Secure-1PSIDTS. "
-                            "Session might expire soon if this persists."
+                            "Rotation response did not contain a __Secure-1PSIDTS. "
+                            "The current cookies may have been invalidated by the server. "
+                            "Retrying in next interval."
                         )
             except asyncio.CancelledError:
                 raise
             except AuthError:
                 logger.warning(
-                    "AuthError: Failed to refresh cookies. Retrying in next interval."
+                    "AuthError: Failed to refresh cookies. "
+                    "The current cookies may have been invalidated by the server. "
+                    "Retrying in next interval."
                 )
-            except Exception:
+            except Exception as e:
                 logger.warning(
-                    "Unexpected error while refreshing cookies. Retrying in next interval."
+                    f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
 
     async def _init_rpc(self) -> None:
@@ -336,20 +356,23 @@ class GeminiClient(GemMixin):
         Send initial RPC calls to set up the session.
         """
 
-        await self._fetch_models()
+        await self._fetch_user_status()
         await self._send_bard_settings()
         await self._send_bard_activity()
         await self._fetch_recent_chats()
 
-    async def _fetch_models(self) -> None:
+    async def _fetch_user_status(self) -> None:
         """
-        Fetch and parse available models.
+        Fetch user status and parse available models dynamically from the Gemini API.
+
+        Builds :class:`AvailableModel` instances from the RPC response so that
+        model headers are always up-to-date without hardcoded values.
         """
 
         response = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_MODELS,
+                    rpcid=GRPC.GET_USER_STATUS,
                     payload="[]",
                 )
             ]
@@ -357,7 +380,6 @@ class GeminiClient(GemMixin):
 
         response_json = extract_json_from_response(response.text)
 
-        available_models = []
         for part in response_json:
             part_body_str = get_nested_value(part, [2])
             if not part_body_str:
@@ -365,40 +387,67 @@ class GeminiClient(GemMixin):
 
             part_body = json.loads(part_body_str)
 
+            status_code = get_nested_value(part_body, [14])
+            self.account_status = AccountStatus.from_status_code(status_code)
+
+            if self.account_status == AccountStatus.AVAILABLE:
+                logger.info(
+                    f"Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+            else:
+                logger.warning(
+                    f"Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+                if self.account_status in [
+                    AccountStatus.LOCATION_REJECTED,
+                    AccountStatus.ACCOUNT_REJECTED,
+                    AccountStatus.ACCESS_TEMPORARILY_UNAVAILABLE,
+                    AccountStatus.ACCOUNT_REJECTED_BY_GUARDIAN,
+                    AccountStatus.GUARDIAN_APPROVAL_REQUIRED,
+                ]:
+                    logger.warning(
+                        f"Hard block detected ({self.account_status.name}). Skipping model discovery."
+                    )
+                    continue
+
             models_list = get_nested_value(part_body, [15])
             if isinstance(models_list, list):
+                tier_flags = get_nested_value(part_body, [16], [])
+                tier_flags = tier_flags if isinstance(tier_flags, list) else []
+                capability_flags = get_nested_value(part_body, [17], [])
+                capability_flags = (
+                    capability_flags if isinstance(capability_flags, list) else []
+                )
+                capacity, capacity_field = AvailableModel.compute_capacity(
+                    tier_flags, capability_flags
+                )
+
+                id_name_mapping = AvailableModel.build_model_id_name_mapping()
+
                 for model_data in models_list:
-                    if isinstance(model_data, list) and len(model_data) > 2:
+                    if isinstance(model_data, list):
                         model_id = get_nested_value(model_data, [0], "")
-                        name = get_nested_value(model_data, [10]) or get_nested_value(
-                            model_data, [1], ""
-                        )
-                        description = get_nested_value(
-                            model_data, [12]
-                        ) or get_nested_value(model_data, [2], "")
-                        core_model = Model.UNSPECIFIED
-                        code_name = "unspecified"
-                        for enum_model in Model:
-                            val = enum_model.model_header.get(
-                                "x-goog-ext-525001261-jspb", ""
-                            )
-                            if val and (model_id in val):
-                                core_model = enum_model
-                                code_name = enum_model.model_name
-                                break
+                        display_name = get_nested_value(model_data, [1], "")
+                        description = get_nested_value(model_data, [2], "")
 
-                        if model_id and name:
-                            available_models.append(
-                                AvailableModel(
-                                    id=code_name,
-                                    name=name,
-                                    model=core_model,
-                                    description=description,
-                                )
-                            )
-                break
+                        if model_id and display_name:
+                            is_model_available = True
+                            if self.account_status == AccountStatus.UNAUTHENTICATED:
+                                if model_id != Model.BASIC_FLASH.model_id:
+                                    is_model_available = False
 
-        self._available_models = available_models
+                            model = AvailableModel(
+                                model_id=model_id,
+                                model_name=id_name_mapping.get(model_id, ""),
+                                display_name=display_name,
+                                description=description,
+                                capacity=capacity,
+                                capacity_field=capacity_field,
+                                is_available=is_model_available,
+                            )
+                            self._model_registry[model_id] = model
+
+                return
 
     async def _fetch_recent_chats(self, recent: int = 13) -> None:
         """
@@ -506,17 +555,55 @@ class GeminiClient(GemMixin):
             Returns `None` if the client holds no session cache.
         """
 
-        return self._available_models
+        return list(self._model_registry.values()) if self._model_registry else None
+
+    def _resolve_model_by_name(self, name: str) -> Model | AvailableModel:
+        """
+        Resolve a model name string to an :class:`AvailableModel` (preferred)
+        or fall back to the :class:`Model` enum.
+        """
+
+        if name in self._model_registry:
+            return self._model_registry[name]
+
+        for m in self._model_registry.values():
+            if m.model_name == name or m.display_name == name:
+                return m
+
+        return Model.from_name(name)
+
+    def _resolve_enum_model(self, model: Model) -> Model | AvailableModel:
+        """
+        Try to upgrade a :class:`Model` enum to an :class:`AvailableModel`
+        from the dynamic registry.  Falls back to the enum itself if no match
+        is found.
+        """
+
+        if model is Model.UNSPECIFIED:
+            return model
+
+        header_value = model.model_header.get(MODEL_HEADER_KEY, "")
+        if not header_value:
+            return model
+
+        try:
+            parsed = json.loads(header_value)
+            model_id = get_nested_value(parsed, [4], "")
+            if model_id and model_id in self._model_registry:
+                return self._model_registry[model_id]
+        except json.JSONDecodeError:
+            pass
+
+        return model
 
     async def generate_content(
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> ModelOutput:
         """
@@ -540,8 +627,6 @@ class GeminiClient(GemMixin):
             If None, will automatically generate a new chat id when sending post request.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -573,7 +658,12 @@ class GeminiClient(GemMixin):
 
             uploaded_urls = await asyncio.gather(
                 *(
-                    upload_file(file, client=self.client, verbose=self.verbose)
+                    upload_file(
+                        file,
+                        client=self.client,
+                        push_id=self.push_id,
+                        verbose=self.verbose,
+                    )
                     for file in files
                 )
             )
@@ -601,7 +691,6 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
-                language=language,
                 **kwargs,
             ):
                 pass
@@ -627,11 +716,10 @@ class GeminiClient(GemMixin):
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -655,8 +743,6 @@ class GeminiClient(GemMixin):
             Chat data to retrieve conversation history.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
@@ -683,7 +769,12 @@ class GeminiClient(GemMixin):
 
             uploaded_urls = await asyncio.gather(
                 *(
-                    upload_file(file, client=self.client, verbose=self.verbose)
+                    upload_file(
+                        file,
+                        client=self.client,
+                        push_id=self.push_id,
+                        verbose=self.verbose,
+                    )
                     for file in files
                 )
             )
@@ -708,7 +799,6 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
-                language=language,
                 **kwargs,
             ):
                 yield output
@@ -728,12 +818,11 @@ class GeminiClient(GemMixin):
         self,
         prompt: str,
         req_file_data: list[Any] | None = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
-        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -742,13 +831,17 @@ class GeminiClient(GemMixin):
 
         assert prompt, "Prompt cannot be empty."
 
-        if isinstance(model, str):
-            model = Model.from_name(model)
+        if isinstance(model, AvailableModel):
+            pass
+        elif isinstance(model, str):
+            model = self._resolve_model_by_name(model)
         elif isinstance(model, dict):
             model = Model.from_dict(model)
-        elif not isinstance(model, Model):
+        elif isinstance(model, Model):
+            model = self._resolve_enum_model(model)
+        else:
             raise TypeError(
-                f"'model' must be a `gemini_webapi.constants.Model` instance, "
+                f"'model' must be a `Model` enum, `AvailableModel`, "
                 f"string, or dictionary; got `{type(model).__name__}`"
             )
 
@@ -789,7 +882,7 @@ class GeminiClient(GemMixin):
             0,
         ]
 
-        params: dict[str, Any] = {"_reqid": _reqid, "rt": "c"}
+        params: dict[str, Any] = {"hl": self.language, "_reqid": _reqid, "rt": "c"}
         if self.build_label:
             params["bl"] = self.build_label
         if self.session_id:
@@ -806,7 +899,7 @@ class GeminiClient(GemMixin):
                 if temporary:
                     inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
 
-                inner_req_list[1] = [f"{language}"]
+                inner_req_list[1] = [self.language]
                 inner_req_list[6] = [1]
                 inner_req_list[10] = 1
                 inner_req_list[11] = 0
@@ -1699,6 +1792,7 @@ class GeminiClient(GemMixin):
         try:
             params: dict[str, Any] = {
                 "rpcids": ",".join([p.rpcid for p in payloads]),
+                "hl": self.language,
                 "_reqid": _reqid,
                 "rt": "c",
                 "source-path": "/app",
@@ -1785,13 +1879,13 @@ class ChatSession:
         cid: str = "",  # chat id
         rid: str = "",  # reply id
         rcid: str = "",  # reply candidate id
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
         gem: Gem | str | None = None,
     ):
         self.__metadata: list[Any] = DEFAULT_METADATA
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
-        self.model: Model | str | dict = model
+        self.model: Model | AvailableModel | str | dict = model
         self.gem: Gem | str | None = gem
 
         if metadata:
@@ -1820,7 +1914,6 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1837,8 +1930,6 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -1868,7 +1959,6 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
-            language=language,
             **kwargs,
         )
 
@@ -1877,7 +1967,6 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
-        language: str = "en",
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1896,8 +1985,6 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
-        language: `str`, optional
-            Language code. Default is 'en'.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
 
@@ -1914,7 +2001,6 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
-            language=language,
             **kwargs,
         ):
             yield output
