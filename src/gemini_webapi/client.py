@@ -14,11 +14,12 @@ from curl_cffi.requests.exceptions import ReadTimeout
 
 from .components import GemMixin
 from .constants import (
+    AccountStatus,
     Endpoint,
     ErrorCode,
     GRPC,
-    Model,
     Headers,
+    Model,
     TEMPORARY_CHAT_FLAG_INDEX,
     STREAMING_FLAG_INDEX,
     GEM_FLAG_INDEX,
@@ -26,7 +27,6 @@ from .constants import (
     ARTIFACTS_RE,
     DEFAULT_METADATA,
     MODEL_HEADER_KEY,
-    AccountStatus,
 )
 from .exceptions import (
     APIError,
@@ -56,13 +56,13 @@ from .utils import (
     get_access_token,
     get_delta_by_fp_len,
     get_nested_value,
-    logger,
     parse_file_name,
     parse_response_by_frame,
     rotate_1psidts,
     running,
     save_cookies,
     upload_file,
+    logger,
 )
 
 
@@ -303,29 +303,6 @@ class GeminiClient(GemMixin):
         except OSError as e:
             logger.warning(f"Failed to save cookies to cache file: {e}")
 
-    @staticmethod
-    def _map_account_status(status_code: int | None) -> AccountStatus:
-        """
-        Map numeric account status codes to AccountStatus enum members.
-
-        Parameters
-        ----------
-        status_code: `int`, optional
-            Numeric status code from the GetUserStatus RPC response.
-
-        Returns
-        -------
-        `AccountStatus`
-             The mapped AccountStatus enum member.
-        """
-        if status_code is None or status_code == 1000:
-            return AccountStatus.AVAILABLE
-
-        try:
-            return AccountStatus(status_code)
-        except ValueError:
-            return AccountStatus.ACCOUNT_REJECTED
-
     async def reset_close_task(self) -> None:
         """
         Reset the timer for closing the client when a new request is made.
@@ -411,7 +388,7 @@ class GeminiClient(GemMixin):
             part_body = json.loads(part_body_str)
 
             status_code = get_nested_value(part_body, [14])
-            self.account_status = self._map_account_status(status_code)
+            self.account_status = AccountStatus.from_status_code(status_code)
 
             if self.account_status == AccountStatus.AVAILABLE:
                 logger.info(

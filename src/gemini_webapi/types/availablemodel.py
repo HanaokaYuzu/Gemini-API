@@ -1,5 +1,5 @@
 import orjson as json
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ..constants import build_model_header, MODEL_HEADER_KEY, Model
 from ..utils import get_nested_value
@@ -13,9 +13,6 @@ class AvailableModel(BaseModel):
     into a single class.  Headers are constructed at runtime from
     `model_id` and internal capacity attributes so the library stays
     up-to-date with new models without code changes.
-
-    Note: `capacity` and `capacity_field` are internal attributes
-    and are excluded from public fields/serialization.
 
     Parameters
     ----------
@@ -39,8 +36,8 @@ class AvailableModel(BaseModel):
     model_name: str
     display_name: str
     description: str
-    capacity: int = Field(exclude=True, repr=False)
-    capacity_field: int = Field(default=12, exclude=True, repr=False)
+    capacity: int
+    capacity_field: int = 12
     is_available: bool = True
 
     def __str__(self) -> str:
@@ -59,7 +56,7 @@ class AvailableModel(BaseModel):
 
         Returns
         -------
-        dict[str, str]
+        `dict[str, str]`
             A dictionary containing the required headers for model selection.
         """
 
@@ -96,21 +93,21 @@ class AvailableModel(BaseModel):
             A tuple of (capacity, capacity_field) for header construction.
         """
 
-        # highest priority: override capacity_field = 13
+        # Highest priority: override capacity_field = 13
         if 21 in tier_flags:
-            return 1, 13
+            return 1, 13  # Not yet observed
         if 22 in tier_flags:
-            return 2, 13
+            return 2, 13  # Not yet observed
 
-        # priority order: capacity_field = 12
+        # Priority order: capacity_field = 12
         if 115 in capability_flags:
-            return 4, 12
+            return 4, 12  # Plus accounts
         if 16 in tier_flags or 106 in capability_flags:
-            return 3, 12
+            return 3, 12  # Pro accounts (uncommon)
         if 8 in tier_flags or (106 not in capability_flags and 19 in capability_flags):
-            return 2, 12
+            return 2, 12  # Pro accounts
 
-        return 1, 12
+        return 1, 12  # Free accounts
 
     @staticmethod
     def build_model_id_name_mapping() -> dict[str, str]:
