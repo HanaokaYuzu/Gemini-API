@@ -24,7 +24,7 @@ class RPCData(BaseModel):
     identifier: str = "generic"
 
     def __repr__(self):
-        return f"GRPC(rpcid='{self.rpcid}', payload='{self.payload}', identifier='{self.identifier}')"
+        return f"GRPC(rpcid={self.rpcid!r}, payload={self.payload!r}, identifier={self.identifier!r})"
 
     def serialize(self) -> list:
         """

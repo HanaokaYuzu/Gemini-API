@@ -1,3 +1,5 @@
+from textwrap import shorten
+
 from pydantic import BaseModel
 
 
@@ -27,9 +29,18 @@ class Gem(BaseModel):
     predefined: bool
 
     def __str__(self) -> str:
+        return f"Gem(id={self.id!r}, name={self.name!r}, predefined={self.predefined!r})"
+
+    def __repr__(self) -> str:
+        desc = (
+            shorten(self.description, width=100)
+            if self.description
+            else "No description"
+        )
+        prompt = shorten(self.prompt, width=100) if self.prompt else "No prompt"
         return (
-            f"Gem(id='{self.id}', name='{self.name}', description='{self.description}', "
-            f"prompt='{self.prompt}', predefined={self.predefined})"
+            f"Gem(id={self.id!r}, name={self.name!r}, description={desc!r}, "
+            f"prompt={prompt!r}, predefined={self.predefined})"
         )
 
 

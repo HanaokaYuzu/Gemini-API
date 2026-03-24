@@ -10,5 +10,5 @@ from .parsing import (
     get_nested_value,
     parse_response_by_frame,
 )
-from .rotate_1psidts import rotate_1psidts
+from .rotate_1psidts import rotate_1psidts, save_cookies
 from .upload_file import upload_file, parse_file_name

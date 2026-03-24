@@ -1,11 +1,15 @@
-import re
-from pathlib import Path
+import hashlib
+import mimetypes
 from datetime import datetime
+from pathlib import Path
+from textwrap import shorten
 from typing import Any
 
-from httpx import AsyncClient, Cookies, HTTPError
-from pydantic import BaseModel, field_validator
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests.exceptions import HTTPError
+from pydantic import BaseModel, ConfigDict
 
+from ..constants import Headers
 from ..utils import logger
 
 
@@ -18,99 +22,140 @@ class Image(BaseModel):
     url: `str`
         URL of the image.
     title: `str`, optional
-        Title of the image, by default is "[Image]".
+        Title of the image, defaults to "[Image]".
     alt: `str`, optional
         Optional description of the image.
     proxy: `str`, optional
         Proxy used when saving image.
+    client: `AsyncSession`, optional
+        Used for saving file with authentication if needed.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     url: str
     title: str = "[Image]"
     alt: str = ""
     proxy: str | None = None
+    client: AsyncSession | None = None
+    _default_filename_suffix: str = "image"
+
+    def _get_url_for_hash(self) -> str:
+        return self.url
 
     def __str__(self):
-        return (
-            f"Image(title='{self.title}', alt='{self.alt}', "
-            f"url='{len(self.url) <= 20 and self.url or self.url[:8] + '...' + self.url[-12:]}')"
-        )
+        return f"Image(title={self.title!r}, alt={shorten(self.alt, width=100)!r}, url={self.url!r})"
 
     async def save(
         self,
         path: str = "temp",
         filename: str | None = None,
-        cookies: dict | Cookies | None = None,
         verbose: bool = False,
-        skip_invalid_filename: bool = False,
-    ) -> str | None:
+        client: AsyncSession | None = None,
+        **kwargs,
+    ) -> str:
         """
-        Save the image to disk.
+        Saves the image to disk.
 
         Parameters
         ----------
         path: `str`, optional
-            Path to save the image, by default will save to "./temp".
-        filename: `str`, optional
-            File name to save the image, by default will use the original file name from the URL.
-        cookies: `dict`, optional
-            Cookies used for requesting the content of the image.
-        verbose : `bool`, optional
-            If True, will print the path of the saved file or warning for invalid file name, by default False.
-        skip_invalid_filename: `bool`, optional
-            If True, will only save the image if the file name and extension are valid, by default False.
+            Directory path to save the image, defaults to "./temp".
+        filename: `str | None`, optional
+            File name to save the image. Defaults to a unique generated name.
+        verbose: `bool`, optional
+            If True, will print the path of the saved file or warning for invalid file name. Defaults to False.
+        client: `AsyncSession | None`, optional
+            Client used for requests.
+        kwargs: `dict`, optional
+            Additional arguments passed to the specific image's `_perform_save` implementation.
+            For example, `GeneratedImage` accepts `full_size (bool)`.
 
         Returns
         -------
-        `str | None`
-            Absolute path of the saved image if successful, None if filename is invalid and `skip_invalid_filename` is True.
+        `str`
+            Absolute path of the saved image if successful.
 
         Raises
         ------
-        `httpx.HTTPError`
+        `curl_cffi.requests.exceptions.HTTPError`
             If the network request failed.
         """
 
-        filename = filename or self.url.split("/")[-1].split("?")[0]
-        match = re.search(r"^(.*\.\w+)", filename)
-        if match:
-            filename = match.group()
-        else:
-            if verbose:
-                logger.warning(f"Invalid filename: {filename}")
-            if skip_invalid_filename:
-                return None
+        if not filename or not Path(filename).suffix:
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            url_hash = hashlib.sha256(self._get_url_for_hash().encode()).hexdigest()[
+                :10
+            ]
+            base_name = (
+                Path(filename).stem if filename else self._default_filename_suffix
+            )
+            filename = f"{timestamp}_{url_hash}_{base_name}"
 
-        async with AsyncClient(
-            http2=True, follow_redirects=True, cookies=cookies, proxy=self.proxy
-        ) as client:
-            response = await client.get(self.url)
-            if response.status_code == 200:
-                content_type = response.headers.get("content-type")
-                if content_type and "image" not in content_type:
-                    logger.warning(
-                        f"Content type of {filename} is not image, but {content_type}."
-                    )
+        close_client = False
+        req_client = client or self.client
+        if not req_client:
+            client_ref = getattr(self, "client_ref", None)
+            cookies = getattr(client_ref, "cookies", None) if client_ref else None
+            req_client = AsyncSession(
+                impersonate="chrome",
+                allow_redirects=True,
+                cookies=cookies,
+                proxy=self.proxy,
+            )
+            close_client = True
 
-                path = Path(path)
-                path.mkdir(parents=True, exist_ok=True)
+        try:
+            path_obj = Path(path)
+            path_obj.mkdir(parents=True, exist_ok=True)
+            return await self._perform_save(
+                req_client, path_obj, filename, verbose, **kwargs
+            )
+        finally:
+            if close_client:
+                await req_client.close()
 
-                dest = path / filename
-                dest.write_bytes(response.content)
+    async def _perform_save(
+        self, req_client: AsyncSession, path_obj: Path, filename: str, verbose: bool
+    ) -> str:
+        """
+        Base implementation: simple download.
+        """
 
-                if verbose:
-                    logger.info(f"Image saved as {dest.resolve()}")
+        response = await req_client.get(self.url, headers=Headers.REFERER.value)
+        if verbose:
+            logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
 
-                return str(dest.resolve())
-            else:
-                raise HTTPError(
-                    f"Error downloading image: {response.status_code} {response.reason_phrase}"
+        if response.status_code == 200:
+            path_obj_file = Path(filename)
+            if not path_obj_file.suffix:
+                content_type = (
+                    response.headers.get("content-type", "")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
                 )
+                ext = mimetypes.guess_extension(content_type) or ".png"
+                filename = f"{filename}{ext}"
+
+            dest = path_obj / filename
+            dest.write_bytes(response.content)
+
+            if verbose:
+                logger.info(f"Image saved as {dest.resolve()}")
+
+            return str(dest.resolve())
+        else:
+            raise HTTPError(
+                f"Error downloading image: {response.status_code} {response.reason}"
+            )
 
 
 class WebImage(Image):
     """
-    Image retrieved from web. Returned when ask Gemini to "SEND an image of [something]".
+    Image retrieved from web.
+
+    Returned when asking Gemini to "SEND an image of [something]".
     """
 
     pass
@@ -118,69 +163,102 @@ class WebImage(Image):
 
 class GeneratedImage(Image):
     """
-    Image generated by ImageFX, Google's AI image generator. Returned when ask Gemini to "GENERATE an image of [something]".
+    Image generated by Gemini.
+
+    Returned when asking Gemini to "GENERATE an image of [something]".
 
     Parameters
     ----------
-    cookies: `dict | httpx.Cookies`
-        Cookies used for requesting the content of the generated image, inherit from GeminiClient object or manually set.
-        Should contain valid "__Secure-1PSID" and "__Secure-1PSIDTS" values.
+    client_ref: `GeminiClient`, optional
+        Reference to the GeminiClient instance.
+    cid: `str`, optional
+        Chat ID.
+    rid: `str`, optional
+        Reply ID.
+    rcid: `str`, optional
+        Reply candidate ID.
+    image_id: `str`, optional
+        Image ID generated.
     """
 
-    cookies: Any
-
-    @field_validator("cookies")
-    @classmethod
-    def validate_cookies(cls, v: Any) -> Any:
-        if len(v) == 0:
-            raise ValueError(
-                "GeneratedImage is designed to be initialized with same cookies as GeminiClient."
-            )
-        return v
+    client_ref: Any = None
+    cid: str = ""
+    rid: str = ""
+    rcid: str = ""
+    image_id: str = ""
 
     # @override
-    async def save(
+    async def _perform_save(
         self,
-        path: str = "temp",
-        filename: str | None = None,
-        cookies: dict | Cookies | None = None,
-        verbose: bool = False,
-        skip_invalid_filename: bool = False,
+        req_client: AsyncSession,
+        path_obj: Path,
+        filename: str,
+        verbose: bool,
         full_size: bool = True,
-    ) -> str | None:
+    ) -> str:
         """
-        Save the image to disk.
+        Internal method for saving GeneratedImage, handling full size resolution.
 
         Parameters
         ----------
-        path: `str`, optional
-            Path to save the image, by default will save to "./temp".
-        filename: `str`, optional
-            Filename to save the image, generated images are always in .png format, but file extension will not be included in the URL.
-            And since the URL ends with a long hash, by default will use timestamp + end of the hash as the filename.
-        cookies: `dict`, optional
-            Cookies used for requesting the content of the image. If not provided, will use the cookies from the GeneratedImage instance.
-        verbose : `bool`, optional
-            If True, will print the path of the saved file or warning for invalid file name, by default False.
-        skip_invalid_filename: `bool`, optional
-            If True, will only save the image if the file name and extension are valid, by default False.
+        req_client: `AsyncSession`
+             Client used for requests.
+        path_obj: `Path`
+            Path to save the image.
+        filename: `str`
+            Base filename.
+        verbose: `bool`
+            Prints status if True.
         full_size: `bool`, optional
-            If True, will modify the default preview (512*512) URL to get the full size image, by default True.
+            Modifies preview URLs to fetch full-size images. Defaults to True.
 
         Returns
         -------
-        `str | None`
+        `str`
             Absolute path of the saved image if successfully saved.
         """
 
         if full_size:
-            self.url += "=s2048"
+            if all([self.client_ref, self.cid, self.rid, self.rcid, self.image_id]):
+                try:
+                    original_url = await self.client_ref._get_full_size_image(
+                        cid=self.cid,
+                        rid=self.rid,
+                        rcid=self.rcid,
+                        image_id=self.image_id,
+                    )
+                    if original_url:
+                        req_url = f"{original_url}=d-I?alr=yes"
 
-        return await super().save(
-            path=path,
-            filename=filename
-            or f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{self.url[-10:]}.png",
-            cookies=cookies or self.cookies,
-            verbose=verbose,
-            skip_invalid_filename=skip_invalid_filename,
-        )
+                        response = await req_client.get(
+                            req_url, headers=Headers.REFERER.value
+                        )
+                        response.raise_for_status()
+                        url_text = response.text
+
+                        response = await req_client.get(
+                            url_text, headers=Headers.REFERER.value
+                        )
+                        response.raise_for_status()
+                        self.url = response.text
+
+                        return await super()._perform_save(
+                            req_client, path_obj, filename, verbose
+                        )
+
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to fetch full size image URL via RPC: {e}, falling back to default URL suffix."
+                    )
+
+            if "=s1024-rj" in self.url:
+                self.url = self.url.replace("=s1024-rj", "=s2048-rj")
+            elif "=s2048-rj" not in self.url:
+                self.url += "=s2048-rj"
+        else:
+            if "=s2048-rj" in self.url:
+                self.url = self.url.replace("=s2048-rj", "=s1024-rj")
+            elif "=s1024-rj" not in self.url:
+                self.url += "=s1024-rj"
+
+        return await super()._perform_save(req_client, path_obj, filename, verbose)
