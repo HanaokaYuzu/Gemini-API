@@ -1,4 +1,5 @@
 import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,7 +29,7 @@ def _get_cookie_cache_dir() -> Path:
     """
 
     _path = os.getenv("GEMINI_COOKIE_PATH")
-    return Path(_path) if _path else Path(__file__).parent.parent / "temp"
+    return Path(_path) if _path else Path(tempfile.gettempdir()) / "gemini_webapi"
 
 
 def _get_cookies_cache_path(cookies: Cookies, verbose: bool = False) -> Path | None:
