@@ -41,7 +41,7 @@ async def get_access_token(
     proxy: str | None = None,
     verbose: bool = False,
     verify: bool = True,
-) -> tuple[str | None, str | None, str | None, AsyncSession]:
+) -> tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]:
     """
     Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
@@ -62,8 +62,8 @@ async def get_access_token(
 
     Returns
     -------
-    `tuple[str | None, str | None, str | None, AsyncSession]`
-        By order: access token; build label; session id; live AsyncSession of the successful request.
+    `tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]`
+        By order: access token; build label; session id; language; file push id; live AsyncSession of the successful request.
 
     Raises
     ------
@@ -150,7 +150,7 @@ async def get_access_token(
             logger.debug("Skipping loading cached cookies. Cache file not found.")
 
     if not base_psid:
-        cache_files = _get_cookie_cache_dir().glob(".cached_cookies_*.json")
+        cache_files = list(_get_cookie_cache_dir().glob(".cached_cookies_*.json"))
         if cache_files:
             cache_file = max(cache_files, key=lambda p: p.stat().st_mtime)
             psid = cache_file.stem[16:]
@@ -268,19 +268,23 @@ async def get_access_token(
     for jar, group_name in cookie_jars_to_test:
         current_attempt += 1
         try:
-            res = await _send_request(client, jar, verbose=verbose)
-            snlm0e = re.search(r'"SNlM0e":\s*"(.*?)"', res.text)
-            cfb2h = re.search(r'"cfb2h":\s*"(.*?)"', res.text)
-            fdrfje = re.search(r'"FdrFJe":\s*"(.*?)"', res.text)
-            if snlm0e or cfb2h or fdrfje:
+            response = await _send_request(client, jar, verbose=verbose)
+            access_token = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
+            build_label = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
+            session_id = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
+            language = re.search(r'"TuX5cc":\s*"(.*?)"', response.text)
+            push_id = re.search(r'"qKIAYe":\s*"(.*?)"', response.text)
+            if access_token or build_label or session_id or language or push_id:
                 if verbose:
                     logger.debug(
                         f"Init attempt ({current_attempt}) from {group_name} succeeded."
                     )
                 return (
-                    snlm0e.group(1) if snlm0e else None,
-                    cfb2h.group(1) if cfb2h else None,
-                    fdrfje.group(1) if fdrfje else None,
+                    access_token.group(1) if access_token else None,
+                    build_label.group(1) if build_label else None,
+                    session_id.group(1) if session_id else None,
+                    language.group(1) if language else None,
+                    push_id.group(1) if push_id else None,
                     client,
                 )
         except Exception:
