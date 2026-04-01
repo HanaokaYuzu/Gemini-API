@@ -3,7 +3,6 @@ from enum import Enum, IntEnum, StrEnum
 
 import orjson as json
 
-
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
@@ -53,13 +52,6 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
-    GET_USER_STATUS = "otAQ7b"
-
-    GET_FULL_SIZE_IMAGE = "c8o8Fe"
-
-    BARD_SETTINGS = "ESY5D"
-    BARD_ACTIVITY = "ESY5D"  # alias used by deep research
-
     # Deep research methods
     DEEP_RESEARCH_STATUS = "kwDCne"
     DEEP_RESEARCH_PREFS = "L5adhe"
@@ -67,6 +59,14 @@ class GRPC(StrEnum):
     DEEP_RESEARCH_MODEL_STATE = "qpEbW"
     DEEP_RESEARCH_CAPS = "aPya6c"
     DEEP_RESEARCH_ACK = "PCck7e"
+
+    GET_USER_STATUS = "otAQ7b"
+
+    LIST_MODELS = "otAQ7b"
+
+    GET_FULL_SIZE_IMAGE = "c8o8Fe"
+
+    BARD_SETTINGS = "ESY5D"
 
 
 class Headers(Enum):

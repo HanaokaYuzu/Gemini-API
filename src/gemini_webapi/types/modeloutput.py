@@ -32,6 +32,10 @@ class ModelOutput(BaseModel):
         return f"ModelOutput(metadata={self.metadata!r}, chosen={self.chosen!r}, candidates={self.candidates!r})"
 
     @property
+    def rcid(self) -> str:
+        return self.candidates[self.chosen].rcid
+
+    @property
     def text(self) -> str:
         return self.candidates[self.chosen].text
 
@@ -58,10 +62,6 @@ class ModelOutput(BaseModel):
     @property
     def media(self) -> list[GeneratedMedia]:
         return self.candidates[self.chosen].generated_media
-
-    @property
-    def rcid(self) -> str:
-        return self.candidates[self.chosen].rcid
 
     @property
     def deep_research_plan(self) -> DeepResearchPlan | None:

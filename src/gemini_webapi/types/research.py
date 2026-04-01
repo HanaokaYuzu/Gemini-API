@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-
 from pydantic import BaseModel
 
 
@@ -38,21 +34,3 @@ class DeepResearchStatus(BaseModel):
     done: bool = False
     raw_state: int | None = None
     raw: list | dict | str | None = None
-
-
-class DeepResearchResult(BaseModel):
-    """
-    High-level result of a deep research run.
-    """
-
-    plan: DeepResearchPlan
-    start_output: Any | None = None
-    final_output: Any | None = None
-    statuses: list[DeepResearchStatus] = []
-    done: bool = False
-
-    @property
-    def text(self) -> str:
-        if self.final_output and hasattr(self.final_output, "text"):
-            return self.final_output.text or ""
-        return ""

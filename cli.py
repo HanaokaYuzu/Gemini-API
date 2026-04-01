@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for gemini-webapi — adapted for upstream curl_cffi backend."""
-from __future__ import annotations
+"""CLI for gemini-webapi"""
 
 import argparse
 import asyncio
@@ -23,8 +22,9 @@ INIT_MAX_RETRIES = 3
 
 
 # ---------------------------------------------------------------------------
-# Cookie helpers
+# region - Cookie helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_expiry(value):
     if value is None:
@@ -70,8 +70,10 @@ def _load_cookies_with_meta(path):
             "expires_epoch": exp,
             "expires_iso": (
                 datetime.fromtimestamp(exp, tz=timezone.utc)
-                .isoformat().replace("+00:00", "Z")
-                if exp is not None else None
+                .isoformat()
+                .replace("+00:00", "Z")
+                if exp is not None
+                else None
             ),
         }
 
@@ -115,9 +117,7 @@ def _load_cookies_with_meta(path):
         if cookies:
             return cookies, meta
 
-    raise SystemExit(
-        "--cookies-json unsupported format."
-    )
+    raise SystemExit("--cookies-json unsupported format.")
 
 
 def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False):
@@ -133,8 +133,7 @@ def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False)
     if merged == original:
         return
     payload = {
-        "updated_at": datetime.now(tz=timezone.utc)
-        .isoformat().replace("+00:00", "Z"),
+        "updated_at": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "cookies": dict(sorted(merged.items())),
     }
     Path(cookies_json_path).write_text(
@@ -146,8 +145,9 @@ def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False)
 
 
 # ---------------------------------------------------------------------------
-# Client init / teardown
+# region - Client init / teardown
 # ---------------------------------------------------------------------------
+
 
 def _build_client(args):
     json_cookies = {}
@@ -164,8 +164,11 @@ def _build_client(args):
     if not psidts:
         logger.warning("__Secure-1PSIDTS not found.")
 
-    extra = {k: v for k, v in json_cookies.items()
-             if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}}
+    extra = {
+        k: v
+        for k, v in json_cookies.items()
+        if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}
+    }
 
     client = GeminiClient(
         secure_1psid=psid,
@@ -187,7 +190,8 @@ async def _init_client(args):
 
     try:
         await client.init(
-            timeout=timeout, auto_refresh=False,
+            timeout=timeout,
+            auto_refresh=False,
             verbose=args.verbose,
         )
         return client, json_cookies
@@ -201,15 +205,18 @@ async def _init_client(args):
 async def _cleanup(client, args, json_cookies):
     if args.cookies_json and not args.no_persist:
         _persist_cookies(
-            args.cookies_json, json_cookies,
-            client.cookies, verbose=args.verbose,
+            args.cookies_json,
+            json_cookies,
+            client.cookies,
+            verbose=args.verbose,
         )
     await client.close()
 
 
 # ---------------------------------------------------------------------------
-# Output helpers
+# region - Output helpers
 # ---------------------------------------------------------------------------
+
 
 def _print_images(output):
     if not output or not output.images:
@@ -234,8 +241,9 @@ def _print_chat_id(output):
 
 
 # ---------------------------------------------------------------------------
-# Subcommand implementations
+# region - Subcommand implementations
 # ---------------------------------------------------------------------------
+
 
 async def cmd_ask(args):
     client, json_cookies = await _init_client(args)
@@ -244,7 +252,9 @@ async def cmd_ask(args):
         model = args.model
         if args.no_stream:
             output = await client.generate_content(
-                args.prompt, files=files, model=model,
+                args.prompt,
+                files=files,
+                model=model,
             )
             print(output.text)
             _print_images(output)
@@ -252,7 +262,9 @@ async def cmd_ask(args):
         else:
             output = None
             async for output in client.generate_content_stream(
-                args.prompt, files=files, model=model,
+                args.prompt,
+                files=files,
+                model=model,
             ):
                 if output.text_delta:
                     print(output.text_delta, end="", flush=True)
@@ -278,7 +290,8 @@ async def cmd_reply(args):
             )
         else:
             chat = client.start_chat(
-                cid=args.chat_id, model=args.model,
+                cid=args.chat_id,
+                model=args.model,
             )
 
         if args.no_stream:
@@ -304,7 +317,8 @@ async def cmd_research_send(args):
     client, json_cookies = await _init_client(args)
     try:
         plan = await client.create_deep_research_plan(
-            prompt=args.prompt, model=args.model,
+            prompt=args.prompt,
+            model=args.model,
         )
         await client.start_deep_research(plan=plan)
         if not plan.cid:
@@ -358,9 +372,7 @@ async def cmd_research_get(args):
     try:
         latest = await client.fetch_latest_chat_response(cid)
         if not latest:
-            raise SystemExit(
-                f"No response for chat {cid}. Research may still run."
-            )
+            raise SystemExit(f"No response for chat {cid}. Research may still run.")
         text = latest.text or ""
         output_file = getattr(args, "output", None)
         if output_file:
@@ -383,6 +395,7 @@ async def cmd_list(args):
             print("No chats found.")
             return 0
         from datetime import datetime as dt
+
         id_w = max(len("ID"), max(len(c.cid) for c in items))
         ti_w = max(len("Title"), max(len(c.title[:50]) for c in items))
         print(f"{'ID':<{id_w}}  {'Title':<{ti_w}}  Updated")
@@ -399,7 +412,8 @@ async def cmd_read(args):
     client, json_cookies = await _init_client(args)
     try:
         history = await client.read_chat(
-            args.chat_id, limit=args.max_turns,
+            args.chat_id,
+            limit=args.max_turns,
         )
         if not history or not history.turns:
             print(f"No turns for chat {args.chat_id}")
@@ -440,6 +454,7 @@ async def cmd_download(args):
     output = args.output
     if not output:
         from hashlib import md5
+
         url_hash = md5(args.url.encode()).hexdigest()[:8]
         output = f"gemini-{url_hash}.png"
 
@@ -501,15 +516,17 @@ async def cmd_inspect(args):
 
 
 # ---------------------------------------------------------------------------
-# Argparse
+# region - Argparse
 # ---------------------------------------------------------------------------
+
 
 def build_parser():
     parser = argparse.ArgumentParser(
         description="CLI for gemini-webapi",
     )
     parser.add_argument(
-        "--cookies-json", default=None,
+        "--cookies-json",
+        default=None,
         help="Path to JSON cookie file",
     )
     parser.add_argument(
@@ -522,7 +539,9 @@ def build_parser():
         ),
     )
     parser.add_argument(
-        "--account-index", type=int, default=None,
+        "--account-index",
+        type=int,
+        default=None,
         help="Google account index",
     )
     parser.add_argument(
@@ -531,15 +550,19 @@ def build_parser():
         help="Model name",
     )
     parser.add_argument(
-        "--verbose", action="store_true",
+        "--verbose",
+        action="store_true",
         help="Enable debug logging",
     )
     parser.add_argument(
-        "--no-persist", action="store_true",
+        "--no-persist",
+        action="store_true",
         help="Do not write updated cookies back",
     )
     parser.add_argument(
-        "--request-timeout", type=float, default=300,
+        "--request-timeout",
+        type=float,
+        default=300,
         help="Per-request HTTP timeout in seconds",
     )
 
@@ -592,8 +615,9 @@ def build_parser():
 
 
 # ---------------------------------------------------------------------------
-# Dispatch
+# region - Dispatch
 # ---------------------------------------------------------------------------
+
 
 async def run(args):
     cmd = args.command

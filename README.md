@@ -108,11 +108,11 @@ pip install -U gemini_webapi[browser]
 
 ```yaml
 services:
-  main:
-    environment:
-      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-    volumes:
-      - ./gemini_cookies:/tmp/gemini_webapi
+    main:
+        environment:
+            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+        volumes:
+            - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -585,7 +585,7 @@ A standalone CLI (`cli.py`) is included for interacting with Gemini from the ter
 Export your cookies from [gemini.google.com](https://gemini.google.com) and save them as a JSON file. The CLI supports multiple formats:
 
 ```json
-{"__Secure-1PSID": "value...", "__Secure-1PSIDTS": "value..."}
+{ "__Secure-1PSID": "value...", "__Secure-1PSIDTS": "value..." }
 ```
 
 You can also use a browser cookie extension export (array-of-objects format is supported).
@@ -598,7 +598,7 @@ You can also use a browser cookie extension export (array-of-objects format is s
 
 **Global options** (placed before the subcommand):
 
-```
+```sh
 --cookies-json PATH    Path to cookies JSON file (required)
 --proxy URL            Proxy URL (or uses HTTPS_PROXY env)
 --model NAME           Model name (see 'models' command)
