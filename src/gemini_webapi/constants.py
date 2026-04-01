@@ -3,7 +3,6 @@ from enum import Enum, IntEnum, StrEnum
 
 import orjson as json
 
-
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
@@ -53,7 +52,17 @@ class GRPC(StrEnum):
     UPDATE_GEM = "kHv0Vd"
     DELETE_GEM = "UXcSJb"
 
+    # Deep research methods
+    DEEP_RESEARCH_STATUS = "kwDCne"
+    DEEP_RESEARCH_PREFS = "L5adhe"
+    DEEP_RESEARCH_BOOTSTRAP = "ku4Jyf"
+    DEEP_RESEARCH_MODEL_STATE = "qpEbW"
+    DEEP_RESEARCH_CAPS = "aPya6c"
+    DEEP_RESEARCH_ACK = "PCck7e"
+
     GET_USER_STATUS = "otAQ7b"
+
+    LIST_MODELS = "otAQ7b"
 
     GET_FULL_SIZE_IMAGE = "c8o8Fe"
 

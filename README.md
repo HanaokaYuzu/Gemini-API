@@ -65,6 +65,10 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
   - [Generate Content with Gemini Extensions](#generate-content-with-gemini-extensions)
   - [Check and Switch to Other Reply Candidates](#check-and-switch-to-other-reply-candidates)
   - [Logging Configuration](#logging-configuration)
+- [CLI Tool](#cli-tool)
+  - [Cookie Setup](#cookie-setup)
+  - [CLI Commands](#cli-commands)
+  - [Deep Research Workflow](#deep-research-workflow)
 - [References](#references)
 - [Stargazers](#stargazers)
 
@@ -104,11 +108,11 @@ pip install -U gemini_webapi[browser]
 
 ```yaml
 services:
-  main:
-    environment:
-      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-    volumes:
-      - ./gemini_cookies:/tmp/gemini_webapi
+    main:
+        environment:
+            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+        volumes:
+            - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -571,6 +575,86 @@ set_log_level("DEBUG")
 > [!NOTE]
 >
 > Calling `set_log_level` for the first time will **globally** remove all existing loguru handlers. You may want to configure logging directly with loguru to avoid this issue and have more advanced control over logging behaviors.
+
+## CLI Tool
+
+A standalone CLI (`cli.py`) is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics.
+
+### Cookie Setup
+
+Export your cookies from [gemini.google.com](https://gemini.google.com) and save them as a JSON file. The CLI supports multiple formats:
+
+```json
+{ "__Secure-1PSID": "value...", "__Secure-1PSIDTS": "value..." }
+```
+
+You can also use a browser cookie extension export (array-of-objects format is supported).
+
+> [!NOTE]
+>
+> The CLI automatically persists updated cookies back to the JSON file after each run. Use `--no-persist` to disable this behavior.
+
+### CLI Commands
+
+**Global options** (placed before the subcommand):
+
+```sh
+--cookies-json PATH    Path to cookies JSON file (required)
+--proxy URL            Proxy URL (or uses HTTPS_PROXY env)
+--model NAME           Model name (see 'models' command)
+--verbose              Enable debug logging
+--no-persist           Don't update cookies file after run
+--request-timeout SEC  HTTP timeout in seconds (default: 300)
+```
+
+**Available commands:**
+
+```sh
+# Ask a single question (streams by default)
+python cli.py --cookies-json cookies.json ask "What is quantum computing?"
+
+# Ask with image input
+python cli.py --cookies-json cookies.json ask --image photo.jpg "Describe this"
+
+# Non-streaming mode
+python cli.py --cookies-json cookies.json ask --no-stream "Hello"
+
+# Continue a conversation (chat ID from previous output)
+python cli.py --cookies-json cookies.json reply c_abc123 "Tell me more"
+
+# List your chat history
+python cli.py --cookies-json cookies.json list
+
+# Read a specific chat conversation
+python cli.py --cookies-json cookies.json read c_abc123
+
+# List available models
+python cli.py --cookies-json cookies.json models
+
+# Download a generated image
+python cli.py --cookies-json cookies.json download "https://..." -o output.png
+
+# Account diagnostics (check feature availability)
+python cli.py --cookies-json cookies.json inspect
+```
+
+### Deep Research Workflow
+
+The CLI supports Gemini's Deep Research feature — an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report.
+
+```sh
+# 1. Submit a research task
+python cli.py --cookies-json cookies.json research send --prompt "AI chip competition 2025"
+
+# 2. Check progress (use the chat ID from step 1)
+python cli.py --cookies-json cookies.json research check c_abc123
+
+# 3. Fetch the full result
+python cli.py --cookies-json cookies.json research get c_abc123
+
+# 4. Save result to a file
+python cli.py --cookies-json cookies.json research get c_abc123 --output report.md
+```
 
 ## References
 

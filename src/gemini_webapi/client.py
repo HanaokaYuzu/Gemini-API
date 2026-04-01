@@ -3,6 +3,7 @@ import codecs
 import io
 import random
 import time
+import secrets
 import uuid
 from asyncio import Task
 from pathlib import Path
@@ -12,7 +13,7 @@ import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies, Response
 from curl_cffi.requests.exceptions import ReadTimeout
 
-from .components import GemMixin
+from .components import GemMixin, ResearchMixin
 from .constants import (
     AccountStatus,
     Endpoint,
@@ -38,20 +39,22 @@ from .exceptions import (
     UsageLimitExceeded,
 )
 from .types import (
+    AvailableModel,
     Candidate,
+    ChatHistory,
+    ChatInfo,
+    ChatTurn,
+    DeepResearchPlan,
     Gem,
     GeneratedImage,
+    GeneratedMedia,
+    GeneratedVideo,
     ModelOutput,
     RPCData,
     WebImage,
-    AvailableModel,
-    ChatInfo,
-    ChatTurn,
-    ChatHistory,
-    GeneratedVideo,
-    GeneratedMedia,
 )
 from .utils import (
+    extract_deep_research_plan,
     extract_json_from_response,
     get_access_token,
     get_delta_by_fp_len,
@@ -66,7 +69,7 @@ from .utils import (
 )
 
 
-class GeminiClient(GemMixin):
+class GeminiClient(GemMixin, ResearchMixin):
     """
     Async requests client interface for gemini.google.com.
 
@@ -604,6 +607,7 @@ class GeminiClient(GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        deep_research: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -627,6 +631,8 @@ class GeminiClient(GemMixin):
             If None, will automatically generate a new chat id when sending post request.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
+        deep_research: `bool`, optional
+            If set to `True`, will enable deep research mode and start creating a deep research plan.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -691,6 +697,7 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
+                deep_research=deep_research,
                 **kwargs,
             ):
                 pass
@@ -720,6 +727,7 @@ class GeminiClient(GemMixin):
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
+        deep_research: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -743,6 +751,8 @@ class GeminiClient(GemMixin):
             Chat data to retrieve conversation history.
         temporary: `bool`, optional
             If set to `True`, the ongoing conversation will not show up in Gemini history.
+        deep_research: `bool`, optional
+            If set to `True`, will enable deep research mode and start creating a deep research plan.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
@@ -799,6 +809,7 @@ class GeminiClient(GemMixin):
                 chat=chat,
                 temporary=temporary,
                 session_state=session_state,
+                deep_research=deep_research,
                 **kwargs,
             ):
                 yield output
@@ -823,6 +834,7 @@ class GeminiClient(GemMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
+        deep_research: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -892,23 +904,30 @@ class GeminiClient(GemMixin):
             try:
                 inner_req_list: list[Any] = [None] * 69
                 inner_req_list[0] = message_content
-                inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
-                inner_req_list[STREAMING_FLAG_INDEX] = 1
-                if gem_id:
-                    inner_req_list[GEM_FLAG_INDEX] = gem_id
-                if temporary:
-                    inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
-
                 inner_req_list[1] = [self.language]
+                inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
+                if deep_research:
+                    inner_req_list[3] = "!" + secrets.token_urlsafe(2600)
+                    inner_req_list[4] = uuid.uuid4().hex
                 inner_req_list[6] = [1]
+                inner_req_list[STREAMING_FLAG_INDEX] = 1
                 inner_req_list[10] = 1
                 inner_req_list[11] = 0
                 inner_req_list[17] = [[0]]
                 inner_req_list[18] = 0
+                if gem_id:
+                    inner_req_list[GEM_FLAG_INDEX] = gem_id
                 inner_req_list[27] = 1
                 inner_req_list[30] = [4]
                 inner_req_list[41] = [1]
+                if temporary:
+                    inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
+                if deep_research:
+                    inner_req_list[49] = 1
                 inner_req_list[53] = 0
+                if deep_research:
+                    inner_req_list[54] = [[[[[1]]]]]
+                    inner_req_list[55] = [[1]]
                 inner_req_list[61] = []
                 inner_req_list[68] = 2
 
@@ -1089,13 +1108,30 @@ class GeminiClient(GemMixin):
                                                 candidate_data, cid, rid, rcid
                                             )
 
+                                            deep_research_plan = None
+                                            if deep_research:
+                                                plan_data = extract_deep_research_plan(
+                                                    candidate_data,
+                                                    fallback_text=text,
+                                                )
+
+                                                if plan_data:
+                                                    deep_research_plan = (
+                                                        DeepResearchPlan(
+                                                            **plan_data,
+                                                            cid=getattr(
+                                                                chat, "cid", None
+                                                            ),
+                                                        )
+                                                    )
+
                                             # Check if this frame represents the complete state of the message
                                             indicator = get_nested_value(
                                                 candidate_data, [8, 0]
                                             )
                                             is_completed = indicator == 2
 
-                                            # Save this conversation turn to list_chats whenever it is stored in history.
+                                            # Save this conversation turn to recent chats whenever it is stored in history.
                                             if is_final_chunk:
                                                 if cid and isinstance(
                                                     self._recent_chats, list
@@ -1184,6 +1220,7 @@ class GeminiClient(GemMixin):
                                                 or generated_images
                                                 or generated_videos
                                                 or generated_media
+                                                or deep_research_plan
                                             ):
                                                 has_candidates = True
 
@@ -1207,6 +1244,7 @@ class GeminiClient(GemMixin):
                                                     generated_images=generated_images,
                                                     generated_videos=generated_videos,
                                                     generated_media=generated_media,
+                                                    deep_research_plan=deep_research_plan,
                                                 )
                                             )
 
@@ -1574,6 +1612,47 @@ class GeminiClient(GemMixin):
             )
             return None
 
+    async def fetch_latest_chat_response(self, cid: str) -> ModelOutput | None:
+        """
+        Fetch the latest model response from a chat by its cid.
+
+        ``read_chat`` returns turns newest-first, so the first model turn
+        is the most recent response. Used by ``ResearchMixin`` for fallback
+        recovery when a streaming request fails but the server may have
+        already produced a response.
+
+        Parameters
+        ----------
+        cid: `str`
+            The chat ID to read (e.g. ``"c_..."``).
+
+        Returns
+        -------
+        :class:`ModelOutput` | None
+            The latest model output, or ``None`` if unavailable.
+        """
+
+        try:
+            history = await self.read_chat(cid, limit=5)
+            if not history or not history.turns:
+                logger.debug(f"fetch_latest_chat_response({cid!r}): no turns")
+                return None
+            for turn in history.turns:  # newest-first
+                if turn.role == "model" and turn.model_output:
+                    logger.debug(
+                        f"fetch_latest_chat_response({cid!r}): "
+                        f"found model turn with {len(turn.text)} chars"
+                    )
+                    return turn.model_output
+            logger.debug(f"fetch_latest_chat_response({cid!r}): no model turns")
+            return None
+        except Exception as e:
+            logger.debug(
+                f"fetch_latest_chat_response({cid!r}) failed: "
+                f"{type(e).__name__}: {e}"
+            )
+            return None
+
     def _parse_candidate(
         self, candidate_data: list[Any], cid: str, rid: str, rcid: str
     ) -> tuple[
@@ -1768,7 +1847,13 @@ class GeminiClient(GemMixin):
             return None
 
     @running(retry=2)
-    async def _batch_execute(self, payloads: list[RPCData], **kwargs) -> Response:
+    async def _batch_execute(
+        self,
+        payloads: list[RPCData],
+        source_path: str = "/app",
+        close_on_error: bool = True,
+        **kwargs,
+    ) -> Response:
         """
         Execute a batch of requests to Gemini API.
 
@@ -1795,7 +1880,7 @@ class GeminiClient(GemMixin):
                 "hl": self.language,
                 "_reqid": _reqid,
                 "rt": "c",
-                "source-path": "/app",
+                "source-path": source_path,
             }
             if self.build_label:
                 params["bl"] = self.build_label
@@ -1820,6 +1905,7 @@ class GeminiClient(GemMixin):
                 },
                 **kwargs,
             )
+
             if self.verbose:
                 logger.debug(
                     f"HTTP Request: POST {Endpoint.BATCH_EXEC} [{response.status_code}]"
@@ -1831,7 +1917,8 @@ class GeminiClient(GemMixin):
             )
 
         if response.status_code != 200:
-            await self.close()
+            if close_on_error:
+                await self.close()
             raise APIError(
                 f"Batch execution failed with status code {response.status_code}"
             )
@@ -1914,6 +2001,7 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
+        deep_research: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1930,6 +2018,8 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
+        deep_research: `bool`, optional
+            If set to `True`, will enable deep research mode and start creating a deep research plan.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -1959,6 +2049,7 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
+            deep_research=deep_research,
             **kwargs,
         )
 
@@ -1967,6 +2058,7 @@ class ChatSession:
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
+        deep_research: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1985,6 +2077,8 @@ class ChatSession:
             If set to `True`, the ongoing conversation will not show up in Gemini history.
             Switching temporary mode within a chat session will clear the previous context
             and create a new chat session under the hood.
+        deep_research: `bool`, optional
+            If set to `True`, will enable deep research mode and start creating a deep research plan.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
 
@@ -2001,6 +2095,7 @@ class ChatSession:
             gem=self.gem,
             chat=self,
             temporary=temporary,
+            deep_research=deep_research,
             **kwargs,
         ):
             yield output
