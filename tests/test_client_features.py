@@ -47,6 +47,15 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(f"Total chunks: {chunk_count}")
 
     @logger.catch(reraise=True)
+    async def test_list_models(self):
+        models = self.geminiclient.list_models()
+        if models is None:
+            self.skipTest("Models list is None")
+        self.assertTrue(len(models) > 0)
+        for model in models:
+            logger.debug(f"{model.display_name}: {model!r}")
+
+    @logger.catch(reraise=True)
     async def test_switch_model(self):
         for model in Model:
             if model.advanced_only:
@@ -192,6 +201,46 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response2.images)
 
     @logger.catch(reraise=True)
+    async def test_list_chats(self):
+        chats = self.geminiclient.list_chats()
+        if chats is None:
+            self.skipTest("Chats list is None")
+        self.assertIsInstance(chats, list)
+        for chat_info in chats:
+            logger.debug(f"Chat: {chat_info.title} [{chat_info.cid}]")
+
+    @logger.catch(reraise=True)
+    async def test_read_chat(self):
+        chats = self.geminiclient.list_chats()
+        if not chats:
+            self.skipTest("No recent chats found to test read_chat.")
+
+        chat_info = chats[0]
+        history = await self.geminiclient.read_chat(chat_info.cid)
+        if history is None:
+            self.skipTest(
+                f"Failed to read chat {chat_info.cid}. It might be still processing."
+            )
+
+        self.assertIsNotNone(history)
+        self.assertEqual(history.cid, chat_info.cid)
+        logger.debug(f"History turns: {len(history.turns)}")
+
+    @logger.catch(reraise=True)
+    async def test_read_history(self):
+        chat = self.geminiclient.start_chat()
+        await chat.send_message("Hello, what is the capital of Japan?")
+
+        self.assertIsNotNone(chat.cid)
+        history = await chat.read_history()
+        if history is None:
+            self.skipTest("Failed to read history.")
+
+        self.assertEqual(history.cid, chat.cid)
+        self.assertTrue(len(history.turns) >= 2)
+        logger.debug(f"History turns in chat session: {len(history.turns)}")
+
+    @logger.catch(reraise=True)
     async def test_delete_chat(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("This is a temporary conversation.")
@@ -242,55 +291,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         followup_response = await chat.send_message("Tell me more about it.")
         logger.warning(new_candidate.text)
         logger.warning(followup_response.text)
-
-    @logger.catch(reraise=True)
-    async def test_list_models(self):
-        models = self.geminiclient.list_models()
-        if models is None:
-            self.skipTest("Models list is None")
-        self.assertTrue(len(models) > 0)
-        for model in models:
-            logger.debug(f"{model.display_name}: {model!r}")
-
-    @logger.catch(reraise=True)
-    async def test_list_chats(self):
-        chats = self.geminiclient.list_chats()
-        if chats is None:
-            self.skipTest("Chats list is None")
-        self.assertIsInstance(chats, list)
-        for chat_info in chats:
-            logger.debug(f"Chat: {chat_info.title} [{chat_info.cid}]")
-
-    @logger.catch(reraise=True)
-    async def test_read_chat(self):
-        chats = self.geminiclient.list_chats()
-        if not chats:
-            self.skipTest("No recent chats found to test read_chat.")
-
-        chat_info = chats[0]
-        history = await self.geminiclient.read_chat(chat_info.cid)
-        if history is None:
-            self.skipTest(
-                f"Failed to read chat {chat_info.cid}. It might be still processing."
-            )
-
-        self.assertIsNotNone(history)
-        self.assertEqual(history.cid, chat_info.cid)
-        logger.debug(f"History turns: {len(history.turns)}")
-
-    @logger.catch(reraise=True)
-    async def test_read_history(self):
-        chat = self.geminiclient.start_chat()
-        await chat.send_message("Hello, what is the capital of Japan?")
-
-        self.assertIsNotNone(chat.cid)
-        history = await chat.read_history()
-        if history is None:
-            self.skipTest("Failed to read history.")
-
-        self.assertEqual(history.cid, chat.cid)
-        self.assertTrue(len(history.turns) >= 2)
-        logger.debug(f"History turns in chat session: {len(history.turns)}")
 
 
 if __name__ == "__main__":

@@ -319,7 +319,7 @@ class ResearchMixin:
         timeout: `float`, optional
             Maximum seconds to wait. Default 600.
         on_status: `Callable`, optional
-            Callback invoked with each ``DeepResearchStatus``.
+            Callback invoked with each `DeepResearchStatus`.
 
         Returns
         -------
@@ -377,7 +377,20 @@ class ResearchMixin:
         timeout: float = 600.0,
         on_status: Callable[[DeepResearchStatus], None] | None = None,
     ) -> DeepResearchResult:
-        """Run a full deep research cycle: plan → start → wait → result."""
+        """
+        Run a full deep research cycle: plan → start → wait → result.
+
+        Parameters
+        ----------
+        prompt: `str`
+            Research topic or question.
+        poll_interval: `float`, optional
+            Seconds between status checks. Default 10.
+        timeout: `float`, optional
+            Maximum seconds to wait. Default 600.
+        on_status: `Callable`, optional
+            Callback invoked with each `DeepResearchStatus`.
+        """
 
         plan = await self.create_deep_research_plan(prompt)
         start_output = await self.start_deep_research(plan)

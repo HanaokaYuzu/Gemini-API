@@ -173,6 +173,7 @@ def _build_client(args):
         cookies=extra or None,
         proxy=args.proxy,
         account_index=args.account_index,
+        verify=not args.skip_verify,
     )
     return client, json_cookies
 
@@ -552,6 +553,11 @@ def build_parser():
         type=float,
         default=300,
         help="Per-request HTTP timeout in seconds",
+    )
+    parser.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="Skip SSL certificate verification",
     )
 
     sub = parser.add_subparsers(dest="command")
