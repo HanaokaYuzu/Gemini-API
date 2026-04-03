@@ -13,13 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from gemini_webapi import GeminiClient, logger, set_log_level  # noqa: E402
-from gemini_webapi.constants import Model  # noqa: E402
-from gemini_webapi.exceptions import AuthError  # noqa: E402
-from gemini_webapi.types.image import GeneratedImage, WebImage  # noqa: E402
-
-INIT_MAX_RETRIES = 3
-
+from gemini_webapi import GeminiClient, logger, set_log_level
+from gemini_webapi.constants import Model
+from gemini_webapi.exceptions import AuthError
+from gemini_webapi.types.image import GeneratedImage, WebImage
 
 # ---------------------------------------------------------------------------
 # region - Cookie helpers
@@ -345,22 +342,14 @@ async def cmd_research_check(args):
     cid = args.chat_id
     client, json_cookies = await _init_client(args)
     try:
-        latest = await client.fetch_latest_chat_response(cid)
-        if latest:
-            text = latest.text or ""
-            lower = text.lower()
-            done = (
-                "i have completed the research" in lower
-                or "i've completed the research" in lower
-                or "research is complete" in lower
-                or (len(text) > 2000 and "## " in text)
-            )
-            print(f"  Status: {'done' if done else 'in progress'}")
+        latest = await client.read_chat(cid, limit=1)
+        if latest and latest.turns and latest.turns[0].role == "model":
+            text = latest.turns[0].text
+            print(f"  Status: done")
             print(f"  Response length: {len(text)} chars")
-            if done:
-                print(f"\n  Use 'research get {cid}' for full result.")
+            print(f"\n  Use 'research get {cid}' for full result.")
         else:
-            print("  Status: waiting (no response yet)")
+            print("  Status: in progress (no response yet)")
         return 0
     finally:
         await _cleanup(client, args, json_cookies)
@@ -394,14 +383,13 @@ async def cmd_list(args):
         if not items:
             print("No chats found.")
             return 0
-        from datetime import datetime as dt
 
         id_w = max(len("ID"), max(len(c.cid) for c in items))
         ti_w = max(len("Title"), max(len(c.title[:50]) for c in items))
         print(f"{'ID':<{id_w}}  {'Title':<{ti_w}}  Updated")
         print("-" * (id_w + ti_w + 12))
         for c in items:
-            ts = dt.fromtimestamp(c.timestamp).strftime("%Y-%m-%d %H:%M")
+            ts = datetime.fromtimestamp(c.timestamp).strftime("%Y-%m-%d %H:%M")
             print(f"{c.cid:<{id_w}}  {c.title[:50]:<{ti_w}}  {ts}")
         return 0
     finally:
@@ -440,6 +428,7 @@ async def cmd_read(args):
 
 async def cmd_download(args):
     """Download a generated image using authenticated curl_cffi session."""
+
     json_cookies = {}
     if args.cookies_json:
         json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
@@ -459,9 +448,7 @@ async def cmd_download(args):
         output = f"gemini-{url_hash}.png"
 
     async with AsyncSession(
-        impersonate="chrome",
-        cookies=json_cookies,
-        proxy=args.proxy,
+        impersonate="chrome", cookies=json_cookies, proxy=args.proxy
     ) as session:
         resp = await session.get(url)
         if resp.status_code != 200:
@@ -474,6 +461,7 @@ async def cmd_download(args):
         p.write_bytes(resp.content)
         size_kb = len(resp.content) / 1024
         print(f"Saved to {output} ({size_kb:.1f} KB)")
+
     return 0
 
 

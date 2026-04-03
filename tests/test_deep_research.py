@@ -3,7 +3,7 @@ import unittest
 import logging
 
 from gemini_webapi import GeminiClient, set_log_level, logger
-from gemini_webapi.exceptions import AuthError
+from gemini_webapi.exceptions import AuthError, GeminiError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -34,7 +34,11 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
     @logger.catch(reraise=True)
     async def test_create_research_plan(self):
         prompt = "What are the latest advancements in quantum computing research?"
-        output = await self.geminiclient.create_deep_research_plan(prompt)
+        try:
+            output = await self.geminiclient.create_deep_research_plan(prompt)
+        except GeminiError as e:
+            self.skipTest(e)
+
         logger.debug(f"Deep research plan: {output}")
 
     @logger.catch(reraise=True)

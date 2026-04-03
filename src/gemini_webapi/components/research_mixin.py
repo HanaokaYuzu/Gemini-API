@@ -232,7 +232,7 @@ class ResearchMixin:
         output = await self._collect_research_output(chat, prompt)
         plan = output.deep_research_plan
         if not plan:
-            preview = (output.text or "")[:1200]
+            preview = shorten(output.text or "", width=1200)
             raise GeminiError(
                 "Gemini did not return a deep research plan. " f"Preview: {preview!r}"
             )
