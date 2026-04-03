@@ -30,10 +30,13 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
 
 - **Persistent Cookies** - Automatically refreshes cookies in background. Optimized for always-on services.
 - **Image Generation** - Natively supports generating and editing images with natural language.
+- **Video & Audio Generation** - Supports generating videos and audio/music content natively.
+- **Deep Research** - Full deep research workflow with plan creation, status polling, and result retrieval.
 - **System Prompt** - Supports customizing the model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating content with [Gemini extensions](https://gemini.google.com/extensions), such as YouTube and Gmail.
-- **Classified Outputs** - Categorizes text, thoughts, web images, and AI-generated images in the response.
+- **Classified Outputs** - Categorizes text, thoughts, images, videos, and audio in the response.
 - **Streaming Mode** - Supports stream generation, yielding partial outputs as they are generated.
+- **CLI Tool** - Standalone command-line interface for quick interactions.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generation tasks and return outputs efficiently.
 
@@ -54,6 +57,7 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
   - [Temporary Mode](#temporary-mode)
   - [Streaming Mode](#streaming-mode)
   - [Select Language Model](#select-language-model)
+  - [List Available Models](#list-available-models)
   - [Apply System Prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Manage Custom Gems](#manage-custom-gems)
     - [Create a Custom Gem](#create-a-custom-gem)
@@ -62,8 +66,10 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
   - [Retrieve Model's Thought Process](#retrieve-models-thought-process)
   - [Retrieve Images in Response](#retrieve-images-in-response)
   - [Generate and Edit Images](#generate-and-edit-images)
+  - [Retrieve Videos and Audio](#retrieve-videos-and-audio)
   - [Generate Content with Gemini Extensions](#generate-content-with-gemini-extensions)
   - [Check and Switch to Other Reply Candidates](#check-and-switch-to-other-reply-candidates)
+  - [Deep Research](#deep-research)
   - [Logging Configuration](#logging-configuration)
 - [CLI Tool](#cli-tool)
   - [Cookie Setup](#cookie-setup)
@@ -228,7 +234,7 @@ asyncio.run(main())
 
 ### Read Conversation History
 
-You can read the conversation history of a specific chat by calling `GeminiClient.read_chat` with the chat ID.
+You can read the conversation history of a specific chat by calling `GeminiClient.read_chat` with the chat ID. It returns a `ChatHistory` object containing a list of `ChatTurn` objects ordered from newest to oldest.
 
 ```python
 async def main():
@@ -237,12 +243,22 @@ async def main():
 
     # Read the chat history
     history = await client.read_chat(chat.cid)
-    for turn in history:
-        print(
-            f"Input: {turn.user_prompt}\n"
-            f"Output: {turn.assistant_response}"
-            "\n\n----------------------------------\n\n"
-        )
+    if history:
+        for turn in history.turns:
+            print(f"[{turn.role.upper()}] {turn.text}")
+            print("\n----------------------------------\n")
+
+asyncio.run(main())
+```
+
+To list all recent chats, use `GeminiClient.list_chats`:
+
+```python
+async def main():
+    chats = client.list_chats()
+    if chats:
+        for chat_info in chats:
+            print(f"{chat_info.cid}: {chat_info.title}")
 
 asyncio.run(main())
 ```
@@ -307,12 +323,7 @@ asyncio.run(main())
 
 You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
-Currently available models (as of Mar 16, 2026):
-
-- `unspecified` - Default model
-- `gemini-3-pro` - Gemini 3 Pro
-- `gemini-3-flash` - Gemini 3 Flash
-- `gemini-3-flash-thinking` - Gemini 3 Flash Thinking
+Available models are discovered **dynamically** at init time based on your account tier. The `Model` enum provides convenient shortcuts.
 
 ```python
 from gemini_webapi.constants import Model
@@ -346,6 +357,21 @@ response = await client.generate_content(
     "What's your model version?",
     model=custom_model
 )
+```
+
+### List Available Models
+
+The client dynamically discovers which models are available for your account at initialization. Use `GeminiClient.list_models` to see all available models and their details.
+
+```python
+async def main():
+    await client.init()  # Make sure the client is initialized first
+    models = client.list_models()
+    if models:
+        for model in models:
+            print(f"{model.display_name}: {model.model_name}")
+
+asyncio.run(main())
 ```
 
 ### Apply System Prompt with Gemini Gems
@@ -510,6 +536,35 @@ asyncio.run(main())
 >
 > By default, when asked to send images (like in the previous example), Gemini will send images fetched from the web instead of generating images with an AI model, unless you specifically ask it to "generate" images in your prompt. In this package, web images and generated images are treated differently as `WebImage` and `GeneratedImage`, and are automatically categorized in the output.
 
+### Retrieve Videos and Audio
+
+Gemini can generate videos and audio/music content. These are returned as `GeneratedVideo` and `GeneratedMedia` objects in `ModelOutput.videos` and `ModelOutput.media` respectively. You can save them to disk just like images.
+
+> [!NOTE]
+>
+> You may need an active subscription to access Gemini's video and audio generation features.
+
+```python
+async def main():
+    response = await client.generate_content("Generate a short video of a cat playing")
+
+    # Save generated videos
+    for video in response.videos:
+        result = await video.save(path="temp/", verbose=True)
+        print(f"Video saved: {result}")
+
+    # Save generated media (audio/music)
+    for media in response.media:
+        result = await media.save(path="temp/", verbose=True)
+        print(f"Media saved: {result}")
+
+asyncio.run(main())
+```
+
+> [!NOTE]
+>
+> `GeneratedMedia.save()` accepts a `download_type` parameter: `"audio"`, `"video"`, or `"both"` (default). Generated video/audio may take time to render — the save method will poll automatically until the content is ready.
+
 ### Generate Content with Gemini Extensions
 
 > [!IMPORTANT]
@@ -558,6 +613,58 @@ async def main():
         print(new_candidate, followup_response, sep="\n\n----------------------------------\n\n")
     else:
         print("Only one candidate available.")
+
+asyncio.run(main())
+```
+
+### Deep Research
+
+Gemini's deep research feature is an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report. You can access it programmatically through the API.
+
+> [!NOTE]
+>
+> You may need an active subscription to access Gemini's deep research feature.
+
+**Quick one-call method:**
+
+```python
+async def main():
+    result = await client.deep_research(
+        "Compare the top 3 cloud providers and their AI offerings",
+        poll_interval=10.0,
+        timeout=600.0,
+    )
+    print(f"Done: {result.done}")
+    print(result.text)
+
+asyncio.run(main())
+```
+
+**Step-by-step workflow** for more control:
+
+```python
+async def main():
+    # Step 1: Create a research plan
+    plan = await client.create_deep_research_plan(
+        "What are the latest advancements in quantum computing?"
+    )
+    print(f"Title: {plan.title}")
+    print(f"ETA: {plan.eta_text}")
+    for step in plan.steps:
+        print(f"  - {step}")
+
+    # Step 2: Start the research
+    await client.start_deep_research(plan)
+
+    # Step 3: Poll for completion
+    result = await client.wait_for_deep_research(
+        plan,
+        poll_interval=10.0,
+        timeout=600.0,
+        on_status=lambda s: print(f"Status: {s.state}"),
+    )
+
+    print(result.text)
 
 asyncio.run(main())
 ```
