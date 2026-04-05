@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -437,9 +438,16 @@ async def cmd_download(args):
     from curl_cffi.requests import AsyncSession
 
     url = args.url
-    # Append =s2048 for full-size if not already specified
-    if "googleusercontent.com" in url and "=" not in url.split("/")[-1]:
-        url += "=s2048"
+    # Append =s2048 for full-size if not already specified for googleusercontent.com images
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if (
+        host == "googleusercontent.com"
+        or host.endswith(".googleusercontent.com")
+    ):
+        last_segment = parsed.path.rsplit("/", 1)[-1]
+        if "=" not in last_segment:
+            url += "=s2048"
 
     output = args.output
     if not output:
