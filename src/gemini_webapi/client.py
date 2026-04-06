@@ -1442,7 +1442,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         generated_images = []
         for img_idx, gen_img_data in enumerate(
-            get_nested_value(candidate_data, [12, 7, 0], [])
+            get_nested_value(candidate_data, [12, 7, 0], [])  # Plain generation
+            + get_nested_value(candidate_data, [12, 0, "8", 0], [])  # Image to image
         ):
             url = get_nested_value(gen_img_data, [0, 3, 3])
             if url:
