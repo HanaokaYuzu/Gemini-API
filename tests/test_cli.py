@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from cli import build_parser
+from cli import build_parser  # noqa: E402
 
 
 @unittest.skipUnless(

@@ -18,7 +18,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init(auto_refresh=False)
+            await self.geminiclient.init(auto_refresh=False, verbose=True, watchdog_timeout=450)
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
 
@@ -38,7 +38,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_save_generated_image(self):
         response = await self.geminiclient.generate_content(
-            "Generate a picture of random subjects"
+            "Design an application icon for an AI web app. Make it simple and modern."
         )
         self.assertTrue(response.images)
 
@@ -68,7 +68,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_save_image_to_image(self):
         response = await self.geminiclient.generate_content(
             "Design an application icon based on the provided image. Make it simple and modern.",
-            files=["assets/banner.png"],
+            files=["assets/favicon.png"],
         )
         self.assertTrue(response.images)
         for image in response.images:

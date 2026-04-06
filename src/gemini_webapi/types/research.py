@@ -19,6 +19,12 @@ class DeepResearchPlan(BaseModel):
     response_text: str | None = None
     raw_state: int | None = None
 
+    def __repr__(self) -> str:
+        return (
+            f"DeepResearchPlan(research_id={self.research_id!r}, title={self.title!r}, "
+            f"eta_text={self.eta_text!r}, metadata={self.metadata!r})"
+        )
+
 
 class DeepResearchStatus(BaseModel):
     """
@@ -34,3 +40,9 @@ class DeepResearchStatus(BaseModel):
     done: bool = False
     raw_state: int | None = None
     raw: list | dict | str | None = None
+
+    def __repr__(self) -> str:
+        return (
+            f"DeepResearchStatus(research_id={self.research_id!r}, state={self.state!r}, "
+            f"title={self.title!r}, done={self.done!r})"
+        )

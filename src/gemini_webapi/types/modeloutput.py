@@ -25,10 +25,10 @@ class ModelOutput(BaseModel):
     candidates: list[Candidate]
     chosen: int = 0
 
-    def __str__(self):
+    def __str__(self) -> str:
         return shorten(self.text, width=100)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"ModelOutput(metadata={self.metadata!r}, chosen={self.chosen!r}, candidates={self.candidates!r})"
 
     @property

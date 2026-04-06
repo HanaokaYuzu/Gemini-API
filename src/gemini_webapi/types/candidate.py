@@ -41,10 +41,10 @@ class Candidate(BaseModel):
     generated_media: list[GeneratedMedia] = []
     deep_research_plan: DeepResearchPlan | None = None
 
-    def __str__(self):
+    def __str__(self) -> str:
         return shorten(self.text, width=100)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Candidate(rcid={self.rcid!r}, text={shorten(self.text, width=100)!r}, "
             f"images={self.images!r}, videos={self.generated_videos!r}, media={self.generated_media!r})"

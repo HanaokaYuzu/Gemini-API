@@ -94,15 +94,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
     """
 
     __slots__ = [
-        "_cookies",
         "proxy",
-        "_running",
         "client",
         "access_token",
         "build_label",
         "session_id",
         "language",
         "push_id",
+        "account_status",
         "timeout",
         "auto_close",
         "close_delay",
@@ -110,14 +109,15 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "auto_refresh",
         "refresh_interval",
         "refresh_task",
-        "verbose",
         "watchdog_timeout",
-        "_lock",
+        "verbose",
+        "_running",
+        "_cookies",
         "_reqid",
         "_model_registry",
+        "_lock",
         "_recent_chats",  # From ChatMixin
         "_gems",  # From GemMixin
-        "account_status",
         "kwargs",
     ]
 
@@ -129,15 +129,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         **kwargs,
     ):
         super().__init__()
-        self._cookies = Cookies()
         self.proxy = proxy
-        self._running: bool = False
         self.client: AsyncSession | None = None
         self.access_token: str | None = None
         self.build_label: str | None = None
         self.session_id: str | None = None
         self.language: str | None = None
         self.push_id: str | None = None
+        self.account_status: AccountStatus = AccountStatus.AVAILABLE
         self.timeout: float = 450
         self.auto_close: bool = False
         self.close_delay: float = 450
@@ -145,13 +144,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.auto_refresh: bool = True
         self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
-        self.verbose: bool = True
-        self.watchdog_timeout: float = 90  # seconds before declaring a zombie stream
-        self._lock = asyncio.Lock()
+        self.watchdog_timeout: float = 120  # seconds before declaring a zombie stream
+        self.verbose: bool = False
+        self._running: bool = False
+        self._cookies = Cookies()
         self._reqid: int = random.randint(10000, 99999)
         self._model_registry: dict[str, AvailableModel] = {}
-        self._recent_chats: list[ChatInfo] | None = None
-        self.account_status: AccountStatus = AccountStatus.AVAILABLE
+        self._lock = asyncio.Lock()
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -166,6 +165,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
         Returns the cookies used for the current session.
         """
+
         return self.client.cookies if self.client else self._cookies
 
     @cookies.setter
@@ -173,6 +173,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
         Set the cookies to use for the session.
         """
+
         if isinstance(value, Cookies):
             self._cookies.update(value)
         elif isinstance(value, dict):
@@ -189,8 +190,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         close_delay: float = 450,
         auto_refresh: bool = True,
         refresh_interval: float = 600,
-        verbose: bool = True,
-        watchdog_timeout: float = 90,
+        watchdog_timeout: float = 120,
+        verbose: bool = False,
     ) -> None:
         """
         Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
@@ -209,11 +210,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         refresh_interval: `float`, optional
             Time interval for background cookie and access token refresh in seconds.
             Effective only if `auto_refresh` is `True`.
-        verbose: `bool`, optional
-            If `True`, will print more infomation in logs.
         watchdog_timeout: `float`, optional
             Timeout in seconds for shadow retry watchdog. If no data receives from stream but connection is active,
             client will retry automatically after this duration.
+        verbose: `bool`, optional
+            If `True`, will print more infomation in logs.
         """
 
         async with self._lock:
@@ -266,8 +267,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                 await self._init_rpc()
 
-                if self.verbose:
-                    logger.success("Gemini client initialized successfully.")
+                logger.success("Gemini client initialized successfully.")
             except Exception:
                 await self.close()
                 raise
@@ -320,6 +320,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
         Start the background task to automatically refresh cookies.
         """
+
         if self.refresh_interval < 60:
             self.refresh_interval = 60
 
@@ -393,9 +394,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             self.account_status = AccountStatus.from_status_code(status_code)
 
             if self.account_status == AccountStatus.AVAILABLE:
-                logger.info(
-                    f"Account status: {self.account_status.name} - {self.account_status.description}"
-                )
+                if self.verbose:
+                    logger.info(
+                        f"Account status: {self.account_status.name} - {self.account_status.description}"
+                    )
             else:
                 logger.warning(
                     f"Account status: {self.account_status.name} - {self.account_status.description}"
@@ -904,6 +906,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                         )
 
                     buffer = ""
+                    _raw_response = ""  # Accumulates full raw response for debugging
                     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
                     last_texts: dict[str, str] = session_state["last_texts"]
@@ -1211,7 +1214,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             await self.close()
                             break
 
-                        buffer += decoder.decode(chunk, final=False)
+                        decoded_chunk = decoder.decode(chunk, final=False)
+                        buffer += decoded_chunk
+                        _raw_response += decoded_chunk
                         if buffer.startswith(")]}'"):
                             buffer = buffer[4:].lstrip()
                         parsed_parts, buffer = parse_response_by_frame(buffer)
@@ -1245,7 +1250,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                     break
 
                     # Final flush
-                    buffer += decoder.decode(b"", final=True)
+                    final_decoded = decoder.decode(b"", final=True)
+                    buffer += final_decoded
+                    _raw_response += final_decoded
                     if buffer:
                         parsed_parts, _ = parse_response_by_frame(buffer)
                         async for out in _process_parts(parsed_parts):
@@ -1334,6 +1341,15 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             raise APIError(
                                 "The original request may have been silently aborted by Google."
                             )
+
+                    # Full raw HTTP response text at completion
+                    if self.verbose:
+                        if _raw_response.startswith(")]}'"):
+                            _raw_response = _raw_response[4:].lstrip()
+                        _parsed_full, _ = parse_response_by_frame(_raw_response)
+                        logger.debug(
+                            f"[Debug] Full raw response received (parsed into {len(_parsed_full)} parts)"
+                        )
 
                 break
 

@@ -43,7 +43,7 @@ class Image(BaseModel):
     def _get_url_for_hash(self) -> str:
         return self.url
 
-    def __str__(self):
+    def __repr__(self) -> str:
         return f"Image(title={self.title!r}, alt={shorten(self.alt, width=100)!r}, url={self.url!r})"
 
     async def save(

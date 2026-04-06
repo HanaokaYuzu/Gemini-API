@@ -17,7 +17,7 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init(auto_refresh=False)
+            await self.geminiclient.init(auto_refresh=False, verbose=True)
         except AuthError as e:
             self.skipTest(e)
 

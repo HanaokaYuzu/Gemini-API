@@ -15,6 +15,12 @@ class DeepResearchResult(BaseModel):
     statuses: list[DeepResearchStatus] = []
     done: bool = False
 
+    def __repr__(self) -> str:
+        return (
+            f"DeepResearchResult(plan={self.plan!r}, done={self.done!r}, "
+            f"final_output={self.final_output!r})"
+        )
+
     @property
     def text(self) -> str:
         if self.final_output:

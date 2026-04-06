@@ -14,10 +14,10 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from gemini_webapi import GeminiClient, logger, set_log_level
-from gemini_webapi.constants import Model
-from gemini_webapi.exceptions import AuthError
-from gemini_webapi.types.image import GeneratedImage, WebImage
+from gemini_webapi import GeminiClient, logger, set_log_level  # noqa: E402
+from gemini_webapi.constants import Model  # noqa: E402
+from gemini_webapi.exceptions import AuthError  # noqa: E402
+from gemini_webapi.types.image import GeneratedImage, WebImage  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # region - Cookie helpers
@@ -347,7 +347,7 @@ async def cmd_research_check(args):
         latest = await client.read_chat(cid, limit=1)
         if latest and latest.turns and latest.turns[0].role == "model":
             text = latest.turns[0].text
-            print(f"  Status: done")
+            print("  Status: done")
             print(f"  Response length: {len(text)} chars")
             print(f"\n  Use 'research get {cid}' for full result.")
         else:
@@ -441,10 +441,7 @@ async def cmd_download(args):
     # Append =s2048 for full-size if not already specified for googleusercontent.com images
     parsed = urlparse(url)
     host = parsed.hostname or ""
-    if (
-        host == "googleusercontent.com"
-        or host.endswith(".googleusercontent.com")
-    ):
+    if host == "googleusercontent.com" or host.endswith(".googleusercontent.com"):
         last_segment = parsed.path.rsplit("/", 1)[-1]
         if "=" not in last_segment:
             url += "=s2048"

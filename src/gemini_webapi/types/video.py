@@ -40,7 +40,7 @@ class Video(BaseModel):
     def _get_url_for_hash(self) -> str:
         return self.url
 
-    def __str__(self):
+    def __repr__(self) -> str:
         return f"Video(title={self.title!r}, url={self.url!r})"
 
     async def save(
@@ -259,7 +259,7 @@ class GeneratedMedia(GeneratedVideo):
     def mp4_thumbnail(self, value: str):
         self.thumbnail = value
 
-    def __str__(self):
+    def __repr__(self) -> str:
         urls = []
         if self.url:
             urls.append(f"mp4={self.url!r}")
