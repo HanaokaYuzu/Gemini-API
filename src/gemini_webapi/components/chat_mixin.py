@@ -4,6 +4,7 @@ from ..constants import GRPC
 from ..types import (
     ChatHistory,
     ChatInfo,
+    ChatListPage,
     ChatTurn,
     Candidate,
     ModelOutput,
@@ -23,83 +24,262 @@ class ChatMixin:
         super().__init__(*args, **kwargs)
         self._recent_chats: list[ChatInfo] | None = None
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_chat_list_response(
+        response_text: str,
+    ) -> tuple[list[ChatInfo], str]:
+        """
+        Parse a LIST_CHATS RPC response into chat items and a next-page
+        cursor.
+
+        The inner RPC body has structure ``[unknown, cursor_or_null, [chat_item, ...]]``.
+
+        Returns
+        -------
+        tuple[list[ChatInfo], str]
+            (chat_items, next_cursor). next_cursor is ``""`` when there
+            are no more pages.
+        """
+        items: list[ChatInfo] = []
+        next_cursor = ""
+
+        chats_json = extract_json_from_response(response_text)
+        for part in chats_json:
+            part_body_str = get_nested_value(part, [2])
+            if not part_body_str:
+                continue
+
+            try:
+                part_body = json.loads(part_body_str)
+            except json.JSONDecodeError:
+                continue
+
+            # --- Cursor at part_body[1] (matches Go: data[1]) ---
+            cursor_val = get_nested_value(part_body, [1])
+            if isinstance(cursor_val, str) and cursor_val:
+                next_cursor = cursor_val
+
+            # --- Chat items at part_body[2] (matches Go: data[2]) ---
+            chat_list = get_nested_value(part_body, [2])
+            if isinstance(chat_list, list):
+                for chat_data in chat_list:
+                    if not isinstance(chat_data, list) or len(chat_data) < 2:
+                        continue
+                    cid = get_nested_value(chat_data, [0], "")
+                    title = get_nested_value(chat_data, [1], "")
+                    is_pinned = bool(get_nested_value(chat_data, [2]))
+                    timestamp_data = get_nested_value(chat_data, [5])
+                    timestamp = 0.0
+                    if (
+                        isinstance(timestamp_data, list)
+                        and len(timestamp_data) >= 2
+                    ):
+                        seconds = timestamp_data[0]
+                        nanos = timestamp_data[1]
+                        timestamp = float(seconds) + (float(nanos) / 1e9)
+
+                    if cid:
+                        items.append(
+                            ChatInfo(
+                                cid=cid,
+                                title=title,
+                                is_pinned=is_pinned,
+                                timestamp=timestamp,
+                            )
+                        )
+                break  # only process the first valid part
+
+        return items, next_cursor
+
+    async def _try_list_chats(
+        self,
+        payload: list,
+        source_path: str = "/app",
+    ) -> tuple[list[ChatInfo], str]:
+        """
+        Attempt a single LIST_CHATS RPC call with the given payload and
+        source path.
+
+        Returns
+        -------
+        tuple[list[ChatInfo], str]
+            Parsed chat items and the next-page cursor (``""`` if none).
+        """
+        try:
+            response = await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.LIST_CHATS,
+                        payload=json.dumps(payload).decode("utf-8"),
+                    ),
+                ],
+                source_path=source_path,
+            )
+            return self._parse_chat_list_response(response.text)
+        except Exception as e:
+            logger.debug(
+                f"list_chats attempt failed (path={source_path}, "
+                f"payload={payload!r}): {e}"
+            )
+            return [], ""
+
+    # ------------------------------------------------------------------
+    # Init-time fetch (backward compatible, called by _init_rpc)
+    # ------------------------------------------------------------------
+
     async def _fetch_recent_chats(self, recent: int = 13) -> None:
         """
-        Fetch and parse recent chats.
+        Fetch and parse recent chats (called during client init).
+
+        Tries all three payload variants to collect both pinned and
+        unpinned chats, matching the Go reference implementation.
         """
+        payloads = [
+            [recent, None, [1, None, 1]],   # pinned
+            [recent, None, [0, None, 1]],   # unpinned
+            [recent, None, [0, None, 2]],   # extra variant (Go compat)
+        ]
 
-        response_chats1 = await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.LIST_CHATS,
-                    payload=json.dumps([recent, None, [1, None, 1]]).decode("utf-8"),
-                ),
-            ]
-        )
-        response_chats2 = await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.LIST_CHATS,
-                    payload=json.dumps([recent, None, [0, None, 1]]).decode("utf-8"),
-                ),
-            ]
-        )
+        # Try the default source path; a second path could be added here
+        # if the client ever supports a configurable app path.
 
+        source_paths = ["/app"]
+
+        seen_cids: set[str] = set()
         recent_chats: list[ChatInfo] = []
-        for response_chats in (response_chats1, response_chats2):
-            chats_json = extract_json_from_response(response_chats.text)
-            for part in chats_json:
-                part_body_str = get_nested_value(part, [2])
-                if not part_body_str:
-                    continue
 
-                try:
-                    part_body = json.loads(part_body_str)
-                except json.JSONDecodeError:
-                    continue
-
-                chat_list = get_nested_value(part_body, [2])
-                if isinstance(chat_list, list):
-                    for chat_data in chat_list:
-                        if isinstance(chat_data, list) and len(chat_data) > 1:
-                            cid = get_nested_value(chat_data, [0], "")
-                            title = get_nested_value(chat_data, [1], "")
-                            is_pinned = bool(get_nested_value(chat_data, [2]))
-                            timestamp_data = get_nested_value(chat_data, [5])
-                            timestamp = 0.0
-                            if (
-                                isinstance(timestamp_data, list)
-                                and len(timestamp_data) >= 2
-                            ):
-                                seconds = timestamp_data[0]
-                                nanos = timestamp_data[1]
-                                timestamp = float(seconds) + (float(nanos) / 1e9)
-
-                            if cid:
-                                if not any(c.cid == cid for c in recent_chats):
-                                    recent_chats.append(
-                                        ChatInfo(
-                                            cid=cid,
-                                            title=title,
-                                            is_pinned=is_pinned,
-                                            timestamp=timestamp,
-                                        )
-                                    )
-                    break
+        for source_path in source_paths:
+            for payload in payloads:
+                items, _ = await self._try_list_chats(payload, source_path)
+                for item in items:
+                    if item.cid not in seen_cids:
+                        seen_cids.add(item.cid)
+                        recent_chats.append(item)
+                # Don't break — try all variants to collect both
+                # pinned and unpinned chats during init.
 
         self._recent_chats = recent_chats
 
+    # ------------------------------------------------------------------
+    # Public API — synchronous cached access (backward compatible)
+    # ------------------------------------------------------------------
+
     def list_chats(self) -> list[ChatInfo] | None:
         """
-        List all conversations.
+        List all conversations (cached from init).
+
+        For paginated access to all chats, use :meth:`list_chats_page` instead.
 
         Returns
         -------
         `list[gemini_webapi.types.ChatInfo] | None`
-            The list of conversations. Returns `None` if the client holds no session cache.
+            The list of conversations. Returns `None` if the client
+            holds no session cache.
         """
-
         return self._recent_chats
+
+    # ------------------------------------------------------------------
+    # Public API — async paginated access (NEW)
+    # ------------------------------------------------------------------
+
+    async def list_chats_page(
+        self,
+        cursor: str = "",
+        page_size: int = 20,
+    ) -> ChatListPage:
+        """
+        Fetch a single page of chats with optional pagination cursor.
+
+        Mirrors the Go library's ``ListChats(ctx, cursor)`` behavior.
+
+        Parameters
+        ----------
+        cursor: `str`, optional
+            Pagination cursor from a previous call's
+            :attr:`ChatListPage.cursor`. Pass ``""`` (default) to start
+            from the beginning.
+        page_size: `int`, optional
+            Number of chats to request per page. Default is 20.
+
+        Returns
+        -------
+        :class:`ChatListPage`
+            A page containing chat items and a next-page cursor.
+            If ``cursor`` is empty, there are no more pages.
+        """
+        if cursor:
+            # Paginated request — single payload with cursor
+            # (matches Go: {20, cursor, [0, nil, 1]})
+            payloads = [
+                [page_size, cursor, [0, None, 1]],
+            ]
+        else:
+            # First page — try multiple variants like the Go library
+            payloads = [
+                [page_size, None, [1, None, 1]],
+                [page_size, None, [0, None, 1]],
+                [page_size, None, [0, None, 2]],
+            ]
+
+        all_items: list[ChatInfo] = []
+        seen_cids: set[str] = set()
+        last_cursor = ""
+
+        for payload in payloads:
+            items, next_cursor = await self._try_list_chats(payload)
+            for item in items:
+                if item.cid not in seen_cids:
+                    seen_cids.add(item.cid)
+                    all_items.append(item)
+            if next_cursor:
+                last_cursor = next_cursor
+            if all_items:
+                break  # got results, stop trying variants
+
+        return ChatListPage(items=all_items, cursor=last_cursor)
+
+    async def list_all_chats(self, limit: int = 100) -> list[ChatInfo]:
+        """
+        Auto-paginate to collect up to ``limit`` chats.
+
+        Convenience wrapper around :meth:`list_chats_page` that follows
+        cursors until the requested number of chats is reached or there
+        are no more pages.
+
+        Parameters
+        ----------
+        limit: `int`, optional
+            Maximum number of chats to collect. Default is 100.
+
+        Returns
+        -------
+        `list[ChatInfo]`
+            Collected chat items (may be fewer than ``limit`` if the
+            account has fewer chats).
+        """
+        all_items: list[ChatInfo] = []
+        seen_cids: set[str] = set()
+        cursor = ""
+        page_size = min(limit, 20)
+
+        while len(all_items) < limit:
+            page = await self.list_chats_page(cursor=cursor, page_size=page_size)
+            for item in page.items:
+                if item.cid not in seen_cids:
+                    seen_cids.add(item.cid)
+                    all_items.append(item)
+                    if len(all_items) >= limit:
+                        break
+
+            if not page.cursor:
+                break  # no more pages
+            cursor = page.cursor
+
+        return all_items
 
     async def read_chat(self, cid: str, limit: int = 10) -> ChatHistory | None:
         """

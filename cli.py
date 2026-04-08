@@ -380,18 +380,34 @@ async def cmd_research_get(args):
 async def cmd_list(args):
     client, json_cookies = await _init_client(args)
     try:
-        items = client.list_chats()
+        cursor = getattr(args, "cursor", None) or ""
+        fetch_all = getattr(args, "all", False)
+
+        if fetch_all:
+            items = await client.list_all_chats(limit=120)
+            next_cursor = ""
+        else:
+            page = await client.list_chats_page(cursor=cursor, page_size=20)
+            items = page.items
+            next_cursor = page.cursor
+
         if not items:
             print("No chats found.")
             return 0
 
         id_w = max(len("ID"), max(len(c.cid) for c in items))
         ti_w = max(len("Title"), max(len(c.title[:50]) for c in items))
-        print(f"{'ID':<{id_w}}  {'Title':<{ti_w}}  Updated")
-        print("-" * (id_w + ti_w + 12))
+        header = f"{'ID':<{id_w}}  {'Title':<{ti_w}}  Updated"
+        print(header)
+        print("-" * len(header))
         for c in items:
+            title = c.title[:50]
             ts = datetime.fromtimestamp(c.timestamp).strftime("%Y-%m-%d %H:%M")
-            print(f"{c.cid:<{id_w}}  {c.title[:50]:<{ti_w}}  {ts}")
+            print(f"{c.cid:<{id_w}}  {title:<{ti_w}}  {ts}")
+
+        if not fetch_all and next_cursor:
+            print(f"\n(next page: --cursor {next_cursor})")
+
         return 0
     finally:
         await _cleanup(client, args, json_cookies)
@@ -586,7 +602,17 @@ def build_parser():
     p_rg.add_argument("--output", default=None)
 
     # list
-    sub.add_parser("list", help="List chats")
+    p_list = sub.add_parser("list", help="List chats")
+    p_list.add_argument(
+        "--cursor",
+        default="",
+        help="Pagination cursor from a previous list call",
+    )
+    p_list.add_argument(
+        "--all",
+        action="store_true",
+        help="Fetch all chats by paginating through every page",
+    )
 
     # read
     p_read = sub.add_parser("read", help="Read chat")
