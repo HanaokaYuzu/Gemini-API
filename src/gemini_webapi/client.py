@@ -1333,6 +1333,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 )
                                 await asyncio.sleep(sleep_time)
                             break
+                        elif is_queueing and not has_generated_text:
+                            logger.debug(
+                                f"Stream suspended while queueing (no CID yet). Retrying request... (Request ID: {_reqid})"
+                            )
+                            await asyncio.sleep(sleep_time)
+                            continue
                         else:
                             logger.debug(
                                 f"Stream suspended (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
