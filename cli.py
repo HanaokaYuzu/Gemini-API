@@ -187,11 +187,13 @@ async def _init_client(args):
     client, json_cookies = _build_client(args)
     timeout = getattr(args, "request_timeout", 300)
 
+    watchdog_timeout = getattr(args, "watchdog_timeout", None) or timeout
     try:
         await client.init(
             timeout=timeout,
             auto_refresh=False,
             verbose=args.verbose,
+            watchdog_timeout=watchdog_timeout,
         )
         return client, json_cookies
     except AuthError as e:
@@ -558,6 +560,12 @@ def build_parser():
         type=float,
         default=300,
         help="Per-request HTTP timeout in seconds",
+    )
+    parser.add_argument(
+        "--watchdog-timeout",
+        type=float,
+        default=None,
+        help="Seconds of stream inactivity before watchdog retries (default: matches --request-timeout)",
     )
     parser.add_argument(
         "--skip-verify",
