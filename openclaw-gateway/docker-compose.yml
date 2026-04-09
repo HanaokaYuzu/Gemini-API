@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  gemini-gateway:
+    build:
+      context: ..
+      dockerfile: openclaw-gateway/Dockerfile
+    container_name: gemini-openclaw-gateway
+    ports:
+      - "${API_PORT:-18789}:18789"
+    environment:
+      - GEMINI_SECURE_1PSID=${GEMINI_SECURE_1PSID}
+      - GEMINI_SECURE_1PSIDTS=${GEMINI_SECURE_1PSIDTS}
+      - GEMINI_COOKIES_JSON=${GEMINI_COOKIES_JSON}
+      - API_HOST=0.0.0.0
+      - API_PORT=18789
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - API_BEARER_TOKEN=${API_BEARER_TOKEN}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-100}
+      - MAX_IMAGE_SIZE_MB=${MAX_IMAGE_SIZE_MB:-50}
+      - ENABLE_URL_FETCH=${ENABLE_URL_FETCH:-true}
+      - ENABLE_IMAGE_GENERATION=${ENABLE_IMAGE_GENERATION:-true}
+      - ENABLE_VIDEO_GENERATION=${ENABLE_VIDEO_GENERATION:-true}
+      - ENABLE_AUDIO_GENERATION=${ENABLE_AUDIO_GENERATION:-true}
+    volumes:
+      - ./cookies:/app/cookies:ro
+      - /tmp/gemini-gateway:/tmp/gemini-gateway
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18789/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

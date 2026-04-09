@@ -1,0 +1,16 @@
+# Core API dependencies
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.12.5
+python-multipart>=0.0.9
+
+# HTTP client for file downloads
+aiohttp>=3.10.0
+
+# File handling
+aiofiles>=24.1.0
+
+# Already included in parent gemini-webapi
+# curl-cffi~=0.15.0
+# loguru~=0.7.3
+# orjson~=3.11.7
