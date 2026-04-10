@@ -265,6 +265,7 @@ async def get_access_token(
             )
 
     current_attempt = 0
+    best_result = None
     for jar, group_name in cookie_jars_to_test:
         current_attempt += 1
         try:
@@ -275,11 +276,7 @@ async def get_access_token(
             language = re.search(r'"TuX5cc":\s*"(.*?)"', response.text)
             push_id = re.search(r'"qKIAYe":\s*"(.*?)"', response.text)
             if access_token or build_label or session_id or language or push_id:
-                if verbose:
-                    logger.debug(
-                        f"Init attempt ({current_attempt}) from {group_name} succeeded."
-                    )
-                return (
+                result = (
                     access_token.group(1) if access_token else None,
                     build_label.group(1) if build_label else None,
                     session_id.group(1) if session_id else None,
@@ -287,11 +284,33 @@ async def get_access_token(
                     push_id.group(1) if push_id else None,
                     client,
                 )
+                if access_token:
+                    if verbose:
+                        logger.debug(
+                            f"Init attempt ({current_attempt}) from {group_name} succeeded."
+                        )
+                    return result
+                elif best_result is None:
+                    # Partial auth (no SNlM0e) — keep trying other jars
+                    best_result = result
+                    if verbose:
+                        logger.debug(
+                            f"Init attempt ({current_attempt}) from {group_name} "
+                            "partial (no SNlM0e). Trying next jar..."
+                        )
         except Exception:
             if verbose:
                 logger.debug(
                     f"Init attempt ({current_attempt}) from {group_name} failed."
                 )
+
+    if best_result is not None:
+        if verbose:
+            logger.warning(
+                "No cookie jar returned SNlM0e access token. "
+                "Batch RPCs (read_chat, list_chats) will fail."
+            )
+        return best_result
 
     await client.close()
     raise AuthError(

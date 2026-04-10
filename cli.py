@@ -361,18 +361,30 @@ async def cmd_research_get(args):
     cid = args.chat_id
     client, json_cookies = await _init_client(args)
     try:
-        latest = await client.fetch_latest_chat_response(cid)
-        if not latest:
+        # Read full chat history and find the longest model turn.
+        # Deep Research reports are stored in an immersive container
+        # at candidate_data[30][0][4], which _parse_candidate now extracts.
+        # The longest model turn is the research report.
+        history = await client.read_chat(cid, limit=20)
+        if not history or not history.turns:
             raise SystemExit(f"No response for chat {cid}. Research may still run.")
-        text = latest.text or ""
+
+        best_text = ""
+        for turn in history.turns:
+            if turn.role == "model" and turn.text and len(turn.text) > len(best_text):
+                best_text = turn.text
+
+        if not best_text:
+            raise SystemExit(f"No model response found in chat {cid}.")
+
         output_file = getattr(args, "output", None)
         if output_file:
             p = Path(output_file)
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(text, encoding="utf-8")
+            p.write_text(best_text, encoding="utf-8")
             print(f"Saved research result to {output_file}")
         else:
-            print(text)
+            print(best_text)
         return 0
     finally:
         await _cleanup(client, args, json_cookies)
