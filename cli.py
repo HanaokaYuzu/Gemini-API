@@ -319,7 +319,7 @@ async def cmd_research_send(args):
             prompt=args.prompt,
             model=args.model,
         )
-        await client.start_deep_research(plan=plan)
+        await client.start_deep_research(plan=plan, model=args.model)
         if not plan.cid:
             raise SystemExit("Deep research failed: no chat ID.")
 
