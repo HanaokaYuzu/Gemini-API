@@ -265,14 +265,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 self.auto_refresh = auto_refresh
                 self.refresh_interval = refresh_interval
 
+                await self._init_rpc()
+
                 if self.refresh_task:
                     self.refresh_task.cancel()
                     self.refresh_task = None
 
-                if self.auto_refresh:
+                if self.auto_refresh and self.account_status == AccountStatus.AVAILABLE:
                     self.refresh_task = asyncio.create_task(self.start_auto_refresh())
-
-                await self._init_rpc()
 
                 logger.success("Gemini client initialized successfully.")
             except Exception:
@@ -483,14 +483,15 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         Send warmup RPC calls before querying.
         """
 
-        await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.BARD_SETTINGS,
-                    payload='[[["bard_activity_enabled"]]]',
-                )
-            ]
-        )
+        if self.account_status == AccountStatus.AVAILABLE:
+            await self._batch_execute(
+                [
+                    RPCData(
+                        rpcid=GRPC.BARD_SETTINGS,
+                        payload='[[["bard_activity_enabled"]]]',
+                    )
+                ]
+            )
 
     def list_models(self) -> list[AvailableModel] | None:
         """
@@ -603,6 +604,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         if self.auto_close:
             await self.reset_close_task()
+
+        if any([files, gem, deep_research]):
+            if self.account_status != AccountStatus.AVAILABLE:
+                raise GeminiError(
+                    f"Permision denied. Account status: {self.account_status.name} - {self.account_status.description}"
+                )
 
         file_data = None
         if files:
@@ -718,6 +725,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         if self.auto_close:
             await self.reset_close_task()
+
+        if any([files, gem, deep_research]):
+            if self.account_status != AccountStatus.AVAILABLE:
+                raise GeminiError(
+                    f"Permision denied. Account status: {self.account_status.name} - {self.account_status.description}"
+                )
 
         file_data = None
         if files:
@@ -1349,7 +1362,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 f"Stream suspended (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                                 f"No CID found to recover. (Request ID: {_reqid})"
                             )
-                            await self.close()
                             raise APIError(
                                 "The original request may have been silently aborted by Google."
                             )
