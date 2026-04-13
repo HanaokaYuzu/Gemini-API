@@ -112,6 +112,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "watchdog_timeout",
         "impersonate",
         "verbose",
+        "last_activity_time",
+        "activity_task",
         "_running",
         "_cookies",
         "_reqid",
@@ -148,6 +150,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.watchdog_timeout: float = 120  # seconds before declaring a zombie stream
         self.impersonate: str = "chrome"
         self.verbose: bool = False
+        self.last_activity_time: float = 0
+        self.activity_task: Task | None = None
         self._running: bool = False
         self._cookies = Cookies()
         self._reqid: int = random.randint(10000, 99999)
@@ -274,6 +278,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 if self.auto_refresh and self.account_status == AccountStatus.AVAILABLE:
                     self.refresh_task = asyncio.create_task(self.start_auto_refresh())
 
+                if self.activity_task:
+                    self.activity_task.cancel()
+                    self.activity_task = None
+
+                if self.account_status == AccountStatus.AVAILABLE:
+                    self.activity_task = asyncio.create_task(self.start_activity_watchdog())
+
                 logger.success("Gemini client initialized successfully.")
             except Exception:
                 await self.close()
@@ -302,6 +313,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             self.refresh_task.cancel()
             self.refresh_task = None
 
+        if self.activity_task:
+            self.activity_task.cancel()
+            self.activity_task = None
+
         if self.client:
             self._cookies.update(self.client.cookies)
             await self.client.close()
@@ -322,6 +337,30 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             self.close_task = None
 
         self.close_task = asyncio.create_task(self.close(self.close_delay))
+
+    async def start_activity_watchdog(self) -> None:
+        """
+        Start the background task to ensure periodic activity calls.
+        """
+
+        while self._running:
+            interval = random.uniform(120, 180)
+            while self._running:
+                elapsed = time.time() - self.last_activity_time
+                remaining = interval - elapsed
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(remaining, 10))
+
+            if not self._running:
+                break
+
+            try:
+                await self._send_bard_activity()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"Unexpected error in activity watchdog: {e}")
 
     async def start_auto_refresh(self) -> None:
         """
@@ -482,6 +521,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
         Send warmup RPC calls before querying.
         """
+
+        self.last_activity_time = time.time()
 
         if self.account_status == AccountStatus.AVAILABLE:
             await self._batch_execute(
