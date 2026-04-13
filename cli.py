@@ -319,7 +319,7 @@ async def cmd_research_send(args):
             prompt=args.prompt,
             model=args.model,
         )
-        await client.start_deep_research(plan=plan)
+        await client.start_deep_research(plan=plan, model=args.model)
         if not plan.cid:
             raise SystemExit("Deep research failed: no chat ID.")
 
@@ -361,21 +361,106 @@ async def cmd_research_get(args):
     cid = args.chat_id
     client, json_cookies = await _init_client(args)
     try:
-        latest = await client.fetch_latest_chat_response(cid)
-        if not latest:
+        # Read full chat history and find the longest model turn.
+        # Deep Research reports are stored in an immersive container
+        # at candidate_data[30][0][4], which _parse_candidate now extracts.
+        # The longest model turn is the research report.
+        history = await client.read_chat(cid, limit=20)
+        if not history or not history.turns:
             raise SystemExit(f"No response for chat {cid}. Research may still run.")
-        text = latest.text or ""
+
+        best_text = ""
+        for turn in history.turns:
+            if turn.role == "model" and turn.text and len(turn.text) > len(best_text):
+                best_text = turn.text
+
+        if not best_text:
+            raise SystemExit(f"No model response found in chat {cid}.")
+
+        # Append source bibliography from the raw candidate data
+        sources = await _extract_dr_sources(cid, client)
+        if sources:
+            best_text += "\n\n---\n\n## Sources\n\n"
+            for i, url in enumerate(sources, 1):
+                best_text += f"[{i}] {url}\n"
+
         output_file = getattr(args, "output", None)
         if output_file:
             p = Path(output_file)
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(text, encoding="utf-8")
+            p.write_text(best_text, encoding="utf-8")
             print(f"Saved research result to {output_file}")
         else:
-            print(text)
+            print(best_text)
         return 0
     finally:
         await _cleanup(client, args, json_cookies)
+
+
+async def _extract_dr_sources(cid, client):
+    """Extract source URLs from the Deep Research completion turn.
+
+    Sources are stored at candidate_data[30][0][17] (or [30][0][8]).
+    Returns a deduplicated list of URL strings.
+    """
+    import orjson as _orjson
+    from gemini_webapi.constants import GRPC as _GRPC
+    from gemini_webapi.types import RPCData as _RPCData
+    from gemini_webapi.utils import (
+        extract_json_from_response as _extract,
+        get_nested_value as _gnv,
+    )
+
+    try:
+        response = await client._batch_execute([
+            _RPCData(
+                rpcid=_GRPC.READ_CHAT,
+                payload=_orjson.dumps(
+                    [cid, 10, None, 1, [1], [4], None, 1]
+                ).decode("utf-8"),
+            ),
+        ])
+    except Exception:
+        return []
+
+    response_json = _extract(response.text)
+    for part in response_json:
+        part_body_str = _gnv(part, [2])
+        if not part_body_str:
+            continue
+        try:
+            part_body = _orjson.loads(part_body_str)
+        except Exception:
+            continue
+        turns_data = _gnv(part_body, [0])
+        if not turns_data:
+            continue
+        for conv_turn in turns_data:
+            candidates_list = _gnv(conv_turn, [3, 0])
+            if not candidates_list:
+                continue
+            for cd in candidates_list:
+                text = _gnv(cd, [1, 0], "")
+                if "immersive_entry_chip" not in text:
+                    continue
+                for path in ([30, 0, 17], [30, 0, 8]):
+                    sources_data = _gnv(cd, path, [])
+                    if not sources_data or not isinstance(sources_data, list):
+                        continue
+                    flat = json.dumps(sources_data, default=str)
+                    seen = set()
+                    urls = []
+                    for chunk in flat.split('"'):
+                        if (
+                            chunk.startswith("https://")
+                            and "gstatic.com" not in chunk
+                            and chunk not in seen
+                        ):
+                            seen.add(chunk)
+                            urls.append(chunk)
+                    if urls:
+                        return urls
+    return []
 
 
 async def cmd_list(args):

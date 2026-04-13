@@ -1418,6 +1418,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if CARD_CONTENT_RE.match(text):
             text = get_nested_value(candidate_data, [22, 0]) or text
 
+        # Deep Research: the full report is stored at [30][0][4] when the
+        # main text contains an immersive_entry_chip URL (the acknowledgment).
+        if "immersive_entry_chip" in text:
+            dr_report = get_nested_value(candidate_data, [30, 0, 4])
+            if isinstance(dr_report, str) and dr_report:
+                text = dr_report
+
         # Cleanup googleusercontent artifacts
         text = ARTIFACTS_RE.sub("", text)
 

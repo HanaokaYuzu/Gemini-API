@@ -250,6 +250,7 @@ class ResearchMixin:
         plan: DeepResearchPlan,
         chat: Optional["ChatSession"] = None,
         confirm_prompt: str | None = None,
+        model: Model | str | dict = Model.UNSPECIFIED,
     ) -> "ModelOutput":
         """
         Confirm and start a deep research plan.
@@ -262,6 +263,8 @@ class ResearchMixin:
             Existing session. Created from plan metadata if omitted.
         confirm_prompt: `str`, optional
             Override the default confirmation text.
+        model: `Model | str | dict`, optional
+            Model to use. Must match the model used in create_deep_research_plan.
 
         Returns
         -------
@@ -270,7 +273,7 @@ class ResearchMixin:
         """
 
         if chat is None:
-            chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid)
+            chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid, model=model)
         await self._deep_research_preflight()
         prompt = confirm_prompt or plan.confirm_prompt or "Start research"
         return await self._collect_research_output(chat, prompt)
@@ -376,6 +379,7 @@ class ResearchMixin:
         poll_interval: float = 10.0,
         timeout: float = 600.0,
         on_status: Callable[[DeepResearchStatus], None] | None = None,
+        model: Model | str | dict = Model.UNSPECIFIED,
     ) -> DeepResearchResult:
         """
         Run a full deep research cycle: plan → start → wait → result.
@@ -390,10 +394,12 @@ class ResearchMixin:
             Maximum seconds to wait. Default 600.
         on_status: `Callable`, optional
             Callback invoked with each `DeepResearchStatus`.
+        model: `Model | str | dict`, optional
+            Model to use for generation.
         """
 
-        plan = await self.create_deep_research_plan(prompt)
-        start_output = await self.start_deep_research(plan)
+        plan = await self.create_deep_research_plan(prompt, model=model)
+        start_output = await self.start_deep_research(plan, model=model)
         result = await self.wait_for_deep_research(
             plan,
             poll_interval=poll_interval,
