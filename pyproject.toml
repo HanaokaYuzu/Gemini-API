@@ -23,7 +23,7 @@ dependencies = [
     "curl-cffi~=0.15.0",
     "loguru~=0.7.3",
     "orjson~=3.11.7",
-    "pydantic~=2.12.5",
+    "pydantic>=2.12.5,<2.14.0",
 ]
 dynamic = ["version"]
 
