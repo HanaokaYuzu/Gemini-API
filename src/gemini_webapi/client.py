@@ -356,6 +356,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 break
 
             try:
+                logger.debug(
+                    f"Heartbeat triggered. Time since last activity: {int(time.time() - self.last_activity_time)}s"
+                )
                 await self._send_bard_activity()
             except asyncio.CancelledError:
                 raise
@@ -649,7 +652,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if any([files, gem, deep_research]):
             if self.account_status != AccountStatus.AVAILABLE:
                 raise GeminiError(
-                    f"Permision denied. Account status: {self.account_status.name} - {self.account_status.description}"
+                    f"Permission denied. Account status: {self.account_status.name} - {self.account_status.description}"
                 )
 
         file_data = None
@@ -770,7 +773,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if any([files, gem, deep_research]):
             if self.account_status != AccountStatus.AVAILABLE:
                 raise GeminiError(
-                    f"Permision denied. Account status: {self.account_status.name} - {self.account_status.description}"
+                    f"Permission denied. Account status: {self.account_status.name} - {self.account_status.description}"
                 )
 
         file_data = None
