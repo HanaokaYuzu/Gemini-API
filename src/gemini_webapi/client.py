@@ -1342,6 +1342,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 f"Stream suspended (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                                 f"No CID found to recover. (Request ID: {_reqid})"
                             )
+                            await self.close()
                             raise APIError(
                                 "The original request may have been silently aborted by Google."
                             )
