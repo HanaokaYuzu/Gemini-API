@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -10,6 +11,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
+
+from curl_cffi import CurlFollow, CurlHttpVersion
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -33,15 +36,11 @@ def _parse_expiry(value):
         raw = value.strip()
         if not raw:
             return None
-        try:
+        with contextlib.suppress(ValueError):
             return int(float(raw))
-        except ValueError:
-            pass
-        try:
+        with contextlib.suppress(ValueError):
             dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             return int(dt.timestamp())
-        except ValueError:
-            pass
         try:
             dt = parsedate_to_datetime(raw)
             if dt.tzinfo is None:
@@ -120,14 +119,12 @@ def _load_cookies_with_meta(path):
 
 def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False):
     merged = dict(original)
-    try:
+    with contextlib.suppress(Exception):
         for cookie in client_cookies.jar:
             name = getattr(cookie, "name", None)
             value = getattr(cookie, "value", None)
             if isinstance(name, str) and isinstance(value, str) and value:
                 merged[name] = value
-    except Exception:
-        pass
     if merged == original:
         return
     payload = {
@@ -196,9 +193,8 @@ async def _init_client(args):
         return client, json_cookies
     except AuthError as e:
         raise SystemExit(
-            f"Authentication failed: {e}\n"
-            "Please re-export cookies from your browser."
-        )
+            f"Authentication failed: {e}\nPlease re-export cookies from your browser."
+        ) from e
 
 
 async def _cleanup(client, args, json_cookies):
@@ -411,9 +407,7 @@ async def cmd_read(args):
         lines = []
         for i, turn in enumerate(history.turns, 1):
             role = turn.role.upper()
-            lines.append(f"--- message {i} ---")
-            lines.append(f"[{role}] {turn.text}")
-            lines.append("")
+            lines.extend((f"--- message {i} ---", f"[{role}] {turn.text}", ""))
         text = "\n".join(lines)
         output_file = getattr(args, "output", None)
         if output_file:
@@ -454,7 +448,11 @@ async def cmd_download(args):
         output = f"gemini-{url_hash}.png"
 
     async with AsyncSession(
-        impersonate="chrome", cookies=json_cookies, proxy=args.proxy
+        impersonate="chrome145",
+        cookies=json_cookies,
+        proxy=args.proxy,
+        allow_redirects=CurlFollow.SAFE,
+        http_version=CurlHttpVersion.NONE,
     ) as session:
         resp = await session.get(url)
         if resp.status_code != 200:
@@ -494,8 +492,7 @@ async def cmd_inspect(args):
                 status = "OK"
             print(f"    {name:<15} {status}")
 
-        rejected = summary.get("rejected_probes", [])
-        if rejected:
+        if rejected := summary.get("rejected_probes", []):
             print(f"\n  Rejected: {', '.join(rejected)}")
             print("  (try refreshing cookies or different proxy)")
         else:
@@ -622,6 +619,20 @@ async def run(args):
     cmd = args.command
     if cmd == "ask":
         return await cmd_ask(args)
+    elif cmd == "download":
+        return await cmd_download(args)
+    elif cmd == "inspect":
+        return await cmd_inspect(args)
+    elif cmd == "list":
+        return await cmd_list(args)
+    elif cmd == "models":
+        print("Available models:\n")
+        for m in Model:
+            default = " (default)" if m == Model.UNSPECIFIED else ""
+            print(f"  {m.model_name}{default}")
+        return 0
+    elif cmd == "read":
+        return await cmd_read(args)
     elif cmd == "reply":
         return await cmd_reply(args)
     elif cmd == "research":
@@ -634,20 +645,6 @@ async def run(args):
             return await cmd_research_get(args)
         else:
             raise SystemExit("Usage: research {send|check|get}")
-    elif cmd == "list":
-        return await cmd_list(args)
-    elif cmd == "read":
-        return await cmd_read(args)
-    elif cmd == "download":
-        return await cmd_download(args)
-    elif cmd == "models":
-        print("Available models:\n")
-        for m in Model:
-            default = " (default)" if m == Model.UNSPECIFIED else ""
-            print(f"  {m.model_name}{default}")
-        return 0
-    elif cmd == "inspect":
-        return await cmd_inspect(args)
     else:
         raise SystemExit(
             "Usage: cli.py {ask|reply|research|list|read|models|download|inspect}"

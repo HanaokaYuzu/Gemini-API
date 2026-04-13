@@ -5,11 +5,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel, ConfigDict
 
-from ..constants import Headers
+from ..constants import Headers, format_http_version
 from ..utils import logger
 
 
@@ -89,9 +90,13 @@ class Video(BaseModel):
         if not req_client:
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
+            impersonate = (
+                getattr(client_ref, "impersonate", "chrome") if client_ref else "chrome"
+            )
             req_client = AsyncSession(
-                impersonate="chrome",
-                allow_redirects=True,
+                impersonate=impersonate,
+                allow_redirects=CurlFollow.SAFE,
+                http_version=CurlHttpVersion.NONE,
                 cookies=cookies,
                 proxy=self.proxy,
             )
@@ -134,7 +139,9 @@ class Video(BaseModel):
 
         response = await req_client.get(url, headers=Headers.REFERER.value)
         if verbose:
-            logger.debug(f"HTTP Request: GET {url} [{response.status_code}]")
+            logger.debug(
+                f"HTTP Request: GET {url} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
+            )
 
         if response.status_code == 200:
             path_obj_file = Path(filename)
@@ -211,12 +218,11 @@ class GeneratedVideo(Video):
                 req_client, self.url, path_obj, filename, ".mp4", verbose
             )
 
-            if video_path == "206":
-                if verbose:
-                    logger.info("Video still generating (206), retrying in 10s...")
-                await asyncio.sleep(10)
-            else:
+            if video_path != "206":
                 return {"video": video_path, "video_thumbnail": thumb_path}
+            if verbose:
+                logger.info("Video still generating (206), retrying in 10s...")
+            await asyncio.sleep(10)
 
 
 class GeneratedMedia(GeneratedVideo):
@@ -299,7 +305,6 @@ class GeneratedMedia(GeneratedVideo):
             (e.g., {"audio": ..., "video": ..., "audio_thumbnail": ..., "video_thumbnail": ...}).
         """
 
-        results: dict[str, str | None] = {}
         tasks = []
 
         if download_type in ["audio", "both"] and self.mp3_url:
@@ -320,7 +325,7 @@ class GeneratedMedia(GeneratedVideo):
                         req_client,
                         self.mp3_thumbnail,
                         path_obj,
-                        filename + "_audio_thumb",
+                        f"{filename}_audio_thumb",
                         verbose,
                         "audio_thumbnail",
                     )
@@ -344,16 +349,14 @@ class GeneratedMedia(GeneratedVideo):
                         req_client,
                         self.thumbnail,
                         path_obj,
-                        filename + "_video_thumb",
+                        f"{filename}_video_thumb",
                         verbose,
                         "video_thumbnail",
                     )
                 )
 
         downloaded = await asyncio.gather(*tasks)
-        for key, file_path in downloaded:
-            results[key] = file_path
-
+        results: dict[str, str | None] = dict(downloaded)
         return results
 
     @staticmethod
@@ -370,14 +373,11 @@ class GeneratedMedia(GeneratedVideo):
             path = await Video._download_file(
                 req_client, url, path_obj, filename, ext, verbose
             )
-            if path == "206":
-                if verbose:
-                    logger.info(
-                        f"Media ({key}) still generating (206), retrying in 10s..."
-                    )
-                await asyncio.sleep(10)
-            else:
+            if path != "206":
                 return key, path
+            if verbose:
+                logger.info(f"Media ({key}) still generating (206), retrying in 10s...")
+            await asyncio.sleep(10)
 
     @staticmethod
     async def _download_thumbnail(

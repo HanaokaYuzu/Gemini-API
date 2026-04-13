@@ -1,6 +1,7 @@
 import re
 import time
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession, Cookies, Response
 import orjson as json
 
@@ -11,8 +12,14 @@ from .rotate_1psidts import (
     _get_cookies_cache_path,
     _get_cookie_cache_dir,
 )
-from ..constants import Endpoint, Headers
+from ..constants import Endpoint, Headers, format_http_version
 from ..exceptions import AuthError
+
+_ACCESS_TOKEN_RE = re.compile(r'"SNlM0e":\s*"(.*?)"')
+_BUILD_LABEL_RE = re.compile(r'"cfb2h":\s*"(.*?)"')
+_SESSION_ID_RE = re.compile(r'"FdrFJe":\s*"(.*?)"')
+_LANGUAGE_RE = re.compile(r'"TuX5cc":\s*"(.*?)"')
+_PUSH_ID_RE = re.compile(r'"qKIAYe":\s*"(.*?)"')
 
 
 async def _send_request(
@@ -31,7 +38,9 @@ async def _send_request(
 
     response = await client.get(Endpoint.INIT, headers=Headers.GEMINI.value)
     if verbose:
-        logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
+        logger.debug(
+            f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
+        )
     response.raise_for_status()
     return response
 
@@ -40,6 +49,7 @@ async def get_access_token(
     base_cookies: dict | Cookies,
     proxy: str | None = None,
     verbose: bool = False,
+    impersonate: str = "chrome145",
     verify: bool = True,
 ) -> tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]:
     """
@@ -57,6 +67,8 @@ async def get_access_token(
         Proxy URL.
     verbose: `bool`, optional
         If True, log more details.
+    impersonate: `str`, optional
+        Allow to customize client, default to chrome145 to avoid Device Bound Session Credentials.
     verify: `bool`, optional
         Whether to verify SSL certificates.
 
@@ -72,14 +84,18 @@ async def get_access_token(
     """
 
     client = AsyncSession(
-        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
+        impersonate=impersonate,
+        proxy=proxy,
+        allow_redirects=CurlFollow.SAFE,
+        http_version=CurlHttpVersion.NONE,
+        verify=verify,
     )
 
     try:
         response = await client.get(Endpoint.GOOGLE)
         if verbose:
             logger.debug(
-                f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]"
+                f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
             )
         preflight_cookies = Cookies(client.cookies)
     except Exception:
@@ -107,8 +123,7 @@ async def get_access_token(
         cache_file = _get_cookies_cache_path(jar)
 
         if cache_file and cache_file.is_file():
-            content = cache_file.read_text().strip()
-            if content:
+            if content := cache_file.read_text().strip():
                 jar = Cookies()
                 if isinstance(base_cookies, Cookies):
                     for cookie in base_cookies.jar:
@@ -150,12 +165,10 @@ async def get_access_token(
             logger.debug("Skipping loading cached cookies. Cache file not found.")
 
     if not base_psid:
-        cache_files = list(_get_cookie_cache_dir().glob(".cached_cookies_*.json"))
-        if cache_files:
+        if cache_files := list(_get_cookie_cache_dir().glob(".cached_cookies_*.json")):
             cache_file = max(cache_files, key=lambda p: p.stat().st_mtime)
             psid = cache_file.stem[16:]
-            content = cache_file.read_text().strip()
-            if content:
+            if content := cache_file.read_text().strip():
                 jar = Cookies()
                 try:
                     cookies_data = json.loads(content)
@@ -207,10 +220,9 @@ async def get_access_token(
 
     # Phase 3: Browser Cookies
     try:
-        browser_cookies = load_browser_cookies(
+        if browser_cookies := load_browser_cookies(
             domain_name="google.com", verbose=verbose
-        )
-        if browser_cookies:
+        ):
             for browser, cookie_list in browser_cookies.items():
                 temp_cookies = {c["name"]: c["value"] for c in cookie_list}
                 secure_1psid = temp_cookies.get("__Secure-1PSID")
@@ -269,11 +281,11 @@ async def get_access_token(
         current_attempt += 1
         try:
             response = await _send_request(client, jar, verbose=verbose)
-            access_token = re.search(r'"SNlM0e":\s*"(.*?)"', response.text)
-            build_label = re.search(r'"cfb2h":\s*"(.*?)"', response.text)
-            session_id = re.search(r'"FdrFJe":\s*"(.*?)"', response.text)
-            language = re.search(r'"TuX5cc":\s*"(.*?)"', response.text)
-            push_id = re.search(r'"qKIAYe":\s*"(.*?)"', response.text)
+            access_token = _ACCESS_TOKEN_RE.search(response.text)
+            build_label = _BUILD_LABEL_RE.search(response.text)
+            session_id = _SESSION_ID_RE.search(response.text)
+            language = _LANGUAGE_RE.search(response.text)
+            push_id = _PUSH_ID_RE.search(response.text)
             if access_token or build_label or session_id or language or push_id:
                 if verbose:
                     logger.debug(

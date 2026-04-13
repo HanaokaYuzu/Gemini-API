@@ -24,18 +24,21 @@ def _iter_nested(data: Any):
 def _find_first_match(data: Any, pattern: re.Pattern[str]) -> str | None:
     for item in _iter_nested(data):
         if isinstance(item, str):
-            match = pattern.search(item)
-            if match:
+            if match := pattern.search(item):
                 return match.group(0)
     return None
 
 
 def _find_first_string(data: Any, *, exclude: set[str] | None = None) -> str | None:
     exclude = exclude or set()
-    for item in _iter_nested(data):
-        if isinstance(item, str) and item and item not in exclude:
-            return item
-    return None
+    return next(
+        (
+            item
+            for item in _iter_nested(data)
+            if isinstance(item, str) and item and item not in exclude
+        ),
+        None,
+    )
 
 
 def _extract_research_id(data: Any) -> str | None:
@@ -72,10 +75,10 @@ def _collect_research_notes(data: Any, *, exclude: set[str] | None = None) -> li
 
 
 def _find_first_dict_key(data: Any, key: str) -> dict[str, Any] | None:
-    for item in _iter_nested(data):
-        if isinstance(item, dict) and key in item:
-            return item
-    return None
+    return next(
+        (item for item in _iter_nested(data) if isinstance(item, dict) and key in item),
+        None,
+    )
 
 
 def extract_deep_research_plan(
@@ -195,7 +198,9 @@ def extract_deep_research_status_payload(
     state = (
         "completed"
         if done
-        else "awaiting_confirmation" if awaiting_confirmation else "running"
+        else "awaiting_confirmation"
+        if awaiting_confirmation
+        else "running"
     )
     exclude = {s for s in [title, query, research_id, cid] if isinstance(s, str)}
     notes = _collect_research_notes(data, exclude=exclude)

@@ -5,11 +5,12 @@ from pathlib import Path
 from textwrap import shorten
 from typing import Any
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel, ConfigDict
 
-from ..constants import Headers
+from ..constants import Headers, format_http_version
 from ..utils import logger
 
 
@@ -97,9 +98,13 @@ class Image(BaseModel):
         if not req_client:
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
+            impersonate = (
+                getattr(client_ref, "impersonate", "chrome") if client_ref else "chrome"
+            )
             req_client = AsyncSession(
-                impersonate="chrome",
-                allow_redirects=True,
+                impersonate=impersonate,
+                allow_redirects=CurlFollow.SAFE,
+                http_version=CurlHttpVersion.NONE,
                 cookies=cookies,
                 proxy=self.proxy,
             )
@@ -124,31 +129,29 @@ class Image(BaseModel):
 
         response = await req_client.get(self.url, headers=Headers.REFERER.value)
         if verbose:
-            logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
+            logger.debug(
+                f"HTTP Request: GET {self.url} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
+            )
 
-        if response.status_code == 200:
-            path_obj_file = Path(filename)
-            if not path_obj_file.suffix:
-                content_type = (
-                    response.headers.get("content-type", "")
-                    .split(";")[0]
-                    .strip()
-                    .lower()
-                )
-                ext = mimetypes.guess_extension(content_type) or ".png"
-                filename = f"{filename}{ext}"
-
-            dest = path_obj / filename
-            dest.write_bytes(response.content)
-
-            if verbose:
-                logger.info(f"Image saved as {dest.resolve()}")
-
-            return str(dest.resolve())
-        else:
+        if response.status_code != 200:
             raise HTTPError(
                 f"Error downloading image: {response.status_code} {response.reason}"
             )
+        path_obj_file = Path(filename)
+        if not path_obj_file.suffix:
+            content_type = (
+                response.headers.get("content-type", "").split(";")[0].strip().lower()
+            )
+            ext = mimetypes.guess_extension(content_type) or ".png"
+            filename = f"{filename}{ext}"
+
+        dest = path_obj / filename
+        dest.write_bytes(response.content)
+
+        if verbose:
+            logger.info(f"Image saved as {dest.resolve()}")
+
+        return str(dest.resolve())
 
 
 class WebImage(Image):
@@ -255,10 +258,9 @@ class GeneratedImage(Image):
                 self.url = self.url.replace("=s1024-rj", "=s2048-rj")
             elif "=s2048-rj" not in self.url:
                 self.url += "=s2048-rj"
-        else:
-            if "=s2048-rj" in self.url:
-                self.url = self.url.replace("=s2048-rj", "=s1024-rj")
-            elif "=s1024-rj" not in self.url:
-                self.url += "=s1024-rj"
+        elif "=s2048-rj" in self.url:
+            self.url = self.url.replace("=s2048-rj", "=s1024-rj")
+        elif "=s1024-rj" not in self.url:
+            self.url += "=s1024-rj"
 
         return await super()._perform_save(req_client, path_obj, filename, verbose)

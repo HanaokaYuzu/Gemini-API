@@ -60,10 +60,12 @@ class GemMixin:
             Refer to `gemini_webapi.types.GemJar`.
         """
 
+        self._check_account_status(raise_error=True)
+
         response = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_GEMS,
+                    rpcid=GRPC.LIST_BOTS,
                     payload=(
                         f"[4,['{self.language}'],0]"
                         if include_hidden
@@ -72,7 +74,7 @@ class GemMixin:
                     identifier="system",
                 ),
                 RPCData(
-                    rpcid=GRPC.LIST_GEMS,
+                    rpcid=GRPC.LIST_BOTS,
                     payload=f"[2,['{self.language}'],0]",
                     identifier="custom",
                 ),
@@ -161,10 +163,12 @@ class GemMixin:
             The created gem.
         """
 
+        self._check_account_status(raise_error=True)
+
         response = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.CREATE_GEM,
+                    rpcid=GRPC.CREATE_BOT,
                     payload=json.dumps(
                         [
                             [
@@ -238,6 +242,8 @@ class GemMixin:
             The updated gem.
         """
 
+        self._check_account_status(raise_error=True)
+
         if isinstance(gem, Gem):
             gem_id = gem.id
         else:
@@ -246,7 +252,7 @@ class GemMixin:
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.UPDATE_GEM,
+                    rpcid=GRPC.UPDATE_BOT_METADATA,
                     payload=json.dumps(
                         [
                             gem_id,
@@ -292,6 +298,8 @@ class GemMixin:
             Gem to delete, can be either a `gemini_webapi.types.Gem` object or a gem id string.
         """
 
+        self._check_account_status(raise_error=True)
+
         if isinstance(gem, Gem):
             gem_id = gem.id
         else:
@@ -300,7 +308,7 @@ class GemMixin:
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_GEM, payload=json.dumps([gem_id]).decode("utf-8")
+                    rpcid=GRPC.DELETE_BOT, payload=json.dumps([gem_id]).decode("utf-8")
                 )
             ],
             **kwargs,

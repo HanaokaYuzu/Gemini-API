@@ -56,6 +56,7 @@ def running(retry: int = 0) -> Callable:
                         ):
                             yield item
                     else:
+                        await client.close()
                         raise
 
             return wrapper
@@ -93,7 +94,9 @@ def running(retry: int = 0) -> Callable:
                             client, *args, current_retry=current_retry - 1, **kwargs
                         )
 
-                    raise
+                    else:
+                        await client.close()
+                        raise
 
             return wrapper
 

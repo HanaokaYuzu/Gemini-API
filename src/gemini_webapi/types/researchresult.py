@@ -23,7 +23,4 @@ class DeepResearchResult(BaseModel):
 
     @property
     def text(self) -> str:
-        if self.final_output:
-            return self.final_output.text
-
-        return ""
+        return self.final_output.text if self.final_output else ""

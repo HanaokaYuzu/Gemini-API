@@ -1,3 +1,4 @@
+import contextlib
 import difflib
 import re
 import reprlib
@@ -34,7 +35,7 @@ def get_delta_by_fp_len(
     Uses SequenceMatcher to robustly handle middle-string modifications.
     """
 
-    new_c = get_clean_text(new_raw) if not is_final else new_raw
+    new_c = new_raw if is_final else get_clean_text(new_raw)
 
     if new_c.startswith(last_sent_clean):
         return new_c[len(last_sent_clean) :], new_c
@@ -50,46 +51,19 @@ def get_delta_by_fp_len(
     tail_new = new_c[-search_len:]
 
     sm = difflib.SequenceMatcher(None, tail_last, tail_new)
-    blocks = [b for b in sm.get_matching_blocks() if b.size > 0]
-
-    if blocks:
+    if blocks := [b for b in sm.get_matching_blocks() if b.size > 0]:
         last_match = blocks[-1]
         match_end = last_match.b + last_match.size
         return tail_new[match_end:], new_c
 
     # Fallback to full string if tail didn't match at all
     sm = difflib.SequenceMatcher(None, last_sent_clean, new_c)
-    blocks = [b for b in sm.get_matching_blocks() if b.size > 0]
-
-    if blocks:
+    if blocks := [b for b in sm.get_matching_blocks() if b.size > 0]:
         last_match = blocks[-1]
         match_end = last_match.b + last_match.size
         return new_c[match_end:], new_c
 
     return new_c, new_c
-
-
-def _get_char_count_for_utf16_units(
-    s: str, start_idx: int, utf16_units: int
-) -> tuple[int, int]:
-    """
-    Calculate the number of Python characters (code points) and actual UTF-16
-    units found.
-    """
-
-    count = 0
-    units = 0
-    limit = len(s)
-
-    while units < utf16_units and (start_idx + count) < limit:
-        char = s[start_idx + count]
-        u = 2 if ord(char) > 0xFFFF else 1
-        if units + u > utf16_units:
-            break
-        units += u
-        count += 1
-
-    return count, units
 
 
 def get_nested_value(
@@ -134,88 +108,182 @@ def get_nested_value(
     return current if current is not None else default
 
 
-def parse_response_by_frame(content: str) -> tuple[list[Any], str]:
+class StreamingFrameParser:
     """
-    Core parser for Google's length-prefixed framing protocol,
-    Parse as many JSON frames as possible from an accumulated buffer received from streaming responses.
+    Incrementally parse Google's length-prefixed streaming frames without
+    rescanning unfinished frame payloads after every network chunk.
 
-    This function implements Google's length-prefixed framing protocol. Each frame starts
-    with a length marker (number of characters) followed by a newline and the JSON content.
-    If a frame is partially received, it stays in the buffer for the next call.
-
-    Each frame has the format: `[length]\n[json_payload]\n`,
-    The length value includes the newline after the number and the newline after the JSON.
-
-    Parameters
-    ----------
-    content: `str`
-        The accumulated string buffer containing raw streaming data from the API.
-
-    Returns
-    -------
-    `tuple[list[Any], str]`
-        A tuple containing:
-        - A list of parsed JSON objects (envelopes) extracted from the buffer.
-        - The remaining unparsed part of the buffer (incomplete frames).
+    The parser keeps the incomplete frame state internally. Complete frames are
+    decoded and returned from :meth:`feed`, while partial frames remain buffered
+    until enough text arrives. The length marker is interpreted as UTF-16 code
+    units to match JavaScript string length semantics used by Google.
     """
 
-    consumed_pos = 0
-    total_len = len(content)
-    parsed_frames = []
+    def __init__(self) -> None:
+        """
+        Initialize an empty streaming parser state.
+        """
 
-    while consumed_pos < total_len:
-        while consumed_pos < total_len and content[consumed_pos].isspace():
-            consumed_pos += 1
+        self.buffer = ""
+        self.expected_units: int | None = None
+        self.payload_start = 0
+        self.scanned_chars = 0
+        self.scanned_units = 0
+        self.prefix_checked = False
 
-        if consumed_pos >= total_len:
-            break
+    def reset(self) -> None:
+        """
+        Clear buffered text and any in-progress frame state.
+        """
 
-        match = _LENGTH_MARKER_PATTERN.match(content, pos=consumed_pos)
-        if not match:
-            break
+        self.buffer = ""
+        self._reset_frame_state()
+        self.prefix_checked = False
 
-        length_val = match.group(1)
-        length = int(length_val)
+    def feed(self, content: str) -> list[Any]:
+        """
+        Add decoded stream text and return all complete JSON frames.
 
-        # Content starts immediately after the digits.
-        # Google uses UTF-16 code units (JavaScript `String.length`) for the length marker.
-        start_content = match.start() + len(length_val)
-        char_count, units_found = _get_char_count_for_utf16_units(
-            content, start_content, length
-        )
+        Parameters
+        ----------
+        content: `str`
+            Newly decoded stream text from the HTTP response.
 
-        if units_found < length:
-            logger.debug(
-                f"Incomplete frame at position {consumed_pos}: expected {length} UTF-16 units, "
-                f"but received {units_found}. Waiting for additional data..."
+        Returns
+        -------
+        `list[Any]`
+            Parsed JSON envelopes completed by this feed call.
+        """
+
+        if not isinstance(content, str):
+            raise TypeError(
+                f"Input content is expected to be a string, got {type(content).__name__} instead."
             )
-            break
 
-        end_pos = start_content + char_count
-        chunk = content[start_content:end_pos].strip()
-        consumed_pos = end_pos
+        if content:
+            self.buffer += content
 
-        if not chunk:
-            continue
+        self._strip_prefix_once()
 
-        try:
-            parsed = json.loads(chunk)
+        parsed_frames = []
+        while (
+            self.expected_units is not None or self._read_length_marker()
+        ) and self.expected_units is not None:
+            self._scan_available_payload()
+            if self.scanned_units < self.expected_units:
+                break
+
+            end_pos = self.payload_start + self.scanned_chars
+            chunk = self.buffer[self.payload_start : end_pos]
+            self.buffer = self.buffer[end_pos:]
+            self._reset_frame_state()
+
+            if not chunk.strip():
+                continue
+
+            try:
+                parsed = json.loads(chunk)
+            except json.JSONDecodeError:
+                logger.debug(
+                    f"Failed to parse streaming frame with length {len(chunk)}. "
+                    f"Frame content: {reprlib.repr(chunk)}"
+                )
+                continue
+
             if isinstance(parsed, list):
                 parsed_frames.extend(parsed)
             else:
                 parsed_frames.append(parsed)
-        except json.JSONDecodeError:
-            logger.debug(
-                f"Failed to parse chunk at pos {start_content} with length {length}. "
-                f"Frame content: {reprlib.repr(chunk)}"
-            )
 
-    return parsed_frames, content[consumed_pos:]
+        return parsed_frames
+
+    def flush(self) -> list[Any]:
+        """
+        Parse any complete frame left after the decoder has emitted final text.
+        """
+
+        return self.feed("")
+
+    def _reset_frame_state(self) -> None:
+        """
+        Clear only the currently tracked frame metadata.
+        """
+
+        self.expected_units = None
+        self.payload_start = 0
+        self.scanned_chars = 0
+        self.scanned_units = 0
+
+    def _strip_prefix_once(self) -> None:
+        """
+        Remove Google's anti-XSSI prefix once enough leading text is available.
+        """
+
+        if self.prefix_checked:
+            return
+
+        prefix = ")]}'"
+        if len(self.buffer) < len(prefix) and prefix.startswith(self.buffer):
+            return
+
+        if self.buffer.startswith(prefix):
+            self.buffer = self.buffer[len(prefix) :].lstrip()
+
+        self.prefix_checked = True
+
+    def _read_length_marker(self) -> bool:
+        """
+        Read the next frame length marker when the marker is fully buffered.
+        """
+
+        consumed_pos = 0
+        total_len = len(self.buffer)
+        while consumed_pos < total_len and self.buffer[consumed_pos].isspace():
+            consumed_pos += 1
+
+        if consumed_pos:
+            self.buffer = self.buffer[consumed_pos:]
+            total_len = len(self.buffer)
+
+        if total_len == 0:
+            return False
+
+        match = _LENGTH_MARKER_PATTERN.match(self.buffer)
+        if not match:
+            return False if self.buffer.isdecimal() else False
+        length_val = match.group(1)
+        self.expected_units = int(length_val)
+        self.payload_start = len(length_val)
+        self.scanned_chars = 0
+        self.scanned_units = 0
+        return True
+
+    def _scan_available_payload(self) -> None:
+        """
+        Advance UTF-16 unit accounting over only the newly buffered payload text.
+        """
+
+        if self.expected_units is None:
+            return
+
+        idx = self.payload_start + self.scanned_chars
+        limit = len(self.buffer)
+
+        while self.scanned_units < self.expected_units and idx < limit:
+            unit_count = 2 if ord(self.buffer[idx]) > 0xFFFF else 1
+            if self.scanned_units + unit_count > self.expected_units:
+                break
+            self.scanned_units += unit_count
+            self.scanned_chars += 1
+            idx += 1
 
 
 def extract_json_from_response(text: str) -> list:
     """
     Extract and normalize JSON content from a Google API response.
+
+    Length-prefixed responses are parsed through the same incremental frame
+    parser used by streaming code so frame parsing behavior stays centralized.
     """
 
     if not isinstance(text, str):
@@ -224,24 +292,20 @@ def extract_json_from_response(text: str) -> list:
         )
 
     content = text
-    if content.startswith(")]}'"):
-        content = content[4:]
-
+    content = content.removeprefix(")]}'")
     content = content.lstrip()
 
-    # Try extracting with framing protocol first, as it's the most structured format
-    result, _ = parse_response_by_frame(content)
+    frame_parser = StreamingFrameParser()
+    result = frame_parser.feed(content)
+    result.extend(frame_parser.flush())
     if result:
         return result
 
     # Extract the entire content if parsing by frames failed
     content_stripped = content.strip()
-    try:
+    with contextlib.suppress(json.JSONDecodeError):
         parsed = json.loads(content_stripped)
         return parsed if isinstance(parsed, list) else [parsed]
-    except json.JSONDecodeError:
-        pass
-
     # Extract with NDJSON
     collected_lines = []
     for line in content_stripped.splitlines():

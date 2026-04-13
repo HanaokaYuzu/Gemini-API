@@ -7,7 +7,7 @@ import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies
 
 from .logger import logger
-from ..constants import Endpoint, Headers
+from ..constants import Endpoint, Headers, format_http_version
 from ..exceptions import AuthError
 
 
@@ -16,11 +16,7 @@ def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
     Extract a cookie value from a curl_cffi Cookies jar.
     """
 
-    for cookie in cookies.jar:
-        if cookie.name == name:
-            return cookie.value
-
-    return None
+    return next((cookie.value for cookie in cookies.jar if cookie.name == name), None)
 
 
 def _get_cookie_cache_dir() -> Path:
@@ -87,16 +83,14 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
     )
     if verbose:
         logger.debug(
-            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
+            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
         )
     if response.status_code == 401:
         raise AuthError
     response.raise_for_status()
 
     save_cookies(client.cookies, verbose)
-    new_1psidts = _extract_cookie_value(client.cookies, "__Secure-1PSIDTS")
-
-    if new_1psidts:
+    if new_1psidts := _extract_cookie_value(client.cookies, "__Secure-1PSIDTS"):
         return new_1psidts
 
     cookie_names = [c.name for c in client.cookies.jar]

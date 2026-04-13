@@ -19,7 +19,7 @@ class Candidate(BaseModel):
     text: `str`
         Text output
     thoughts: `str`, optional
-        Model's thought process, can be empty. Only populated with `-thinking` models
+        Model's thought process, can be empty.
     web_images: `list[WebImage]`, optional
         List of web images in reply, can be empty.
     generated_images: `list[GeneratedImage]`, optional

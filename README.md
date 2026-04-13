@@ -349,7 +349,9 @@ You can also pass custom model header strings directly to access models that are
 custom_model = {
     "model_name": "xxx",
     "model_header": {
-        "x-goog-ext-525001261-jspb": "[1,null,null,null,'e6fa609c3fa255c0',null,null,null,[4]]"
+        "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4,5,6,8],null,null,1,null,null,1,1,"EA3C5672-E422-4A5F-BE26-B5B57D3B9AC3"]',
+        "x-goog-ext-73010989-jspb": "[0]",
+        "x-goog-ext-73010990-jspb": "[0,0,0]",
     },
 }
 
