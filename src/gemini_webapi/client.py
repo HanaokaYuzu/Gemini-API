@@ -318,14 +318,18 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
     async def start_auto_refresh(self) -> None:
         """
-        Start the background task to automatically refresh cookies.
+        Start the background task to automatically refresh cookies with random jitter.
+
+        Adds ±15 seconds of random jitter to the refresh interval to prevent synchronized
+        background tasks. The final interval is clamped to a minimum of 60 seconds.
         """
 
         if self.refresh_interval < 60:
             self.refresh_interval = 60
 
         while self._running:
-            await asyncio.sleep(self.refresh_interval)
+            jitter = random.uniform(-15, 15)
+            await asyncio.sleep(max(60, self.refresh_interval + jitter))
 
             if not self._running:
                 break
