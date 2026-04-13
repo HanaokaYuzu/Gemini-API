@@ -40,6 +40,7 @@ async def get_access_token(
     base_cookies: dict | Cookies,
     proxy: str | None = None,
     verbose: bool = False,
+    impersonate: str = "chrome",
     verify: bool = True,
 ) -> tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]:
     """
@@ -57,6 +58,8 @@ async def get_access_token(
         Proxy URL.
     verbose: `bool`, optional
         If True, log more details.
+    impersonate: `str`, optional
+        Allow to customize client, default to chrome.
     verify: `bool`, optional
         Whether to verify SSL certificates.
 
@@ -72,7 +75,7 @@ async def get_access_token(
     """
 
     client = AsyncSession(
-        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
+        impersonate=impersonate, proxy=proxy, allow_redirects=True, verify=verify
     )
 
     try:
