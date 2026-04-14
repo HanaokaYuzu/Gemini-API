@@ -344,7 +344,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
 
         while self._running:
-            interval = random.uniform(120, 240)
+            interval = random.uniform(60, 240)
             while self._running:
                 elapsed = time.time() - self.last_activity_time
                 remaining = interval - elapsed
@@ -563,7 +563,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             return self._model_registry[name]
 
         for m in self._model_registry.values():
-            if m.model_name == name or m.display_name == name:
+            if m.model_name.lower() == name.lower() or m.display_name.lower() == name.lower():
                 return m
 
         return Model.from_name(name)
@@ -882,6 +882,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             raise TypeError(
                 f"'model' must be a `Model` enum, `AvailableModel`, "
                 f"string, or dictionary; got `{type(model).__name__}`"
+            )
+
+        if model is not Model.UNSPECIFIED and not getattr(model, "is_available", True):
+            raise GeminiError(
+                f"{model.model_name} is not available for use. Account status: {self.account_status.name} - {self.account_status.description}"
             )
 
         _reqid = self._reqid

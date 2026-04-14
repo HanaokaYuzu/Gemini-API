@@ -166,7 +166,7 @@ class Model(Enum):
     @classmethod
     def from_name(cls, name: str) -> "Model":
         for model in cls:
-            if model.model_name == name:
+            if model.model_name == name.lower():
                 return model
 
         raise ValueError(
