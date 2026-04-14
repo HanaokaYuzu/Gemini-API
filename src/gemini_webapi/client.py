@@ -275,14 +275,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     self.refresh_task.cancel()
                     self.refresh_task = None
 
-                if self.auto_refresh and self.account_status == AccountStatus.AVAILABLE:
+                if self.auto_refresh and self._check_account_status():
                     self.refresh_task = asyncio.create_task(self.start_auto_refresh())
 
                 if self.activity_task:
                     self.activity_task.cancel()
                     self.activity_task = None
 
-                if self.account_status == AccountStatus.AVAILABLE:
+                if self.auto_refresh and self._check_account_status():
                     self.activity_task = asyncio.create_task(self.start_activity_watchdog())
 
                 logger.success("Gemini client initialized successfully.")
@@ -344,7 +344,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
 
         while self._running:
-            interval = random.uniform(120, 180)
+            interval = random.uniform(120, 240)
             while self._running:
                 elapsed = time.time() - self.last_activity_time
                 remaining = interval - elapsed
@@ -527,15 +527,17 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         self.last_activity_time = time.time()
 
-        if self.account_status == AccountStatus.AVAILABLE:
-            await self._batch_execute(
-                [
-                    RPCData(
-                        rpcid=GRPC.BARD_SETTINGS,
-                        payload='[[["bard_activity_enabled"]]]',
-                    )
-                ]
-            )
+        if not self._check_account_status():
+            return
+
+        await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.BARD_SETTINGS,
+                    payload='[[["bard_activity_enabled"]]]',
+                )
+            ]
+        )
 
     def list_models(self) -> list[AvailableModel] | None:
         """
@@ -589,6 +591,34 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             pass
 
         return model
+
+    def _check_account_status(self, raise_error: bool = False) -> bool:
+        """
+        Check if the account is available for higher-level operations.
+
+        Parameters
+        ----------
+        raise_error: `bool`, optional
+            If `True`, raises `GeminiError` if the account is not available (defaults to `False`).
+            If `False`, returns a boolean indicating availability.
+
+        Returns
+        -------
+        `bool`
+            `True` if account is AVAILABLE, `False` otherwise.
+
+        Raises
+        ------
+        GeminiError
+            If `raise_error` is `True` and account status is not AccountStatus.AVAILABLE.
+        """
+
+        is_available = self.account_status == AccountStatus.AVAILABLE
+        if not is_available and raise_error:
+            raise GeminiError(
+                f"Permission denied. Account status: {self.account_status.name} - {self.account_status.description}"
+            )
+        return is_available
 
     async def generate_content(
         self,
@@ -650,10 +680,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             await self.reset_close_task()
 
         if any([files, gem, deep_research]):
-            if self.account_status != AccountStatus.AVAILABLE:
-                raise GeminiError(
-                    f"Permission denied. Account status: {self.account_status.name} - {self.account_status.description}"
-                )
+            self._check_account_status(raise_error=True)
 
         file_data = None
         if files:
@@ -771,10 +798,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             await self.reset_close_task()
 
         if any([files, gem, deep_research]):
-            if self.account_status != AccountStatus.AVAILABLE:
-                raise GeminiError(
-                    f"Permission denied. Account status: {self.account_status.name} - {self.account_status.description}"
-                )
+            self._check_account_status(raise_error=True)
 
         file_data = None
         if files:

@@ -1,6 +1,6 @@
 import orjson as json
 
-from ..constants import GRPC, AccountStatus
+from ..constants import GRPC
 from ..types import (
     ChatHistory,
     ChatInfo,
@@ -28,66 +28,68 @@ class ChatMixin:
         Fetch and parse recent chats.
         """
 
+        if not self._check_account_status():
+            return
+
         recent_chats: list[ChatInfo] = []
 
-        if self.account_status == AccountStatus.AVAILABLE:
-            response_chats1 = await self._batch_execute(
-                [
-                    RPCData(
-                        rpcid=GRPC.LIST_CHATS,
-                        payload=json.dumps([recent, None, [1, None, 1]]).decode("utf-8"),
-                    ),
-                ]
-            )
-            response_chats2 = await self._batch_execute(
-                [
-                    RPCData(
-                        rpcid=GRPC.LIST_CHATS,
-                        payload=json.dumps([recent, None, [0, None, 1]]).decode("utf-8"),
-                    ),
-                ]
-            )
+        response_chats1 = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.LIST_CHATS,
+                    payload=json.dumps([recent, None, [1, None, 1]]).decode("utf-8"),
+                ),
+            ]
+        )
+        response_chats2 = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.LIST_CHATS,
+                    payload=json.dumps([recent, None, [0, None, 1]]).decode("utf-8"),
+                ),
+            ]
+        )
 
-            for response_chats in (response_chats1, response_chats2):
-                chats_json = extract_json_from_response(response_chats.text)
-                for part in chats_json:
-                    part_body_str = get_nested_value(part, [2])
-                    if not part_body_str:
-                        continue
+        for response_chats in (response_chats1, response_chats2):
+            chats_json = extract_json_from_response(response_chats.text)
+            for part in chats_json:
+                part_body_str = get_nested_value(part, [2])
+                if not part_body_str:
+                    continue
 
-                    try:
-                        part_body = json.loads(part_body_str)
-                    except json.JSONDecodeError:
-                        continue
+                try:
+                    part_body = json.loads(part_body_str)
+                except json.JSONDecodeError:
+                    continue
 
-                    chat_list = get_nested_value(part_body, [2])
-                    if isinstance(chat_list, list):
-                        for chat_data in chat_list:
-                            if isinstance(chat_data, list) and len(chat_data) > 1:
-                                cid = get_nested_value(chat_data, [0], "")
-                                title = get_nested_value(chat_data, [1], "")
-                                is_pinned = bool(get_nested_value(chat_data, [2]))
-                                timestamp_data = get_nested_value(chat_data, [5])
-                                timestamp = 0.0
-                                if (
-                                    isinstance(timestamp_data, list)
-                                    and len(timestamp_data) >= 2
-                                ):
-                                    seconds = timestamp_data[0]
-                                    nanos = timestamp_data[1]
-                                    timestamp = float(seconds) + (float(nanos) / 1e9)
+                chat_list = get_nested_value(part_body, [2])
+                if isinstance(chat_list, list):
+                    for chat_data in chat_list:
+                        if isinstance(chat_data, list) and len(chat_data) > 1:
+                            cid = get_nested_value(chat_data, [0], "")
+                            title = get_nested_value(chat_data, [1], "")
+                            is_pinned = bool(get_nested_value(chat_data, [2]))
+                            timestamp_data = get_nested_value(chat_data, [5])
+                            timestamp = 0.0
+                            if (
+                                isinstance(timestamp_data, list)
+                                and len(timestamp_data) >= 2
+                            ):
+                                seconds = timestamp_data[0]
+                                nanos = timestamp_data[1]
+                                timestamp = float(seconds) + (float(nanos) / 1e9)
 
-                                if cid:
-                                    if not any(c.cid == cid for c in recent_chats):
-                                        recent_chats.append(
-                                            ChatInfo(
-                                                cid=cid,
-                                                title=title,
-                                                is_pinned=is_pinned,
-                                                timestamp=timestamp,
-                                            )
+                            if cid:
+                                if not any(c.cid == cid for c in recent_chats):
+                                    recent_chats.append(
+                                        ChatInfo(
+                                            cid=cid,
+                                            title=title,
+                                            is_pinned=is_pinned,
+                                            timestamp=timestamp,
                                         )
-                        break
+                                    )
+                    break
 
         self._recent_chats = recent_chats
 
@@ -119,6 +121,8 @@ class ChatMixin:
         :class:`ChatHistory` | None
             The conversation history, or None if reading failed.
         """
+
+        self._check_account_status(raise_error=True)
 
         try:
             response = await self._batch_execute(
@@ -249,6 +253,8 @@ class ChatMixin:
             The latest model output, or ``None`` if unavailable.
         """
 
+        self._check_account_status(raise_error=True)
+
         try:
             history = await self.read_chat(cid, limit=5)
             if not history or not history.turns:
@@ -279,6 +285,8 @@ class ChatMixin:
         cid: `str`
             The ID of the chat requiring deletion (e.g. "c_...").
         """
+
+        self._check_account_status(raise_error=True)
 
         await self._batch_execute(
             [

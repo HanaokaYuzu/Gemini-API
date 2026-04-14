@@ -60,6 +60,8 @@ class GemMixin:
             Refer to `gemini_webapi.types.GemJar`.
         """
 
+        self._check_account_status(raise_error=True)
+
         response = await self._batch_execute(
             [
                 RPCData(
@@ -161,6 +163,8 @@ class GemMixin:
             The created gem.
         """
 
+        self._check_account_status(raise_error=True)
+
         response = await self._batch_execute(
             [
                 RPCData(
@@ -238,6 +242,8 @@ class GemMixin:
             The updated gem.
         """
 
+        self._check_account_status(raise_error=True)
+
         if isinstance(gem, Gem):
             gem_id = gem.id
         else:
@@ -291,6 +297,8 @@ class GemMixin:
         gem: `Gem | str`
             Gem to delete, can be either a `gemini_webapi.types.Gem` object or a gem id string.
         """
+
+        self._check_account_status(raise_error=True)
 
         if isinstance(gem, Gem):
             gem_id = gem.id
