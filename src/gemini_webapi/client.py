@@ -1467,26 +1467,36 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 )
 
         # Video handling
+        # Empirically verified 2026-04-14 across multiple Veo 3 conversations:
+        # the URL pair lives at candidate_data[12][8]["60"][0][0][0][0][7].
+        # The outer dict at [12][8] uses a STRING key "60" (not an integer
+        # index) — that's why the previous integer-only path returned empty.
         generated_videos = []
-        video_info = get_nested_value(candidate_data, [12, 59, 0, 0, 0], [])
-        if video_info:
-            urls = get_nested_value(video_info, [0, 7], [])
-            if len(urls) >= 2:
-                generated_videos.append(
-                    GeneratedVideo(
-                        url=urls[1],
-                        thumbnail=urls[0],
-                        cid=cid,
-                        rid=rid,
-                        rcid=rcid,
-                        client_ref=self,
-                        proxy=self.proxy,
-                    )
+        video_urls = get_nested_value(
+            candidate_data, [12, 8, "60", 0, 0, 0, 0, 7], []
+        )
+        if isinstance(video_urls, list) and len(video_urls) >= 2:
+            generated_videos.append(
+                GeneratedVideo(
+                    url=video_urls[1],
+                    thumbnail=video_urls[0],
+                    cid=cid,
+                    rid=rid,
+                    rcid=rcid,
+                    client_ref=self,
+                    proxy=self.proxy,
                 )
+            )
 
         # Media (Music) handling
+        # Empirically verified 2026-04-14 across multiple Lyria/MusicGen
+        # conversations: the music root is at candidate_data[12][0]["87"], a
+        # list whose [0] entry is the mp3 metadata and [1] entry is the mp4
+        # (album-art preview) metadata. Each entry's URL pair sits at the
+        # same `[1, 7]` offset relative to its root, matching the original
+        # internal layout — only the outer `[12, 86]` path was wrong.
         generated_media = []
-        media_data = get_nested_value(candidate_data, [12, 86], [])
+        media_data = get_nested_value(candidate_data, [12, 0, "87"], [])
         if media_data:
             mp3_url = ""
             mp3_thumb = ""
