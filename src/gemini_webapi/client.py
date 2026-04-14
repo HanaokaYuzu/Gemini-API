@@ -837,7 +837,29 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         while True:
             try:
-                inner_req_list: list[Any] = [None] * 69
+                # `inner_req_list` length must match what the web UI sends
+                # (currently 80 elements; previously this code used 69 and
+                # never set indices [69..79], which works for plain text but
+                # truncates the trailing tool/mode metadata used by Veo / Lyria).
+                # Captured 2026-04-14 from the web UI 工具→創作音樂 path:
+                #
+                #   inner[49]  = tool indicator
+                #                  None or 1 → text / deep_research
+                #                  11        → Veo (video generation)
+                #                  21        → Lyria (music generation)
+                #   inner[79]  = secondary mode flag
+                #                  3 → video, 1 → music, None for text
+                #
+                # Without setting these to non-None for video/music prompts the
+                # server-side LLM falls back to plain text classification and
+                # only writes a description of the requested asset instead of
+                # invoking the actual tool (i.e. response.videos / .media stays
+                # empty even on success). A future PR can add explicit
+                # `tool="video"` / `tool="music"` parameters wired to these
+                # indices; for now the fix is just to make the list long
+                # enough that those slots can be set after-the-fact via
+                # monkey-patching without an IndexError.
+                inner_req_list: list[Any] = [None] * 80
                 inner_req_list[0] = message_content
                 inner_req_list[1] = [self.language]
                 inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
