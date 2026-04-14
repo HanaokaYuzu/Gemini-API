@@ -591,6 +591,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if research:
             to_fetch.append((RESEARCH_QUOTA_PAYLOAD, "Deep Research"))
 
+        id_to_name = AvailableModel.build_model_id_name_mapping()
+
         for payload_str, category in to_fetch:
             try:
                 response = await self._batch_execute(
@@ -627,6 +629,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 or reg_model.display_name
                                 or model_id
                             )
+                        elif model_id in id_to_name:
+                            friendly_name = id_to_name[model_id]
 
                         m_id = model_id or category.lower().replace("/", "_")
                         full_key = f"{m_id}:{quota_id}"
@@ -655,7 +659,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 except (ValueError, OSError, OverflowError):
                                     reset_str = f" (Resets at timestamp: {reset_ts})"
 
-                            display_target = friendly_name if model_id else full_key
+                            display_target = (
+                                friendly_name
+                                if (model_id and friendly_name != model_id)
+                                else (friendly_name or f"Gemini {category}")
+                            )
                             quota_display = (
                                 "Unlimited"
                                 if (total == 0 and remaining == 0)
@@ -713,10 +721,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     "status_code": None,
                     "signal": None,
                 }
-                logger.debug("Account abuse status: Clean (No flags detected).")
+                logger.info("Account abuse status: Clean (No flags detected).")
                 continue
 
-            # Parse details only if abuse_info exists
             raw_status = get_nested_value(abuse_info, [1])
             signal = get_nested_value(abuse_info, [3, 1])
 
