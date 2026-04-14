@@ -632,8 +632,27 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                         elif model_id in id_to_name:
                             friendly_name = id_to_name[model_id]
 
+                        action_id = get_nested_value(item, [0, 1])
+                        action_labels = {
+                            2: "Deep Research",
+                            4: "Pro",
+                            6: "Advanced",
+                            11: "Flash",
+                            15: "Thinking",
+                        }
+                        action_label = action_labels.get(action_id)
+
                         m_id = model_id or category.lower().replace("/", "_")
                         full_key = f"{m_id}:{quota_id}"
+
+                        model_label = friendly_name or f"Gemini {category}"
+                        if (
+                            action_label
+                            and action_label.lower() not in model_label.lower()
+                        ):
+                            display_target = f"{model_label} [{action_label}]"
+                        else:
+                            display_target = model_label
 
                         quota_data = {
                             "usage_percentage": usage_level,
@@ -641,9 +660,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             "total": total,
                             "remaining": remaining,
                             "model_id": model_id,
-                            "model_name": friendly_name
-                            if model_id
-                            else f"Gemini {category}",
+                            "model_name": display_target,
                         }
 
                         self._quotas[full_key] = quota_data
@@ -659,15 +676,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 except (ValueError, OSError, OverflowError):
                                     reset_str = f" (Resets at timestamp: {reset_ts})"
 
-                            display_target = (
-                                friendly_name
-                                if (model_id and friendly_name != model_id)
-                                else (friendly_name or f"Gemini {category}")
-                            )
                             quota_display = (
                                 "Unlimited"
                                 if (total == 0 and remaining == 0)
                                 else f"{remaining}/{total} remaining"
+                            )
+                            logger.info(
+                                f"Account quota updated: {display_target} - {quota_display}{reset_str}"
                             )
 
                             if usage_percentage := usage_level:
@@ -683,14 +698,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                     logger.warning(
                                         f"Account quota warning: Usage is at {usage_percentage:.1f}% for {display_target} ({quota_display}).{reset_str}"
                                     )
-                                elif self.verbose:
-                                    logger.info(
-                                        f"Account quota updated: {display_target} - {quota_display}"
-                                    )
-                            elif self.verbose:
-                                logger.info(
-                                    f"Account quota updated: {display_target} - {quota_display}"
-                                )
 
             except Exception as e:
                 logger.error(
