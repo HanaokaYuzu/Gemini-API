@@ -9,7 +9,7 @@ import uuid
 from asyncio import Task
 from pathlib import Path
 from textwrap import shorten
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Iterator, Optional
 
 import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies, Response
@@ -433,6 +433,36 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
 
+    def _parse_rpc_results(self, response_text: str, target_id: str) -> Iterator[Any]:
+        """
+        Extract parts from a batch response and yield only those matching the target RPC ID.
+        """
+        try:
+            response_json = extract_json_from_response(response_text)
+            for part in response_json:
+                if get_nested_value(part, [1]) != target_id:
+                    continue
+
+                # Check for server-side rejection (e.g., code 7 for permission denied)
+                reject_code = get_nested_value(part, [5, 0])
+                if reject_code == 7:
+                    logger.warning(
+                        f"RPC request {target_id} failed: Permission denied or unauthenticated."
+                    )
+                    continue
+
+                part_body_str = get_nested_value(part, [2])
+                if not part_body_str:
+                    continue
+
+                try:
+                    yield json.loads(part_body_str)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Failed to extract JSON from response: {e}")
+
     async def _init_rpc(self) -> None:
         """
         Send initial RPC calls to set up the session.
@@ -463,15 +493,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             ]
         )
 
-        response_json = extract_json_from_response(response.text)
-
-        for part in response_json:
-            part_body_str = get_nested_value(part, [2])
-            if not part_body_str:
-                continue
-
-            part_body = json.loads(part_body_str)
-
+        for part_body in self._parse_rpc_results(response.text, GRPC.GET_USER_STATUS):
             status_code = get_nested_value(part_body, [14])
             self.account_status = AccountStatus.from_status_code(status_code)
 
@@ -561,15 +583,15 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if not any([flash, advanced, research]):
             flash = True
             advanced = True
-        to_fetch: list[str] = []
+        to_fetch: list[tuple[str, str]] = []
         if flash:
-            to_fetch.append(GEMINI_FLASH_QUOTA_PAYLOAD)
+            to_fetch.append((GEMINI_FLASH_QUOTA_PAYLOAD, "Flash"))
         if advanced:
-            to_fetch.append(GEMINI_ADVANCED_QUOTA_PAYLOAD)
+            to_fetch.append((GEMINI_ADVANCED_QUOTA_PAYLOAD, "Thinking/Pro"))
         if research:
-            to_fetch.append(RESEARCH_QUOTA_PAYLOAD)
+            to_fetch.append((RESEARCH_QUOTA_PAYLOAD, "Deep Research"))
 
-        for payload_str in to_fetch:
+        for payload_str, category in to_fetch:
             try:
                 response = await self._batch_execute(
                     [
@@ -580,13 +602,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     ]
                 )
 
-                response_json = extract_json_from_response(response.text)
-                for part in response_json:
-                    part_body_str = get_nested_value(part, [2])
-                    if not part_body_str:
-                        continue
-
-                    part_body = json.loads(part_body_str)
+                for part_body in self._parse_rpc_results(
+                    response.text, GRPC.CHECK_GEMINI_QUOTA
+                ):
                     quota_items = get_nested_value(part_body, [0])
                     model_id = get_nested_value(part_body, [1])
 
@@ -610,7 +628,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 or model_id
                             )
 
-                        m_id = model_id or "generic"
+                        m_id = model_id or category.lower().replace("/", "_")
                         full_key = f"{m_id}:{quota_id}"
 
                         quota_data = {
@@ -619,7 +637,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             "total": total,
                             "remaining": remaining,
                             "model_id": model_id,
-                            "model_name": friendly_name if model_id else "Generic",
+                            "model_name": friendly_name
+                            if model_id
+                            else f"Gemini {category}",
                         }
 
                         self._quotas[full_key] = quota_data
@@ -636,26 +656,32 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                     reset_str = f" (Resets at timestamp: {reset_ts})"
 
                             display_target = friendly_name if model_id else full_key
+                            quota_display = (
+                                "Unlimited"
+                                if (total == 0 and remaining == 0)
+                                else f"{remaining}/{total} remaining"
+                            )
+
                             if usage_percentage := usage_level:
                                 if usage_percentage >= 100:
                                     logger.error(
-                                        f"Account quota EXHAUSTED for {display_target}: {remaining}/{total} remaining.{reset_str}"
+                                        f"Account quota EXHAUSTED for {display_target}: {quota_display}.{reset_str}"
                                     )
                                 elif usage_percentage >= 90:
                                     logger.warning(
-                                        f"Account quota critical: Usage is at {usage_percentage:.1f}% for {display_target} ({remaining}/{total} left).{reset_str}"
+                                        f"Account quota critical: Usage is at {usage_percentage:.1f}% for {display_target} ({quota_display}).{reset_str}"
                                     )
                                 elif usage_percentage >= 75:
                                     logger.warning(
-                                        f"Account quota warning: Usage is at {usage_percentage:.1f}% for {display_target} ({remaining}/{total} left).{reset_str}"
+                                        f"Account quota warning: Usage is at {usage_percentage:.1f}% for {display_target} ({quota_display}).{reset_str}"
                                     )
                                 elif self.verbose:
                                     logger.info(
-                                        f"Account quota updated: {display_target} - {remaining}/{total} remaining"
+                                        f"Account quota updated: {display_target} - {quota_display}"
                                     )
                             elif self.verbose:
                                 logger.info(
-                                    f"Account quota updated: {display_target} - {remaining}/{total} remaining"
+                                    f"Account quota updated: {display_target} - {quota_display}"
                                 )
 
             except Exception as e:
@@ -678,51 +704,35 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             ]
         )
 
-        response_json = extract_json_from_response(response.text)
-        for part in response_json:
-            reject_code = get_nested_value(part, [5, 0])
-            if reject_code == 7:
-                logger.warning(
-                    "Abuse status check failed: Permission denied or unauthenticated."
-                )
-                continue
+        for part_body in self._parse_rpc_results(response.text, GRPC.GET_ABUSE_STATUS):
+            abuse_info = get_nested_value(part_body, [1])
 
-            part_body_str = get_nested_value(part, [2])
-            if not part_body_str:
-                continue
-
-            try:
-                part_body = json.loads(part_body_str)
-                abuse_info = get_nested_value(part_body, [1])
-
-                if not abuse_info:
-                    self._abuse_status = {
-                        "is_clean": True,
-                        "status_code": None,
-                        "signal": None,
-                    }
-                    logger.debug("Account abuse status: Clean (No flags detected).")
-                    continue
-
-                # Parse details only if abuse_info exists
-                raw_status = get_nested_value(abuse_info, [1])
-                signal = get_nested_value(abuse_info, [3, 1])
-
-                status_code = (
-                    int(raw_status) // 1_000_000 if raw_status is not None else None
-                )
-
+            if not abuse_info:
                 self._abuse_status = {
-                    "is_clean": False,
-                    "status_code": status_code,
-                    "signal": signal,
+                    "is_clean": True,
+                    "status_code": None,
+                    "signal": None,
                 }
+                logger.debug("Account abuse status: Clean (No flags detected).")
+                continue
 
-                logger.warning(
-                    f"Potential account restriction or abnormal status detected: {self._abuse_status}"
-                )
-            except (json.JSONDecodeError, TypeError, ValueError):
-                logger.debug("Failed to parse abuse status part body.")
+            # Parse details only if abuse_info exists
+            raw_status = get_nested_value(abuse_info, [1])
+            signal = get_nested_value(abuse_info, [3, 1])
+
+            status_code = (
+                int(raw_status) // 1_000_000 if raw_status is not None else None
+            )
+
+            self._abuse_status = {
+                "is_clean": False,
+                "status_code": status_code,
+                "signal": signal,
+            }
+
+            logger.warning(
+                f"Potential account restriction or abnormal status detected: {self._abuse_status}"
+            )
 
     async def _fetch_extra_quota(self) -> None:
         """
@@ -741,66 +751,50 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             ]
         )
 
-        response_json = extract_json_from_response(response.text)
-        for part in response_json:
-            reject_code = get_nested_value(part, [5, 0])
-            if reject_code == 7:
-                logger.warning(
-                    "Extra quota check failed: Permission denied or unauthenticated."
+        for part_body in self._parse_rpc_results(response.text, GRPC.CHECK_QUOTA):
+            is_blocked = get_nested_value(part_body, [0])
+            usage_level = get_nested_value(part_body, [1])
+            reset_ts = get_nested_value(part_body, [2, 0])
+
+            if "extra" not in self._quotas:
+                self._quotas["extra"] = {}
+            self._quotas["extra"]["default"] = {
+                "is_blocked": is_blocked,
+                "usage_percentage": usage_level * 100
+                if isinstance(usage_level, (int, float))
+                else None,
+                "reset_time": reset_ts,
+            }
+
+            if is_blocked:
+                reset_str = (
+                    f" (Resets: {datetime.fromtimestamp(reset_ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')})"
+                    if reset_ts
+                    else ""
                 )
-                continue
-
-            part_body_str = get_nested_value(part, [2])
-            if not part_body_str:
-                continue
-
-            try:
-                part_body = json.loads(part_body_str)
-                is_blocked = get_nested_value(part_body, [0])
-                usage_level = get_nested_value(part_body, [1])
-                reset_ts = get_nested_value(part_body, [2, 0])
-
-                if "extra" not in self._quotas:
-                    self._quotas["extra"] = {}
-                self._quotas["extra"]["default"] = {
-                    "is_blocked": is_blocked,
-                    "usage_percentage": usage_level * 100
-                    if isinstance(usage_level, (int, float))
-                    else None,
-                    "reset_time": reset_ts,
-                }
-
-                if is_blocked:
-                    reset_str = (
-                        f" (Resets: {datetime.fromtimestamp(reset_ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')})"
-                        if reset_ts
-                        else ""
+                logger.error(
+                    f"Extra feature quota exceeded: Hard block detected.{reset_str}"
+                )
+            elif isinstance(usage_level, (int, float)):
+                usage_pc = usage_level * 100
+                reset_str = (
+                    f" (Resets: {datetime.fromtimestamp(reset_ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')})"
+                    if reset_ts
+                    else ""
+                )
+                if usage_pc >= 90:
+                    logger.warning(
+                        f"Extra feature quota critical: Usage is at {usage_pc:.1f}%.{reset_str}"
                     )
-                    logger.error(
-                        f"Extra feature quota exceeded: Hard block detected.{reset_str}"
+                elif usage_pc >= 75:
+                    logger.warning(
+                        f"Extra feature quota warning: Usage is at {usage_pc:.1f}%.{reset_str}"
                     )
-                elif isinstance(usage_level, (int, float)):
-                    usage_pc = usage_level * 100
-                    reset_str = (
-                        f" (Resets: {datetime.fromtimestamp(reset_ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')})"
-                        if reset_ts
-                        else ""
-                    )
-                    if usage_pc >= 90:
-                        logger.warning(
-                            f"Extra feature quota critical: Usage is at {usage_pc:.1f}%.{reset_str}"
-                        )
-                    elif usage_pc >= 75:
-                        logger.warning(
-                            f"Extra feature quota warning: Usage is at {usage_pc:.1f}%.{reset_str}"
-                        )
 
-                if self.verbose:
-                    logger.info(
-                        f"Extra quota check: Blocked={is_blocked}, UsageLevel={usage_level}"
-                    )
-            except (json.JSONDecodeError, TypeError):
-                continue
+            if self.verbose:
+                logger.info(
+                    f"Extra quota check: Blocked={is_blocked}, UsageLevel={usage_level}"
+                )
 
     async def _fetch_preferences(self) -> None:
         """
@@ -890,6 +884,50 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             pass
 
         return model
+
+    @staticmethod
+    def _get_quota_flags(
+        model: Model | AvailableModel | str | dict,
+        deep_research: bool = False,
+    ) -> dict[str, bool]:
+        """
+        Determine the required quota fetch flags based on the model and task type.
+
+        Parameters
+        ----------
+        model : `Model` | `AvailableModel` | `str` | `dict`
+            The model used for generation.
+        deep_research : `bool`, optional
+            Whether the task was a deep research task.
+
+        Returns
+        -------
+        `dict[str, bool]`
+            A dictionary containing the required flags for _fetch_quota.
+        """
+
+        flags = {"flash": False, "advanced": False, "research": deep_research}
+
+        model_name = ""
+        if isinstance(model, (Model, AvailableModel)):
+            model_name = model.model_name.lower()
+        elif isinstance(model, str):
+            model_name = model.lower()
+        elif isinstance(model, dict):
+            model_name = model.get("model_name", "").lower()
+
+        if not model_name or model_name == "unspecified":
+            return {"flash": True, "advanced": True, "research": deep_research}
+
+        if "thinking" in model_name or "pro" in model_name:
+            flags["advanced"] = True
+        elif "flash" in model_name:
+            flags["flash"] = True
+        else:
+            flags["flash"] = True
+            flags["advanced"] = True
+
+        return flags
 
     def _check_account_status(self, raise_error: bool = False) -> bool:
         """
@@ -1780,6 +1818,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 raise APIError(
                     f"Failed to parse response body from Google ({type(e).__name__}). This might be a temporary API change or invalid data."
                 )
+
+        # Update quotas after successful generation
+        quota_flags = self._get_quota_flags(model, deep_research=deep_research)
+        await self._fetch_quota(**quota_flags)
 
     def _parse_candidate(
         self, candidate_data: list[Any], cid: str, rid: str, rcid: str
