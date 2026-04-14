@@ -13,14 +13,11 @@ DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
 MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
-# Gemini Flash Quota: Targeted at Gemini Flash models (Action 11)
+# Gemini Flash Quota: Targeted at Gemini Flash models
 GEMINI_FLASH_QUOTA_PAYLOAD = "[[[1,11],[2,11],[6,11]]]"
 
-# Gemini Advanced Quota: Targeted at Gemini Pro & Flash Thinking (Action 4, 15, 6)
+# Gemini Advanced Quota: Targeted at Gemini Pro & Flash Thinking models
 GEMINI_ADVANCED_QUOTA_PAYLOAD = "[[[1,4],[6,6],[1,15]]]"
-
-# Specialized features (Deep Research)
-RESEARCH_QUOTA_PAYLOAD = "[[[1,2]]]"
 
 
 def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:

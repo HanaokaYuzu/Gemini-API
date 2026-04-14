@@ -32,7 +32,6 @@ from .constants import (
     MODEL_HEADER_KEY,
     GEMINI_FLASH_QUOTA_PAYLOAD,
     GEMINI_ADVANCED_QUOTA_PAYLOAD,
-    RESEARCH_QUOTA_PAYLOAD,
 )
 from .exceptions import (
     APIError,
@@ -561,7 +560,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self,
         flash: bool = False,
         advanced: bool = False,
-        research: bool = False,
     ) -> None:
         """
         Fetch quota limits for Gemini models.
@@ -573,14 +571,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             If True, fetches limits for Gemini Flash models.
         advanced: `bool`, optional
             If True, fetches limits for Gemini Pro and Flash Thinking models.
-        research: `bool`, optional
-            If True, fetches limits for Deep Research features.
         """
 
         if not self._check_account_status():
             return
 
-        if not any([flash, advanced, research]):
+        if not any([flash, advanced]):
             flash = True
             advanced = True
         to_fetch: list[tuple[str, str]] = []
@@ -588,10 +584,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             to_fetch.append((GEMINI_FLASH_QUOTA_PAYLOAD, "Flash"))
         if advanced:
             to_fetch.append((GEMINI_ADVANCED_QUOTA_PAYLOAD, "Thinking/Pro"))
-        if research:
-            to_fetch.append((RESEARCH_QUOTA_PAYLOAD, "Deep Research"))
-
-        id_to_name = AvailableModel.build_model_id_name_mapping()
 
         for payload_str, category in to_fetch:
             try:
@@ -608,62 +600,38 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     response.text, GRPC.CHECK_GEMINI_QUOTA
                 ):
                     quota_items = get_nested_value(part_body, [0])
-                    model_id = get_nested_value(part_body, [1])
 
                     if not isinstance(quota_items, list):
                         continue
 
                     for item in quota_items:
+                        quota_id_list = get_nested_value(item, [0], [])
+                        action_id = get_nested_value(item, [0, 1])
                         usage_level = get_nested_value(item, [2])
                         reset_ts = get_nested_value(item, [3, 0])
                         total = get_nested_value(item, [4])
                         remaining = get_nested_value(item, [5])
-                        quota_id_list = get_nested_value(item, [0], [])
+
                         quota_id = "-".join(map(str, quota_id_list))
 
-                        friendly_name = model_id
-                        if model_id in self._model_registry:
-                            reg_model = self._model_registry[model_id]
-                            friendly_name = (
-                                reg_model.model_name
-                                or reg_model.display_name
-                                or model_id
-                            )
-                        elif model_id in id_to_name:
-                            friendly_name = id_to_name[model_id]
-
-                        action_id = get_nested_value(item, [0, 1])
                         action_labels = {
-                            2: "Deep Research",
-                            4: "Pro",
-                            6: "Advanced",
-                            11: "Flash",
-                            15: "Thinking",
+                            4: "Gemini Pro",
+                            11: "Gemini Flash",
+                            15: "Gemini Flash Thinking",
                         }
-                        action_label = action_labels.get(action_id)
-
-                        m_id = model_id or category.lower().replace("/", "_")
-                        full_key = f"{m_id}:{quota_id}"
-
-                        model_label = friendly_name or f"Gemini {category}"
-                        if (
-                            action_label
-                            and action_label.lower() not in model_label.lower()
-                        ):
-                            display_target = f"{model_label} [{action_label}]"
-                        else:
-                            display_target = model_label
+                        label = action_labels.get(action_id, f"Gemini {category}")
+                        display_target = f"{label} [{quota_id}]"
 
                         quota_data = {
                             "usage_percentage": usage_level,
                             "reset_time": reset_ts,
                             "total": total,
                             "remaining": remaining,
-                            "model_id": model_id,
-                            "model_name": display_target,
+                            "action_id": action_id,
+                            "label": display_target,
                         }
 
-                        self._quotas[full_key] = quota_data
+                        self._quotas[quota_id] = quota_data
 
                         if isinstance(usage_level, (int, float)):
                             reset_str = ""
@@ -902,7 +870,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
     @staticmethod
     def _get_quota_flags(
         model: Model | AvailableModel | str | dict,
-        deep_research: bool = False,
     ) -> dict[str, bool]:
         """
         Determine the required quota fetch flags based on the model and task type.
@@ -911,8 +878,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         ----------
         model : `Model` | `AvailableModel` | `str` | `dict`
             The model used for generation.
-        deep_research : `bool`, optional
-            Whether the task was a deep research task.
 
         Returns
         -------
@@ -920,7 +885,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             A dictionary containing the required flags for _fetch_quota.
         """
 
-        flags = {"flash": False, "advanced": False, "research": deep_research}
+        flags = {"flash": False, "advanced": False}
 
         model_name = ""
         if isinstance(model, (Model, AvailableModel)):
@@ -931,7 +896,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             model_name = model.get("model_name", "").lower()
 
         if not model_name or model_name == "unspecified":
-            return {"flash": True, "advanced": True, "research": deep_research}
+            return {"flash": True, "advanced": True}
 
         if "thinking" in model_name or "pro" in model_name:
             flags["advanced"] = True
@@ -1834,7 +1799,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 )
 
         # Update quotas after successful generation
-        quota_flags = self._get_quota_flags(model, deep_research=deep_research)
+        quota_flags = self._get_quota_flags(model)
         await self._fetch_quota(**quota_flags)
 
     def _parse_candidate(
