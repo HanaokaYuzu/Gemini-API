@@ -344,7 +344,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
 
         while self._running:
-            interval = random.uniform(60, 240)
+            interval = random.uniform(60, 300)
             while self._running:
                 elapsed = time.time() - self.last_activity_time
                 remaining = interval - elapsed

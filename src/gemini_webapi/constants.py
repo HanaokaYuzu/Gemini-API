@@ -62,8 +62,6 @@ class GRPC(StrEnum):
 
     GET_USER_STATUS = "otAQ7b"
 
-    LIST_MODELS = "otAQ7b"
-
     GET_FULL_SIZE_IMAGE = "c8o8Fe"
 
     BARD_SETTINGS = "ESY5D"
