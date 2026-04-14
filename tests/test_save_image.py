@@ -18,7 +18,9 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init(auto_refresh=False, verbose=True, watchdog_timeout=450)
+            await self.geminiclient.init(
+                auto_refresh=False, verbose=True, watchdog_timeout=450
+            )
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
 

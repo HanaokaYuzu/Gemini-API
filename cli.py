@@ -196,8 +196,7 @@ async def _init_client(args):
         return client, json_cookies
     except AuthError as e:
         raise SystemExit(
-            f"Authentication failed: {e}\n"
-            "Please re-export cookies from your browser."
+            f"Authentication failed: {e}\nPlease re-export cookies from your browser."
         )
 
 

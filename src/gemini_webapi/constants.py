@@ -13,6 +13,15 @@ DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
 MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
+# Gemini Flash Quota: Targeted at Gemini Flash models (Action 11)
+GEMINI_FLASH_QUOTA_PAYLOAD = "[[[1,11],[2,11],[6,11]]]"
+
+# Gemini Advanced Quota: Targeted at Gemini Pro & Flash Thinking (Action 4, 15, 6)
+GEMINI_ADVANCED_QUOTA_PAYLOAD = "[[[1,4],[6,6],[1,15]]]"
+
+# Specialized features (Deep Research)
+RESEARCH_QUOTA_PAYLOAD = "[[[1,2]]]"
+
 
 def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:
     """
@@ -40,31 +49,53 @@ class GRPC(StrEnum):
     Google RPC ids used in Gemini API.
     """
 
-    # Chat methods
-    LIST_CHATS = "MaZiqc"
-    READ_CHAT = "hNvQHb"
-    DELETE_CHAT_1 = "GzXR5e"
-    DELETE_CHAT_2 = "qWymEb"
+    # Conversation methods
+    LIST_CONVERSATIONS = "MaZiqc"
+    LIST_CONVERSATION_TURNS = "hNvQHb"
+    GET_CONVERSATION_TURN = "EqPOKe"
+    DELETE_CONVERSATION = "GzXR5e"
+    UPDATE_CONVERSATION = "MUAZcd"
+    MARK_LAST_CONVERSATION_TURN = "kOWVAe"
+    GENERATE_HEADLINE = "ukz1Fe"
 
     # Gem methods
-    LIST_GEMS = "CNgdBe"
-    CREATE_GEM = "oMH3Zd"
-    UPDATE_GEM = "kHv0Vd"
-    DELETE_GEM = "UXcSJb"
+    LIST_BOTS = "CNgdBe"
+    CREATE_BOT = "oMH3Zd"
+    GET_BOT = "HcT8bb"
+    UPDATE_BOT_METADATA = "kHv0Vd"
+    DELETE_BOT = "UXcSJb"
+    DELETE_BOT_AND_CONVERSATIONS = "Nwkn9"
 
-    # Deep research methods
-    DEEP_RESEARCH_STATUS = "kwDCne"
-    DEEP_RESEARCH_PREFS = "L5adhe"
-    DEEP_RESEARCH_BOOTSTRAP = "ku4Jyf"
-    DEEP_RESEARCH_MODEL_STATE = "qpEbW"
-    DEEP_RESEARCH_CAPS = "aPya6c"
-    DEEP_RESEARCH_ACK = "PCck7e"
+    # Task & Research methods
+    CREATE_TASK = "Jba3ib"
+    GET_TASK = "kwDCne"
+    GET_ALL_TASKS = "XPSWpd"
+    GET_TASKS_IN_CONVERSATION = "qWymEb"
+    GET_CANDIDATES = "PCck7e"
+    LIST_DISCOVERY_CARDS = "ku4Jyf"
+    GET_DISCOVERY_CARD = "oApPWc"
+    LIST_DISCOVERY_BANNERS = "Te6DCf"
 
+    # Artifact methods
+    LIST_GEMINI_APP_ARTIFACTS = "jGArJ"
+    DELETE_GEMINI_APP_ARTIFACTS = "PGX16d"
+
+    # Memory methods
+    LIST_MEMORIES = "ZKcapf"
+    CREATE_MEMORY = "xVRQX"
+    UPDATE_MEMORY = "gSnMcd"
+    DELETE_MEMORY = "Ok9j9b"
+    DELETE_ALL_MEMORIES = "YgU2Cc"
+
+    # User & System methods
     GET_USER_STATUS = "otAQ7b"
-
-    GET_FULL_SIZE_IMAGE = "c8o8Fe"
-
-    BARD_SETTINGS = "ESY5D"
+    CHECK_GEMINI_QUOTA = "qpEbW"
+    CHECK_QUOTA = "aPya6c"
+    DOWNLOAD_GENERATED_IMAGE = "c8o8Fe"
+    GET_ABUSE_STATUS = "GPRiHf"
+    UPDATE_USER_PREFERENCES = "L5adhe"
+    READ_USER_PREFERENCES = "ESY5D"
+    CONTINUE_SHARED_CONVERSATION = "ra9Swb"
 
 
 class Headers(Enum):

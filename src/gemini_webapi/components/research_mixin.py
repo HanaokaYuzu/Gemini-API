@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import orjson as json
 
-from ..constants import GRPC, Model
+from ..constants import (
+    GRPC,
+    Model,
+    GEMINI_FLASH_QUOTA_PAYLOAD,
+    GEMINI_ADVANCED_QUOTA_PAYLOAD,
+)
 from ..exceptions import (
     APIError,
     GeminiError,
@@ -36,15 +41,15 @@ class ResearchMixin:
         """Probe account/model capability RPCs and return raw parsed snapshots."""
 
         probes = [
-            ("activity", GRPC.BARD_SETTINGS, '[[["bard_activity_enabled"]]]'),
+            ("activity", GRPC.READ_USER_PREFERENCES, '[[["bard_activity_enabled"]]]'),
             (
-                "bootstrap",
-                GRPC.DEEP_RESEARCH_BOOTSTRAP,
+                "research_status",
+                GRPC.LIST_DISCOVERY_CARDS,
                 '["en",null,null,null,4,null,null,[2,4,7,15],null,[[5]]]',
             ),
-            ("model_state", GRPC.DEEP_RESEARCH_MODEL_STATE, "[[[1,4],[6,6],[1,15]]]"),
-            ("quota", GRPC.DEEP_RESEARCH_MODEL_STATE, "[[[1,11],[2,11],[6,11]]]"),
-            ("caps", GRPC.DEEP_RESEARCH_CAPS, "[]"),
+            ("advanced_quota", GRPC.CHECK_GEMINI_QUOTA, GEMINI_ADVANCED_QUOTA_PAYLOAD),
+            ("flash_quota", GRPC.CHECK_GEMINI_QUOTA, GEMINI_FLASH_QUOTA_PAYLOAD),
+            ("extra_caps", GRPC.CHECK_QUOTA, "[]"),
         ]
 
         result: dict = {
@@ -104,7 +109,7 @@ class ResearchMixin:
         # all succeed without rejection.  The old heuristic looked for a
         # literal "DEEP_RESEARCH" string in the responses, but the RPC
         # payloads only contain numeric/boolean data.
-        dr_probes = ("bootstrap", "model_state", "caps")
+        dr_probes = ("research_status", "advanced_quota", "flash_quota", "extra_caps")
         dr_available = all(
             result["rpc"].get(p, {}).get("ok", False)
             and result["rpc"].get(p, {}).get("reject_code") is None
@@ -145,7 +150,7 @@ class ResearchMixin:
         await _best_effort(
             [
                 RPCData(
-                    rpcid=GRPC.BARD_SETTINGS,
+                    rpcid=GRPC.READ_USER_PREFERENCES,
                     payload='[[["bard_activity_enabled"]]]',
                 )
             ]
@@ -154,9 +159,8 @@ class ResearchMixin:
         await _best_effort(
             [
                 RPCData(
-                    rpcid=GRPC.DEEP_RESEARCH_BOOTSTRAP,
-                    payload='["en",null,null,null,4,null,null,'
-                    "[2,4,7,15],null,[[5]]]",
+                    rpcid=GRPC.LIST_DISCOVERY_CARDS,
+                    payload='["en",null,null,null,4,null,null,[2,4,7,15],null,[[5]]]',
                 )
             ]
         )
@@ -191,8 +195,7 @@ class ResearchMixin:
             raise recoverable_error
 
         raise GeminiError(
-            "Gemini returned no usable output for deep research. "
-            f"chat.cid={chat.cid!r}"
+            f"Gemini returned no usable output for deep research. chat.cid={chat.cid!r}"
         )
 
     async def create_deep_research_plan(
@@ -234,7 +237,7 @@ class ResearchMixin:
         if not plan:
             preview = shorten(output.text or "", width=1200)
             raise GeminiError(
-                "Gemini did not return a deep research plan. " f"Preview: {preview!r}"
+                f"Gemini did not return a deep research plan. Preview: {preview!r}"
             )
 
         plan.metadata = list(chat.metadata)
@@ -281,7 +284,7 @@ class ResearchMixin:
         response = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DEEP_RESEARCH_STATUS,
+                    rpcid=GRPC.GET_TASK,
                     payload=json.dumps([research_id]).decode("utf-8"),
                 )
             ]
@@ -344,7 +347,7 @@ class ResearchMixin:
             if status:
                 statuses.append(status)
                 logger.debug(
-                    f"Deep research [{plan.research_id}] " f"status: {status.state}"
+                    f"Deep research [{plan.research_id}] status: {status.state}"
                 )
                 if on_status:
                     on_status(status)

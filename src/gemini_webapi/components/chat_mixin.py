@@ -36,7 +36,7 @@ class ChatMixin:
         response_chats1 = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_CHATS,
+                    rpcid=GRPC.LIST_CONVERSATIONS,
                     payload=json.dumps([recent, None, [1, None, 1]]).decode("utf-8"),
                 ),
             ]
@@ -44,7 +44,7 @@ class ChatMixin:
         response_chats2 = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_CHATS,
+                    rpcid=GRPC.LIST_CONVERSATIONS,
                     payload=json.dumps([recent, None, [0, None, 1]]).decode("utf-8"),
                 ),
             ]
@@ -128,7 +128,7 @@ class ChatMixin:
             response = await self._batch_execute(
                 [
                     RPCData(
-                        rpcid=GRPC.READ_CHAT,
+                        rpcid=GRPC.LIST_CONVERSATION_TURNS,
                         payload=json.dumps(
                             [cid, limit, None, 1, [1], [4], None, 1]
                         ).decode("utf-8"),
@@ -271,8 +271,7 @@ class ChatMixin:
             return None
         except Exception as e:
             logger.debug(
-                f"fetch_latest_chat_response({cid!r}) failed: "
-                f"{type(e).__name__}: {e}"
+                f"fetch_latest_chat_response({cid!r}) failed: {type(e).__name__}: {e}"
             )
             return None
 
@@ -291,7 +290,7 @@ class ChatMixin:
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_CHAT_1,
+                    rpcid=GRPC.DELETE_CONVERSATION,
                     payload=json.dumps([cid]).decode("utf-8"),
                 ),
             ]
@@ -299,7 +298,7 @@ class ChatMixin:
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_CHAT_2,
+                    rpcid=GRPC.GET_TASKS_IN_CONVERSATION,
                     payload=json.dumps([cid, [1, None, 0, 1]]).decode("utf-8"),
                 ),
             ]
