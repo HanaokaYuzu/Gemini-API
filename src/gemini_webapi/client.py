@@ -113,6 +113,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "auto_refresh",
         "refresh_interval",
         "refresh_task",
+        "ping_task",
         "watchdog_timeout",
         "impersonate",
         "verbose",
@@ -153,6 +154,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.auto_refresh: bool = True
         self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
+        self.ping_task: Task | None = None
         self.watchdog_timeout: float = 120  # seconds before declaring a zombie stream
         self.impersonate: str = "chrome"
         self.verbose: bool = False
@@ -236,7 +238,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         close_delay: `float`, optional
             Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`.
         auto_refresh: `bool`, optional
-            If `True`, will schedule a task to automatically refresh cookies and access token in the background.
+            If `True`, will schedule tasks to automatically refresh cookies and tokens and maintain connection.
         refresh_interval: `float`, optional
             Time interval for background cookie and access token refresh in seconds.
             Effective only if `auto_refresh` is `True`.
@@ -310,6 +312,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                         self.start_activity_watchdog()
                     )
 
+                if self.ping_task:
+                    self.ping_task.cancel()
+                    self.ping_task = None
+
+                if self.auto_refresh:
+                    self.ping_task = asyncio.create_task(self.start_http2_ping())
+
                 logger.success("Gemini client initialized successfully.")
             except Exception:
                 await self.close()
@@ -341,6 +350,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.activity_task:
             self.activity_task.cancel()
             self.activity_task = None
+
+        if self.ping_task:
+            self.ping_task.cancel()
+            self.ping_task = None
 
         if self.client:
             self._cookies.update(self.client.cookies)
@@ -398,8 +411,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         background tasks. The final interval is clamped to a minimum of 60 seconds.
         """
 
-        if self.refresh_interval < 60:
-            self.refresh_interval = 60
+        self.refresh_interval = max(self.refresh_interval, 60)
 
         while self._running:
             jitter = random.uniform(-15, 15)
@@ -431,6 +443,39 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 logger.warning(
                     f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
+
+    async def start_http2_ping(self) -> None:
+        """
+        Start the background task to periodically send HTTP/2 PING frames.
+
+        Uses the native upkeep mechanism to maintain connection health.
+        Iterates every 45 seconds with ±5 seconds of random jitter.
+        """
+
+        while self._running:
+            interval = random.uniform(40, 50)
+            await asyncio.sleep(interval)
+
+            if not self._running:
+                break
+
+            try:
+                if self.client:
+                    if hasattr(self.client, "upkeep"):
+                        self.client.upkeep()
+                    else:
+                        curl = await self.client.pop_curl()
+                        try:
+                            curl.upkeep()
+                        finally:
+                            self.client.push_curl(curl)
+
+                    if self.verbose:
+                        logger.debug("HTTP/2 PING frame (upkeep) sent.")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"Unexpected error in HTTP/2 ping task: {e}")
 
     def _parse_rpc_results(self, response_text: str, target_id: str) -> Iterator[Any]:
         """
