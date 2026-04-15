@@ -1,6 +1,7 @@
 import re
 import time
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession, Cookies, Response
 import orjson as json
 
@@ -75,7 +76,11 @@ async def get_access_token(
     """
 
     client = AsyncSession(
-        impersonate=impersonate, proxy=proxy, allow_redirects=True, verify=verify
+        impersonate=impersonate,
+        proxy=proxy,
+        allow_redirects=CurlFollow.SAFE,
+        http_version=CurlHttpVersion.V2_0,
+        verify=verify,
     )
 
     try:
