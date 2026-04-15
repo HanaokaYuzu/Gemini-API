@@ -11,6 +11,8 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+from curl_cffi import CurlFollow, CurlHttpVersion
+
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -453,7 +455,11 @@ async def cmd_download(args):
         output = f"gemini-{url_hash}.png"
 
     async with AsyncSession(
-        impersonate="chrome", cookies=json_cookies, proxy=args.proxy
+        impersonate="chrome",
+        cookies=json_cookies,
+        proxy=args.proxy,
+        allow_redirects=CurlFollow.SAFE,
+        http_version=CurlHttpVersion.V2_0,
     ) as session:
         resp = await session.get(url)
         if resp.status_code != 200:
