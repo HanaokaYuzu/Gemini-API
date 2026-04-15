@@ -543,6 +543,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         deep_research: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -633,6 +634,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 temporary=temporary,
                 session_state=session_state,
                 deep_research=deep_research,
+                pro_image=pro_image,
                 **kwargs,
             ):
                 pass
@@ -663,6 +665,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         deep_research: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -745,6 +748,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 temporary=temporary,
                 session_state=session_state,
                 deep_research=deep_research,
+                pro_image=pro_image,
                 **kwargs,
             ):
                 yield output
@@ -770,6 +774,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
         deep_research: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -829,6 +834,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             0,
         ]
 
+        if pro_image:
+            message_content.extend([None, None, [None, None, None, None, None, None, [None, [1]]]])
+
         params: dict[str, Any] = {"hl": self.language, "_reqid": _reqid, "rt": "c"}
         if self.build_label:
             params["bl"] = self.build_label
@@ -837,7 +845,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         while True:
             try:
-                inner_req_list: list[Any] = [None] * 69
+                inner_req_list: list[Any] = [None] * (80 if pro_image else 69)
                 inner_req_list[0] = message_content
                 inner_req_list[1] = [self.language]
                 inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
@@ -865,6 +873,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     inner_req_list[55] = [[1]]
                 inner_req_list[61] = []
                 inner_req_list[68] = 2
+
+                if pro_image:
+                    inner_req_list[72] = 7
+                    inner_req_list[79] = 3
 
                 uuid_val = str(uuid.uuid4()).upper()
 
@@ -1746,6 +1758,7 @@ class ChatSession:
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
         deep_research: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -1794,6 +1807,7 @@ class ChatSession:
             chat=self,
             temporary=temporary,
             deep_research=deep_research,
+            pro_image=pro_image,
             **kwargs,
         )
 
@@ -1803,6 +1817,7 @@ class ChatSession:
         files: list[str | Path | bytes | io.BytesIO] | None = None,
         temporary: bool = False,
         deep_research: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
@@ -1840,6 +1855,7 @@ class ChatSession:
             chat=self,
             temporary=temporary,
             deep_research=deep_research,
+            pro_image=pro_image,
             **kwargs,
         ):
             yield output
