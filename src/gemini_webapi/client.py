@@ -426,7 +426,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     tier_flags, capability_flags
                 )
 
-                id_name_mapping = AvailableModel.build_model_id_name_mapping()
+                id_name_mapping = AvailableModel.build_model_id_name_mapping(
+                    capacity, capacity_field
+                )
 
                 for model_data in models_list:
                     if isinstance(model_data, list):
