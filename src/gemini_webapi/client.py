@@ -34,6 +34,7 @@ from .exceptions import (
     AuthError,
     GeminiError,
     ModelInvalid,
+    QueueingError,
     TemporarilyBlocked,
     TimeoutError,
     UsageLimitExceeded,
@@ -1338,6 +1339,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 f"Stream suspended (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
                                 f"No CID found to recover. (Request ID: {_reqid})"
                             )
+                            if is_queueing:
+                                raise QueueingError(
+                                    "Server is queueing the request for asynchronous processing "
+                                    "(e.g. Veo video generation). Poll via list_chats() + "
+                                    "read_chat() to retrieve the result."
+                                )
                             raise APIError(
                                 "The original request may have been silently aborted by Google."
                             )

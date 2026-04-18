@@ -60,3 +60,15 @@ class TemporarilyBlocked(GeminiError):
     """
 
     pass
+
+
+class QueueingError(GeminiError):
+    """
+    Exception raised when the server is queueing a long-running generation
+    (e.g. Veo video). Unlike APIError, this should NOT trigger automatic
+    retry — the request was received and is being processed asynchronously.
+    Callers should poll via ``read_chat()`` or ``list_chats()`` to retrieve
+    the result once the server finishes rendering.
+    """
+
+    pass
