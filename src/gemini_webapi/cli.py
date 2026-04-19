@@ -11,13 +11,10 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT / "src"))
-
-from gemini_webapi import GeminiClient, logger, set_log_level  # noqa: E402
-from gemini_webapi.constants import Model  # noqa: E402
-from gemini_webapi.exceptions import AuthError  # noqa: E402
-from gemini_webapi.types.image import GeneratedImage, WebImage  # noqa: E402
+from gemini_webapi import GeminiClient, logger, set_log_level
+from gemini_webapi.constants import Model
+from gemini_webapi.exceptions import AuthError
+from gemini_webapi.types.image import GeneratedImage, WebImage
 
 # ---------------------------------------------------------------------------
 # region - Cookie helpers

@@ -34,6 +34,9 @@ browser = ["browser-cookie3"]
 Repository = "https://github.com/HanaokaYuzu/Gemini-API"
 Issues = "https://github.com/HanaokaYuzu/Gemini-API/issues"
 
+[project.scripts]
+gemini-webapi-cli = "gemini_webapi.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["gemini_webapi"]
