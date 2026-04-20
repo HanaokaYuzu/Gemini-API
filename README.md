@@ -685,7 +685,7 @@ set_log_level("DEBUG")
 
 ## CLI Tool
 
-A standalone CLI (`cli.py`) is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics.
+A bundled CLI is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics. Once you install the package, you can use the `gemini-webapi-cli` command.
 
 ### Cookie Setup
 
@@ -718,31 +718,31 @@ You can also use a browser cookie extension export (array-of-objects format is s
 
 ```sh
 # Ask a single question (streams by default)
-python cli.py --cookies-json cookies.json ask "What is quantum computing?"
+gemini-webapi-cli --cookies-json cookies.json ask "What is quantum computing?"
 
 # Ask with image input
-python cli.py --cookies-json cookies.json ask --image photo.jpg "Describe this"
+gemini-webapi-cli --cookies-json cookies.json ask --image photo.jpg "Describe this"
 
 # Non-streaming mode
-python cli.py --cookies-json cookies.json ask --no-stream "Hello"
+gemini-webapi-cli --cookies-json cookies.json ask --no-stream "Hello"
 
 # Continue a conversation (chat ID from previous output)
-python cli.py --cookies-json cookies.json reply c_abc123 "Tell me more"
+gemini-webapi-cli --cookies-json cookies.json reply c_abc123 "Tell me more"
 
 # List your chat history
-python cli.py --cookies-json cookies.json list
+gemini-webapi-cli --cookies-json cookies.json list
 
 # Read a specific chat conversation
-python cli.py --cookies-json cookies.json read c_abc123
+gemini-webapi-cli --cookies-json cookies.json read c_abc123
 
 # List available models
-python cli.py --cookies-json cookies.json models
+gemini-webapi-cli --cookies-json cookies.json models
 
 # Download a generated image
-python cli.py --cookies-json cookies.json download "https://..." -o output.png
+gemini-webapi-cli --cookies-json cookies.json download "https://..." -o output.png
 
 # Account diagnostics (check feature availability)
-python cli.py --cookies-json cookies.json inspect
+gemini-webapi-cli --cookies-json cookies.json inspect
 ```
 
 ### Deep Research Workflow
@@ -751,16 +751,16 @@ The CLI supports Gemini's Deep Research feature — an autonomous research agent
 
 ```sh
 # 1. Submit a research task
-python cli.py --cookies-json cookies.json research send --prompt "AI chip competition 2025"
+gemini-webapi-cli --cookies-json cookies.json research send --prompt "AI chip competition 2025"
 
 # 2. Check progress (use the chat ID from step 1)
-python cli.py --cookies-json cookies.json research check c_abc123
+gemini-webapi-cli --cookies-json cookies.json research check c_abc123
 
 # 3. Fetch the full result
-python cli.py --cookies-json cookies.json research get c_abc123
+gemini-webapi-cli --cookies-json cookies.json research get c_abc123
 
 # 4. Save result to a file
-python cli.py --cookies-json cookies.json research get c_abc123 --output report.md
+gemini-webapi-cli --cookies-json cookies.json research get c_abc123 --output report.md
 ```
 
 ## References

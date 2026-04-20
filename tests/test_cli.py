@@ -5,12 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# Ensure the repo root is on sys.path so `cli` can be imported directly
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
-
-from cli import build_parser  # noqa: E402
+from gemini_webapi.cli import build_parser
 
 
 @unittest.skipUnless(
@@ -48,21 +43,21 @@ class TestCLITool(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_cli_ask_stream(self):
-        from cli import cmd_ask
+        from gemini_webapi.cli import cmd_ask
 
         args = self._parse("ask", "Give me a inspiring idea for web development")
         result = await cmd_ask(args)
         self.assertEqual(result, 0)
 
     async def test_cli_list_chats(self):
-        from cli import cmd_list
+        from gemini_webapi.cli import cmd_list
 
         args = self._parse("list")
         result = await cmd_list(args)
         self.assertEqual(result, 0)
 
     async def test_cli_inspect(self):
-        from cli import cmd_inspect
+        from gemini_webapi.cli import cmd_inspect
 
         args = self._parse("inspect")
         result = await cmd_inspect(args)
