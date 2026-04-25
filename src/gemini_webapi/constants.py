@@ -1,5 +1,6 @@
 import re
 from enum import Enum, IntEnum, StrEnum
+from curl_cffi import CurlHttpVersion
 
 import orjson as json
 
@@ -310,3 +311,13 @@ class ErrorCode(IntEnum):
     MODEL_INCONSISTENT = 1050
     MODEL_HEADER_INVALID = 1052
     IP_TEMPORARILY_BLOCKED = 1060
+
+
+def format_http_version(version_int: int) -> str:
+    """
+    Format the raw HTTP version integer from curl_cffi into a human-readable string.
+    """
+    try:
+        return CurlHttpVersion(version_int).name
+    except ValueError:
+        return str(version_int)

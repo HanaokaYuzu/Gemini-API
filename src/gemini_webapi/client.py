@@ -22,6 +22,7 @@ from .constants import (
     ErrorCode,
     GRPC,
     Headers,
+    format_http_version,
     Model,
     TEMPORARY_CHAT_FLAG_INDEX,
     STREAMING_FLAG_INDEX,
@@ -113,7 +114,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "auto_refresh",
         "refresh_interval",
         "refresh_task",
-        "ping_task",
         "watchdog_timeout",
         "impersonate",
         "verbose",
@@ -154,7 +154,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.auto_refresh: bool = True
         self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
-        self.ping_task: Task | None = None
         self.watchdog_timeout: float = 120  # seconds before declaring a zombie stream
         self.impersonate: str = "chrome"
         self.verbose: bool = False
@@ -312,13 +311,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                         self.start_activity_watchdog()
                     )
 
-                if self.ping_task:
-                    self.ping_task.cancel()
-                    self.ping_task = None
-
-                if self.auto_refresh:
-                    self.ping_task = asyncio.create_task(self.start_http2_ping())
-
                 logger.success("Gemini client initialized successfully.")
             except Exception:
                 await self.close()
@@ -350,10 +342,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.activity_task:
             self.activity_task.cancel()
             self.activity_task = None
-
-        if self.ping_task:
-            self.ping_task.cancel()
-            self.ping_task = None
 
         if self.client:
             self._cookies.update(self.client.cookies)
@@ -443,39 +431,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 logger.warning(
                     f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
-
-    async def start_http2_ping(self) -> None:
-        """
-        Start the background task to periodically send HTTP/2 PING frames.
-
-        Uses the native upkeep mechanism to maintain connection health.
-        Iterates every 45 seconds with ±5 seconds of random jitter.
-        """
-
-        while self._running:
-            interval = random.uniform(40, 50)
-            await asyncio.sleep(interval)
-
-            if not self._running:
-                break
-
-            try:
-                if self.client:
-                    if hasattr(self.client, "upkeep"):
-                        self.client.upkeep()
-                    else:
-                        curl = await self.client.pop_curl()
-                        try:
-                            curl.upkeep()
-                        finally:
-                            self.client.push_curl(curl)
-
-                    if self.verbose:
-                        logger.debug("HTTP/2 PING frame (upkeep) sent.")
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.warning(f"Unexpected error in HTTP/2 ping task: {e}")
 
     def _parse_rpc_results(self, response_text: str, target_id: str) -> Iterator[Any]:
         """
@@ -2103,7 +2058,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
             if self.verbose:
                 logger.debug(
-                    f"HTTP Request: POST {Endpoint.BATCH_EXEC} [{response.status_code}]"
+                    f"HTTP Request: POST {Endpoint.BATCH_EXEC} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
                 )
         except ReadTimeout:
             raise TimeoutError(

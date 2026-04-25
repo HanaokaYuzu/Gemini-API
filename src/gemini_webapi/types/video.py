@@ -96,7 +96,7 @@ class Video(BaseModel):
             req_client = AsyncSession(
                 impersonate=impersonate,
                 allow_redirects=CurlFollow.SAFE,
-                http_version=CurlHttpVersion.V2_0,
+                http_version=CurlHttpVersion.V3,
                 cookies=cookies,
                 proxy=self.proxy,
             )

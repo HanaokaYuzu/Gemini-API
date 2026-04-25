@@ -459,7 +459,7 @@ async def cmd_download(args):
         cookies=json_cookies,
         proxy=args.proxy,
         allow_redirects=CurlFollow.SAFE,
-        http_version=CurlHttpVersion.V2_0,
+        http_version=CurlHttpVersion.V3,
     ) as session:
         resp = await session.get(url)
         if resp.status_code != 200:
