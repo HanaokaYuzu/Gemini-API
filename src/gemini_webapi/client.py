@@ -299,14 +299,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     self.refresh_task.cancel()
                     self.refresh_task = None
 
-                if self.auto_refresh:
+                if self.auto_refresh and self._check_account_status():
                     self.refresh_task = asyncio.create_task(self.start_auto_refresh())
 
                 if self.activity_task:
                     self.activity_task.cancel()
                     self.activity_task = None
 
-                if self.auto_refresh:
+                if self.auto_refresh and self._check_account_status():
                     self.activity_task = asyncio.create_task(
                         self.start_activity_watchdog()
                     )
