@@ -1323,7 +1323,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 ) as response:
                     if self.verbose:
                         logger.debug(
-                            f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}]"
+                            f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
                         )
                     if response.status_code != 200:
                         await self.close()
@@ -1781,7 +1781,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             _raw_response = _raw_response[4:].lstrip()
                         _parsed_full, _ = parse_response_by_frame(_raw_response)
                         logger.debug(
-                            f"[Debug] Full raw response received (parsed into {len(_parsed_full)} parts)"
+                            f"Full raw response received (parsed into {len(_parsed_full)} parts)"
                         )
 
                 break
