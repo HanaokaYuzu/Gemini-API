@@ -328,6 +328,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         if delay:
             await asyncio.sleep(delay)
+            logger.debug(
+                f"Auto-close option "
+                f"[{'enabled' if self.auto_close else 'disabled'}] "
+                f"triggered client closing."
+            )
 
         self._running = False
 
