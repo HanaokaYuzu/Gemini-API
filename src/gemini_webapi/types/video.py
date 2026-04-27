@@ -91,7 +91,7 @@ class Video(BaseModel):
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
             impersonate = (
-                getattr(client_ref, "impersonate", "chrome") if client_ref else "chrome"
+                getattr(client_ref, "impersonate", "firefox") if client_ref else "firefox"
             )
             req_client = AsyncSession(
                 impersonate=impersonate,
