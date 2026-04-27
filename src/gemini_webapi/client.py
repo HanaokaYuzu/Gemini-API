@@ -299,14 +299,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     self.refresh_task.cancel()
                     self.refresh_task = None
 
-                if self.auto_refresh and self._check_account_status():
+                if self.auto_refresh:
                     self.refresh_task = asyncio.create_task(self.start_auto_refresh())
 
                 if self.activity_task:
                     self.activity_task.cancel()
                     self.activity_task = None
 
-                if self.auto_refresh and self._check_account_status():
+                if self.auto_refresh:
                     self.activity_task = asyncio.create_task(
                         self.start_activity_watchdog()
                     )
@@ -381,6 +381,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             if not self._running:
                 break
 
+            if not self._check_account_status():
+                logger.warning(
+                    f"Cannot sync activity. Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+                continue
+
             try:
                 logger.debug(
                     f"Heartbeat triggered. Time since last activity: {int(time.time() - self.last_activity_time)}s"
@@ -407,6 +413,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
             if not self._running:
                 break
+
+            if not self._check_account_status():
+                logger.warning(
+                    f"Cannot refresh cookies. Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+                continue
 
             try:
                 async with self._lock:
@@ -445,10 +457,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 # Check for server-side rejection (e.g., code 7 for permission denied)
                 reject_code = get_nested_value(part, [5, 0])
                 if reject_code == 7:
+                    self.account_status = AccountStatus.UNAUTHENTICATED
                     logger.warning(
                         f"RPC request {target_id} failed: Permission denied or unauthenticated."
                     )
-                    continue
+                    break
 
                 part_body_str = get_nested_value(part, [2])
                 if not part_body_str:
