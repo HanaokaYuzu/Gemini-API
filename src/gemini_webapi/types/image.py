@@ -99,7 +99,7 @@ class Image(BaseModel):
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
             impersonate = (
-                getattr(client_ref, "impersonate", "firefox") if client_ref else "firefox"
+                getattr(client_ref, "impersonate", "chrome") if client_ref else "chrome"
             )
             req_client = AsyncSession(
                 impersonate=impersonate,

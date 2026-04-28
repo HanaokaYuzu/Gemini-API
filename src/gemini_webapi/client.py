@@ -155,7 +155,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
         self.watchdog_timeout: float = 120  # seconds before declaring a zombie stream
-        self.impersonate: str = "firefox"
+        self.impersonate: str = "chrome"
         self.verbose: bool = False
         self._abuse_status: dict | None = None
         self.last_activity_time: float = 0
@@ -221,7 +221,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 600,
         watchdog_timeout: float = 120,
-        impersonate: str = "firefox",
+        impersonate: str = "chrome",
         verbose: bool = False,
     ) -> None:
         """
@@ -245,7 +245,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             Timeout in seconds for shadow retry watchdog. If no data receives from stream but connection is active,
             client will retry automatically after this duration.
         impersonate: `str`, optional
-            Allow to customize client, default to `firefox`. Avoid using chrome based as it now applies device-bound session cookies.
+            Allow to customize client, default to `chrome`.
+            Chrome based as it now applies device-bound session cookies.
+            But Firefox usually gets a "Stream suspended" error.
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
         """

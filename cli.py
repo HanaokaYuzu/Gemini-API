@@ -455,7 +455,7 @@ async def cmd_download(args):
         output = f"gemini-{url_hash}.png"
 
     async with AsyncSession(
-        impersonate="firefox",
+        impersonate="chrome",
         cookies=json_cookies,
         proxy=args.proxy,
         allow_redirects=CurlFollow.SAFE,

@@ -43,7 +43,7 @@ async def get_access_token(
     base_cookies: dict | Cookies,
     proxy: str | None = None,
     verbose: bool = False,
-    impersonate: str = "firefox",
+    impersonate: str = "chrome",
     verify: bool = True,
 ) -> tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]:
     """
@@ -62,7 +62,7 @@ async def get_access_token(
     verbose: `bool`, optional
         If True, log more details.
     impersonate: `str`, optional
-        Allow to customize client, default to firefox.
+        Allow to customize client, default to chrome.
     verify: `bool`, optional
         Whether to verify SSL certificates.
 
