@@ -5,11 +5,12 @@ from pathlib import Path
 from textwrap import shorten
 from typing import Any
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel, ConfigDict
 
-from ..constants import Headers
+from ..constants import Headers, format_http_version
 from ..utils import logger
 
 
@@ -97,9 +98,13 @@ class Image(BaseModel):
         if not req_client:
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
+            impersonate = (
+                getattr(client_ref, "impersonate", "chrome") if client_ref else "chrome"
+            )
             req_client = AsyncSession(
-                impersonate="chrome",
-                allow_redirects=True,
+                impersonate=impersonate,
+                allow_redirects=CurlFollow.SAFE,
+                http_version=CurlHttpVersion.V3,
                 cookies=cookies,
                 proxy=self.proxy,
             )
@@ -124,7 +129,7 @@ class Image(BaseModel):
 
         response = await req_client.get(self.url, headers=Headers.REFERER.value)
         if verbose:
-            logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
+            logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})")
 
         if response.status_code == 200:
             path_obj_file = Path(filename)

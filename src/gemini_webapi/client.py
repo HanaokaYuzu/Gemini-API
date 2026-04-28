@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import codecs
 import io
 import random
@@ -7,7 +8,8 @@ import secrets
 import uuid
 from asyncio import Task
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from textwrap import shorten
+from typing import Any, AsyncGenerator, Iterator, Optional
 
 import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies, Response
@@ -20,6 +22,7 @@ from .constants import (
     ErrorCode,
     GRPC,
     Headers,
+    format_http_version,
     Model,
     TEMPORARY_CHAT_FLAG_INDEX,
     STREAMING_FLAG_INDEX,
@@ -28,6 +31,8 @@ from .constants import (
     ARTIFACTS_RE,
     DEFAULT_METADATA,
     MODEL_HEADER_KEY,
+    GEMINI_FLASH_QUOTA_PAYLOAD,
+    GEMINI_ADVANCED_QUOTA_PAYLOAD,
 )
 from .exceptions import (
     APIError,
@@ -110,7 +115,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "refresh_interval",
         "refresh_task",
         "watchdog_timeout",
+        "impersonate",
         "verbose",
+        "last_activity_time",
+        "activity_task",
         "_running",
         "_cookies",
         "_reqid",
@@ -118,6 +126,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "_lock",
         "_recent_chats",  # From ChatMixin
         "_gems",  # From GemMixin
+        "_quotas",
+        "_abuse_status",
         "kwargs",
     ]
 
@@ -145,12 +155,17 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.refresh_interval: float = 600
         self.refresh_task: Task | None = None
         self.watchdog_timeout: float = 120  # seconds before declaring a zombie stream
+        self.impersonate: str = "chrome"
         self.verbose: bool = False
+        self._abuse_status: dict | None = None
+        self.last_activity_time: float = 0
+        self.activity_task: Task | None = None
         self._running: bool = False
         self._cookies = Cookies()
         self._reqid: int = random.randint(10000, 99999)
         self._model_registry: dict[str, AvailableModel] = {}
         self._lock = asyncio.Lock()
+        self._quotas: dict[str, dict] = {}
         self.kwargs = kwargs
 
         if secure_1psid:
@@ -159,6 +174,21 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 self._cookies.set(
                     "__Secure-1PSIDTS", secure_1psidts, domain=".google.com"
                 )
+
+    @property
+    def quotas(self) -> dict[str, dict]:
+        """
+        Get the current account quotas/limits.
+        """
+        return self._quotas
+
+    @property
+    def abuse_status(self) -> dict | None:
+        """
+        Get the current account abuse status and flags.
+        """
+
+        return self._abuse_status
 
     @property
     def cookies(self) -> Cookies:
@@ -191,6 +221,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         auto_refresh: bool = True,
         refresh_interval: float = 600,
         watchdog_timeout: float = 120,
+        impersonate: str = "chrome",
         verbose: bool = False,
     ) -> None:
         """
@@ -206,13 +237,17 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         close_delay: `float`, optional
             Time to wait before auto-closing the client in seconds. Effective only if `auto_close` is `True`.
         auto_refresh: `bool`, optional
-            If `True`, will schedule a task to automatically refresh cookies and access token in the background.
+            If `True`, will schedule tasks to automatically refresh cookies and tokens and maintain connection.
         refresh_interval: `float`, optional
             Time interval for background cookie and access token refresh in seconds.
             Effective only if `auto_refresh` is `True`.
         watchdog_timeout: `float`, optional
             Timeout in seconds for shadow retry watchdog. If no data receives from stream but connection is active,
             client will retry automatically after this duration.
+        impersonate: `str`, optional
+            Allow to customize client, default to `chrome`.
+            Chrome based as it now applies device-bound session cookies.
+            But Firefox usually gets a "Stream suspended" error.
         verbose: `bool`, optional
             If `True`, will print more infomation in logs.
         """
@@ -224,6 +259,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             try:
                 self.verbose = verbose
                 self.watchdog_timeout = watchdog_timeout
+                self.impersonate = impersonate
                 (
                     access_token,
                     build_label,
@@ -235,6 +271,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     base_cookies=self.cookies,
                     proxy=self.proxy,
                     verbose=self.verbose,
+                    impersonate=impersonate,
                     verify=self.kwargs.get("verify", True),
                 )
 
@@ -258,14 +295,23 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 self.auto_refresh = auto_refresh
                 self.refresh_interval = refresh_interval
 
+                await self._init_rpc()
+
                 if self.refresh_task:
                     self.refresh_task.cancel()
                     self.refresh_task = None
 
-                if self.auto_refresh:
+                if self.auto_refresh and self._check_account_status():
                     self.refresh_task = asyncio.create_task(self.start_auto_refresh())
 
-                await self._init_rpc()
+                if self.activity_task:
+                    self.activity_task.cancel()
+                    self.activity_task = None
+
+                if self.auto_refresh and self._check_account_status():
+                    self.activity_task = asyncio.create_task(
+                        self.start_activity_watchdog()
+                    )
 
                 logger.success("Gemini client initialized successfully.")
             except Exception:
@@ -284,6 +330,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         if delay:
             await asyncio.sleep(delay)
+            logger.debug(
+                f"Auto-close option "
+                f"[{'enabled' if self.auto_close else 'disabled'}] "
+                f"triggered client closing."
+            )
 
         self._running = False
 
@@ -294,6 +345,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.refresh_task:
             self.refresh_task.cancel()
             self.refresh_task = None
+
+        if self.activity_task:
+            self.activity_task.cancel()
+            self.activity_task = None
 
         if self.client:
             self._cookies.update(self.client.cookies)
@@ -316,19 +371,61 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         self.close_task = asyncio.create_task(self.close(self.close_delay))
 
-    async def start_auto_refresh(self) -> None:
+    async def start_activity_watchdog(self) -> None:
         """
-        Start the background task to automatically refresh cookies.
+        Start the background task to ensure periodic activity calls.
         """
-
-        if self.refresh_interval < 60:
-            self.refresh_interval = 60
 
         while self._running:
-            await asyncio.sleep(self.refresh_interval)
+            interval = random.uniform(60, 300)
+            while self._running:
+                elapsed = time.time() - self.last_activity_time
+                remaining = interval - elapsed
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(remaining, 10))
 
             if not self._running:
                 break
+
+            if not self._check_account_status():
+                logger.warning(
+                    f"Cannot sync activity. Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+                continue
+
+            try:
+                logger.debug(
+                    f"Heartbeat triggered. Time since last activity: {int(time.time() - self.last_activity_time)}s"
+                )
+                await self._sync_activity()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"Unexpected error in activity watchdog: {e}")
+
+    async def start_auto_refresh(self) -> None:
+        """
+        Start the background task to automatically refresh cookies with random jitter.
+
+        Adds ±15 seconds of random jitter to the refresh interval to prevent synchronized
+        background tasks. The final interval is clamped to a minimum of 60 seconds.
+        """
+
+        self.refresh_interval = max(self.refresh_interval, 60)
+
+        while self._running:
+            jitter = random.uniform(-15, 15)
+            await asyncio.sleep(max(60, self.refresh_interval + jitter))
+
+            if not self._running:
+                break
+
+            if not self._check_account_status():
+                logger.warning(
+                    f"Cannot refresh cookies. Account status: {self.account_status.name} - {self.account_status.description}"
+                )
+                continue
 
             try:
                 async with self._lock:
@@ -354,15 +451,49 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
 
+    def _parse_rpc_results(self, response_text: str, target_id: str) -> Iterator[Any]:
+        """
+        Extract parts from a batch response and yield only those matching the target RPC ID.
+        """
+        try:
+            response_json = extract_json_from_response(response_text)
+            for part in response_json:
+                if get_nested_value(part, [1]) != target_id:
+                    continue
+
+                # Check for server-side rejection (e.g., code 7 for permission denied)
+                reject_code = get_nested_value(part, [5, 0])
+                if reject_code == 7:
+                    self.account_status = AccountStatus.UNAUTHENTICATED
+                    logger.warning(
+                        f"RPC request {target_id} failed: Permission denied or unauthenticated."
+                    )
+                    break
+
+                part_body_str = get_nested_value(part, [2])
+                if not part_body_str:
+                    continue
+
+                try:
+                    yield json.loads(part_body_str)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Failed to extract JSON from response: {e}")
+
     async def _init_rpc(self) -> None:
         """
         Send initial RPC calls to set up the session.
         """
 
         await self._fetch_user_status()
-        await self._send_bard_settings()
-        await self._send_bard_activity()
+        await self._fetch_preferences()
+        await self._sync_activity()
         await self._fetch_recent_chats()
+        await self._fetch_quota()
+        await self._fetch_extra_quota()
+        await self._fetch_abuse_status()
 
     async def _fetch_user_status(self) -> None:
         """
@@ -381,15 +512,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             ]
         )
 
-        response_json = extract_json_from_response(response.text)
-
-        for part in response_json:
-            part_body_str = get_nested_value(part, [2])
-            if not part_body_str:
-                continue
-
-            part_body = json.loads(part_body_str)
-
+        for part_body in self._parse_rpc_results(response.text, GRPC.GET_USER_STATUS):
             status_code = get_nested_value(part_body, [14])
             self.account_status = AccountStatus.from_status_code(status_code)
 
@@ -453,29 +576,256 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                 return
 
-    async def _send_bard_settings(self) -> None:
+    async def _fetch_quota(
+        self,
+        flash: bool = False,
+        advanced: bool = False,
+    ) -> None:
         """
-        Send required setup activity to Gemini.
+        Fetch quota limits for Gemini models.
+        Supports semantic selection of quota tiers.
+
+        Parameters
+        ----------
+        flash: `bool`, optional
+            If True, fetches limits for Gemini Flash models.
+        advanced: `bool`, optional
+            If True, fetches limits for Gemini Pro and Flash Thinking models.
+        """
+
+        if not self._check_account_status():
+            return
+
+        if not any([flash, advanced]):
+            flash = True
+            advanced = True
+        to_fetch: list[tuple[str, str]] = []
+        if flash:
+            to_fetch.append((GEMINI_FLASH_QUOTA_PAYLOAD, "Flash"))
+        if advanced:
+            to_fetch.append((GEMINI_ADVANCED_QUOTA_PAYLOAD, "Thinking/Pro"))
+
+        for payload_str, category in to_fetch:
+            try:
+                response = await self._batch_execute(
+                    [
+                        RPCData(
+                            rpcid=GRPC.CHECK_GEMINI_QUOTA,
+                            payload=payload_str,
+                        )
+                    ]
+                )
+
+                for part_body in self._parse_rpc_results(
+                    response.text, GRPC.CHECK_GEMINI_QUOTA
+                ):
+                    quota_items = get_nested_value(part_body, [0])
+
+                    if not isinstance(quota_items, list):
+                        continue
+
+                    for item in quota_items:
+                        quota_id_list = get_nested_value(item, [0], [])
+                        action_id = get_nested_value(item, [0, 1])
+                        usage_level = get_nested_value(item, [2])
+                        reset_ts = get_nested_value(item, [3, 0])
+                        total = get_nested_value(item, [4])
+                        remaining = get_nested_value(item, [5])
+
+                        quota_id = "-".join(map(str, quota_id_list))
+
+                        action_labels = {
+                            4: "Gemini Pro",
+                            11: "Gemini Flash",
+                            15: "Gemini Flash Thinking",
+                        }
+                        label = action_labels.get(action_id, f"Gemini {category}")
+                        display_target = f"{label} [{quota_id}]"
+
+                        quota_data = {
+                            "usage_percentage": usage_level,
+                            "reset_time": reset_ts,
+                            "total": total,
+                            "remaining": remaining,
+                            "action_id": action_id,
+                            "label": display_target,
+                        }
+
+                        self._quotas[quota_id] = quota_data
+
+                        if isinstance(usage_level, (int, float)):
+                            reset_str = ""
+                            if reset_ts:
+                                try:
+                                    reset_dt = datetime.fromtimestamp(
+                                        reset_ts, tz=timezone.utc
+                                    ).astimezone()
+                                    reset_str = f" (Resets: {reset_dt.strftime('%Y-%m-%d %H:%M:%S %Z')})"
+                                except (ValueError, OSError, OverflowError):
+                                    reset_str = f" (Resets at timestamp: {reset_ts})"
+
+                            quota_display = (
+                                "Unlimited"
+                                if (total == 0 and remaining == 0)
+                                else f"{remaining}/{total} remaining"
+                            )
+                            logger.info(
+                                f"Account quota updated: {display_target} - {quota_display}{reset_str}"
+                            )
+
+                            if usage_percentage := usage_level:
+                                if usage_percentage >= 100:
+                                    logger.error(
+                                        f"Account quota EXHAUSTED for {display_target}: {quota_display}.{reset_str}"
+                                    )
+                                elif usage_percentage >= 90:
+                                    logger.warning(
+                                        f"Account quota critical: Usage is at {usage_percentage:.1f}% for {display_target} ({quota_display}).{reset_str}"
+                                    )
+                                elif usage_percentage >= 75:
+                                    logger.warning(
+                                        f"Account quota warning: Usage is at {usage_percentage:.1f}% for {display_target} ({quota_display}).{reset_str}"
+                                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to fetch quota for payload {shorten(payload_str, width=60)}: {e}"
+                )
+                continue
+
+    async def _fetch_abuse_status(self) -> None:
+        """
+        Check for account abuse markers and signals.
+        """
+
+        response = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.GET_ABUSE_STATUS,
+                    payload="[]",
+                )
+            ]
+        )
+
+        for part_body in self._parse_rpc_results(response.text, GRPC.GET_ABUSE_STATUS):
+            abuse_info = get_nested_value(part_body, [1])
+
+            if not abuse_info:
+                self._abuse_status = {
+                    "is_clean": True,
+                    "status_code": None,
+                    "signal": None,
+                }
+                logger.info("Account abuse status: Clean (No flags detected).")
+                continue
+
+            raw_status = get_nested_value(abuse_info, [1])
+            signal = get_nested_value(abuse_info, [3, 1])
+
+            status_code = (
+                int(raw_status) // 1_000_000 if raw_status is not None else None
+            )
+
+            self._abuse_status = {
+                "is_clean": False,
+                "status_code": status_code,
+                "signal": signal,
+            }
+
+            logger.warning(
+                f"Potential account restriction or abnormal status detected: {self._abuse_status}"
+            )
+
+    async def _fetch_extra_quota(self) -> None:
+        """
+        Check additional feature quotas and capability caps.
+
+        Note: This method does not pre-verify account status with _check_account_status
+        and relies on internal rejection code handling (e.g., code 7).
+        """
+
+        response = await self._batch_execute(
+            [
+                RPCData(
+                    rpcid=GRPC.CHECK_QUOTA,
+                    payload="[]",
+                )
+            ]
+        )
+
+        for part_body in self._parse_rpc_results(response.text, GRPC.CHECK_QUOTA):
+            is_blocked = get_nested_value(part_body, [0])
+            usage_level = get_nested_value(part_body, [1])
+            reset_ts = get_nested_value(part_body, [2, 0])
+
+            if "extra" not in self._quotas:
+                self._quotas["extra"] = {}
+            self._quotas["extra"]["default"] = {
+                "is_blocked": is_blocked,
+                "usage_percentage": usage_level * 100
+                if isinstance(usage_level, (int, float))
+                else None,
+                "reset_time": reset_ts,
+            }
+
+            if is_blocked:
+                reset_str = (
+                    f" (Resets: {datetime.fromtimestamp(reset_ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')})"
+                    if reset_ts
+                    else ""
+                )
+                logger.error(
+                    f"Extra feature quota exceeded: Hard block detected.{reset_str}"
+                )
+            elif isinstance(usage_level, (int, float)):
+                usage_pc = usage_level * 100
+                reset_str = (
+                    f" (Resets: {datetime.fromtimestamp(reset_ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')})"
+                    if reset_ts
+                    else ""
+                )
+                if usage_pc >= 90:
+                    logger.warning(
+                        f"Extra feature quota critical: Usage is at {usage_pc:.1f}%.{reset_str}"
+                    )
+                elif usage_pc >= 75:
+                    logger.warning(
+                        f"Extra feature quota warning: Usage is at {usage_pc:.1f}%.{reset_str}"
+                    )
+
+            if self.verbose:
+                logger.info(
+                    f"Extra quota check: Blocked={is_blocked}, UsageLevel={usage_level}"
+                )
+
+    async def _fetch_preferences(self) -> None:
+        """
+        Fetch user preferences and data context flags.
         """
 
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.BARD_SETTINGS,
+                    rpcid=GRPC.READ_USER_PREFERENCES,
                     payload='[[["adaptive_device_responses_enabled","advanced_mode_theme_override_triggered","advanced_zs_upsell_dismissal_count","advanced_zs_upsell_last_dismissed","ai_transparency_notice_dismissed","audio_overview_discovery_dismissal_count","audio_overview_discovery_last_dismissed","bard_in_chrome_link_sharing_enabled","bard_sticky_mode_disabled_count","canvas_create_discovery_tooltip_seen_count","combined_files_button_tag_seen_count","indigo_banner_explicit_dismissal_count","indigo_banner_impression_count","indigo_banner_last_seen_sec","current_popup_id","deep_research_has_seen_file_upload_tooltip","deep_research_model_update_disclaimer_display_count","default_bot_id","disabled_discovery_card_feature_ids","disabled_model_discovery_tooltip_feature_ids","disabled_mode_disclaimers","disabled_new_model_badge_mode_ids","disabled_settings_discovery_tooltip_feature_ids","disablement_disclaimer_last_dismissed_sec","disable_advanced_beta_dialog","disable_advanced_beta_non_en_banner","disable_advanced_resubscribe_ui","disable_at_mentions_discovery_tooltip","disable_autorun_fact_check_u18","disable_bot_create_tips_card","disable_bot_docs_in_gems_disclaimer","disable_bot_onboarding_dialog","disable_bot_save_reminder_tips_card","disable_bot_send_prompt_tips_card","disable_bot_shared_in_drive_disclaimer","disable_bot_try_create_tips_card","disable_colab_tooltip","disable_collapsed_tool_menu_tooltip","disable_continue_discovery_tooltip","disable_debug_info_moved_tooltip_v2","disable_enterprise_mode_dialog","disable_export_python_tooltip","disable_extensions_discovery_dialog","disable_extension_one_time_badge","disable_fact_check_tooltip_v2","disable_free_file_upload_tips_card","disable_generated_image_download_dialog","disable_get_app_banner","disable_get_app_desktop_dialog","disable_googler_in_enterprise_mode","disable_human_review_disclosure","disable_ice_open_vega_editor_tooltip","disable_image_upload_tooltip","disable_legal_concern_tooltip","disable_llm_history_import_disclaimer","disable_location_popup","disable_memory_discovery","disable_memory_extraction_discovery","disable_new_conversation_dialog","disable_onboarding_experience","disable_personal_context_tooltip","disable_photos_upload_disclaimer","disable_power_up_intro_tooltip","disable_scheduled_actions_mobile_notification_snackbar","disable_storybook_listen_button_tooltip","disable_streaming_settings_tooltip","disable_take_control_disclaimer","disable_teens_only_english_language_dialog","disable_tier1_rebranding_tooltip","disable_try_advanced_mode_dialog","enable_advanced_beta_mode","enable_advanced_mode","enable_googler_in_enterprise_mode","enable_memory","enable_memory_extraction","enable_personal_context","enable_personal_context_gemini","enable_personal_context_gemini_using_photos","enable_personal_context_gemini_using_workspace","enable_personal_context_search","enable_personal_context_youtube","enable_token_streaming","enforce_default_to_fast_version","mayo_discovery_banner_dismissal_count","mayo_discovery_banner_last_dismissed_sec","gempix_discovery_banner_dismissal_count","gempix_discovery_banner_last_dismissed","get_app_banner_ack_count","get_app_banner_seen_count","get_app_mobile_dialog_ack_count","guided_learning_banner_dismissal_count","guided_learning_banner_last_dismissed","has_accepted_agent_mode_fre_disclaimer","has_received_streaming_response","has_seen_agent_mode_tooltip","has_seen_bespoke_tooltip","has_seen_deepthink_mustard_tooltip","has_seen_deepthink_v2_tooltip","has_seen_deep_think_tooltip","has_seen_first_youtube_video_disclaimer","has_seen_ggo_tooltip","has_seen_image_grams_discovery_banner","has_seen_image_preview_in_input_area_tooltip","has_seen_kallo_discovery_banner","has_seen_kallo_tooltip","has_seen_model_picker_in_input_area_tooltip","has_seen_model_tooltip_in_input_area_for_gempix","has_seen_redo_with_gempix2_tooltip","has_seen_veograms_discovery_banner","has_seen_video_generation_discovery_banner","is_imported_chats_panel_open_by_default","jumpstart_onboarding_dismissal_count","last_dismissed_deep_research_implicit_invite","last_dismissed_discovery_feature_implicit_invites","last_dismissed_immersives_canvas_implicit_invite","last_dismissed_immersive_share_disclaimer_sec","last_dismissed_strike_timestamp_sec","last_dismissed_zs_student_aip_banner_sec","last_get_app_banner_ack_timestamp_sec","last_get_app_mobile_dialog_ack_timestamp_sec","last_human_review_disclosure_ack","last_selected_mode_id_in_embedded","last_selected_mode_id_on_web","last_two_up_activation_timestamp_sec","last_winter_olympics_interaction_timestamp_sec","memory_extracted_greeting_name","mini_gemini_tos_closed","mode_switcher_soft_badge_disabled_ids","mode_switcher_soft_badge_seen_count","personalization_first_party_onboarding_cross_surface_clicked","personalization_first_party_onboarding_cross_surface_seen_count","personalization_one_p_discovery_card_seen_count","personalization_one_p_discovery_last_consented","personalization_zero_state_card_last_interacted","personalization_zero_state_card_seen_count","popup_zs_visits_cooldown","require_reconsent_setting_for_personalization_banner_seen_count","show_debug_info","side_nav_open_by_default","student_verification_dismissal_count","student_verification_last_dismissed","task_viewer_cc_banner_dismissed_count","task_viewer_cc_banner_dismissed_time_sec","tool_menu_new_badge_disabled_ids","tool_menu_new_badge_impression_counts","tool_menu_soft_badge_disabled_ids","tool_menu_soft_badge_impression_counts","upload_disclaimer_last_consent_time_sec","viewed_student_aip_upsell_campaign_ids","voice_language","voice_name","web_and_app_activity_enabled","wellbeing_nudge_notice_last_dismissed_sec","zs_student_aip_banner_dismissal_count"]]]',
                 )
             ]
         )
 
-    async def _send_bard_activity(self) -> None:
+    async def _sync_activity(self) -> None:
         """
-        Send warmup RPC calls before querying.
+        Sync user activity status and maintain session heartbeat.
         """
+
+        self.last_activity_time = time.time()
+
+        if not self._check_account_status():
+            return
 
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.BARD_SETTINGS,
+                    rpcid=GRPC.READ_USER_PREFERENCES,
                     payload='[[["bard_activity_enabled"]]]',
                 )
             ]
@@ -505,7 +855,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             return self._model_registry[name]
 
         for m in self._model_registry.values():
-            if m.model_name == name or m.display_name == name:
+            if (
+                m.model_name.lower() == name.lower()
+                or m.display_name.lower() == name.lower()
+            ):
                 return m
 
         return Model.from_name(name)
@@ -533,6 +886,75 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             pass
 
         return model
+
+    @staticmethod
+    def _get_quota_flags(
+        model: Model | AvailableModel | str | dict,
+    ) -> dict[str, bool]:
+        """
+        Determine the required quota fetch flags based on the model and task type.
+
+        Parameters
+        ----------
+        model : `Model` | `AvailableModel` | `str` | `dict`
+            The model used for generation.
+
+        Returns
+        -------
+        `dict[str, bool]`
+            A dictionary containing the required flags for _fetch_quota.
+        """
+
+        flags = {"flash": False, "advanced": False}
+
+        model_name = ""
+        if isinstance(model, (Model, AvailableModel)):
+            model_name = model.model_name.lower()
+        elif isinstance(model, str):
+            model_name = model.lower()
+        elif isinstance(model, dict):
+            model_name = model.get("model_name", "").lower()
+
+        if not model_name or model_name == "unspecified":
+            return {"flash": True, "advanced": True}
+
+        if "thinking" in model_name or "pro" in model_name:
+            flags["advanced"] = True
+        elif "flash" in model_name:
+            flags["flash"] = True
+        else:
+            flags["flash"] = True
+            flags["advanced"] = True
+
+        return flags
+
+    def _check_account_status(self, raise_error: bool = False) -> bool:
+        """
+        Check if the account is available for higher-level operations.
+
+        Parameters
+        ----------
+        raise_error: `bool`, optional
+            If `True`, raises `GeminiError` if the account is not available (defaults to `False`).
+            If `False`, returns a boolean indicating availability.
+
+        Returns
+        -------
+        `bool`
+            `True` if account is AVAILABLE, `False` otherwise.
+
+        Raises
+        ------
+        GeminiError
+            If `raise_error` is `True` and account status is not AccountStatus.AVAILABLE.
+        """
+
+        is_available = self.account_status == AccountStatus.AVAILABLE
+        if not is_available and raise_error:
+            raise GeminiError(
+                f"Permission denied. Account status: {self.account_status.name} - {self.account_status.description}"
+            )
+        return is_available
 
     async def generate_content(
         self,
@@ -593,9 +1015,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.auto_close:
             await self.reset_close_task()
 
+        if any([files, gem, deep_research]):
+            self._check_account_status(raise_error=True)
+
         file_data = None
         if files:
-            await self._send_bard_activity()
+            await self._sync_activity()
 
             uploaded_urls = await asyncio.gather(
                 *(
@@ -614,7 +1039,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             ]
 
         try:
-            await self._send_bard_activity()
+            await self._sync_activity()
 
             session_state = {
                 "last_texts": {},
@@ -708,9 +1133,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.auto_close:
             await self.reset_close_task()
 
+        if any([files, gem, deep_research]):
+            self._check_account_status(raise_error=True)
+
         file_data = None
         if files:
-            await self._send_bard_activity()
+            await self._sync_activity()
 
             uploaded_urls = await asyncio.gather(
                 *(
@@ -729,7 +1157,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             ]
 
         try:
-            await self._send_bard_activity()
+            await self._sync_activity()
 
             session_state = {
                 "last_texts": {},
@@ -790,6 +1218,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             raise TypeError(
                 f"'model' must be a `Model` enum, `AvailableModel`, "
                 f"string, or dictionary; got `{type(model).__name__}`"
+            )
+
+        if model is not Model.UNSPECIFIED and not getattr(model, "is_available", True):
+            raise GeminiError(
+                f"{model.model_name} is not available for use. Account status: {self.account_status.name} - {self.account_status.description}"
             )
 
         _reqid = self._reqid
@@ -897,7 +1330,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 ) as response:
                     if self.verbose:
                         logger.debug(
-                            f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}]"
+                            f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
                         )
                     if response.status_code != 200:
                         await self.close()
@@ -924,7 +1357,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     async def _process_parts(
                         parts: list[Any],
                     ) -> AsyncGenerator[ModelOutput, None]:
-                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, cid, rid
+                        nonlocal \
+                            is_thinking, \
+                            is_queueing, \
+                            has_candidates, \
+                            is_completed, \
+                            is_final_chunk, \
+                            cid, \
+                            rid
                         for part in parts:
                             # Check for fatal error codes
                             error_code = get_nested_value(part, [5, 2, 0, 1, 0])
@@ -1285,7 +1725,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                             "read_chat polling timed out waiting for the model to finish. "
                                             "The original request may have been silently aborted by Google."
                                         )
-                                await self._send_bard_activity()
+                                await self._sync_activity()
                                 recovered_history = await self.read_chat(cid)
                                 if (
                                     recovered_history
@@ -1348,7 +1788,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             _raw_response = _raw_response[4:].lstrip()
                         _parsed_full, _ = parse_response_by_frame(_raw_response)
                         logger.debug(
-                            f"[Debug] Full raw response received (parsed into {len(_parsed_full)} parts)"
+                            f"Full raw response received (parsed into {len(_parsed_full)} parts)"
                         )
 
                 break
@@ -1377,6 +1817,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 raise APIError(
                     f"Failed to parse response body from Google ({type(e).__name__}). This might be a temporary API change or invalid data."
                 )
+
+        # Update quotas after successful generation
+        quota_flags = self._get_quota_flags(model)
+        await self._fetch_quota(**quota_flags)
 
     def _parse_candidate(
         self, candidate_data: list[Any], cid: str, rid: str, rcid: str
@@ -1556,7 +2000,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             response = await self._batch_execute(
                 [
                     RPCData(
-                        rpcid=GRPC.GET_FULL_SIZE_IMAGE,
+                        rpcid=GRPC.DOWNLOAD_GENERATED_IMAGE,
                         payload=json.dumps(payload).decode("utf-8"),
                     ),
                 ]
@@ -1634,7 +2078,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
             if self.verbose:
                 logger.debug(
-                    f"HTTP Request: POST {Endpoint.BATCH_EXEC} [{response.status_code}]"
+                    f"HTTP Request: POST {Endpoint.BATCH_EXEC} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
                 )
         except ReadTimeout:
             raise TimeoutError(

@@ -7,7 +7,7 @@ import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies
 
 from .logger import logger
-from ..constants import Endpoint, Headers
+from ..constants import Endpoint, Headers, format_http_version
 from ..exceptions import AuthError
 
 
@@ -87,7 +87,7 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
     )
     if verbose:
         logger.debug(
-            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}]"
+            f"HTTP Request: POST {Endpoint.ROTATE_COOKIES} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
         )
     if response.status_code == 401:
         raise AuthError

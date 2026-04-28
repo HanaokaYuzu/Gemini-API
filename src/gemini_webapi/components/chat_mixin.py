@@ -28,10 +28,15 @@ class ChatMixin:
         Fetch and parse recent chats.
         """
 
+        if not self._check_account_status():
+            return
+
+        recent_chats: list[ChatInfo] = []
+
         response_chats1 = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_CHATS,
+                    rpcid=GRPC.LIST_CONVERSATIONS,
                     payload=json.dumps([recent, None, [1, None, 1]]).decode("utf-8"),
                 ),
             ]
@@ -39,13 +44,12 @@ class ChatMixin:
         response_chats2 = await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.LIST_CHATS,
+                    rpcid=GRPC.LIST_CONVERSATIONS,
                     payload=json.dumps([recent, None, [0, None, 1]]).decode("utf-8"),
                 ),
             ]
         )
 
-        recent_chats: list[ChatInfo] = []
         for response_chats in (response_chats1, response_chats2):
             chats_json = extract_json_from_response(response_chats.text)
             for part in chats_json:
@@ -118,11 +122,13 @@ class ChatMixin:
             The conversation history, or None if reading failed.
         """
 
+        self._check_account_status(raise_error=True)
+
         try:
             response = await self._batch_execute(
                 [
                     RPCData(
-                        rpcid=GRPC.READ_CHAT,
+                        rpcid=GRPC.LIST_CONVERSATION_TURNS,
                         payload=json.dumps(
                             [cid, limit, None, 1, [1], [4], None, 1]
                         ).decode("utf-8"),
@@ -247,6 +253,8 @@ class ChatMixin:
             The latest model output, or ``None`` if unavailable.
         """
 
+        self._check_account_status(raise_error=True)
+
         try:
             history = await self.read_chat(cid, limit=5)
             if not history or not history.turns:
@@ -263,8 +271,7 @@ class ChatMixin:
             return None
         except Exception as e:
             logger.debug(
-                f"fetch_latest_chat_response({cid!r}) failed: "
-                f"{type(e).__name__}: {e}"
+                f"fetch_latest_chat_response({cid!r}) failed: {type(e).__name__}: {e}"
             )
             return None
 
@@ -278,10 +285,12 @@ class ChatMixin:
             The ID of the chat requiring deletion (e.g. "c_...").
         """
 
+        self._check_account_status(raise_error=True)
+
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_CHAT_1,
+                    rpcid=GRPC.DELETE_CONVERSATION,
                     payload=json.dumps([cid]).decode("utf-8"),
                 ),
             ]
@@ -289,7 +298,7 @@ class ChatMixin:
         await self._batch_execute(
             [
                 RPCData(
-                    rpcid=GRPC.DELETE_CHAT_2,
+                    rpcid=GRPC.GET_TASKS_IN_CONVERSATION,
                     payload=json.dumps([cid, [1, None, 0, 1]]).decode("utf-8"),
                 ),
             ]

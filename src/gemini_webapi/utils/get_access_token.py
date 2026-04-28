@@ -1,6 +1,7 @@
 import re
 import time
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession, Cookies, Response
 import orjson as json
 
@@ -11,7 +12,7 @@ from .rotate_1psidts import (
     _get_cookies_cache_path,
     _get_cookie_cache_dir,
 )
-from ..constants import Endpoint, Headers
+from ..constants import Endpoint, Headers, format_http_version
 from ..exceptions import AuthError
 
 
@@ -31,7 +32,9 @@ async def _send_request(
 
     response = await client.get(Endpoint.INIT, headers=Headers.GEMINI.value)
     if verbose:
-        logger.debug(f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}]")
+        logger.debug(
+            f"HTTP Request: GET {Endpoint.INIT} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
+        )
     response.raise_for_status()
     return response
 
@@ -40,6 +43,7 @@ async def get_access_token(
     base_cookies: dict | Cookies,
     proxy: str | None = None,
     verbose: bool = False,
+    impersonate: str = "chrome",
     verify: bool = True,
 ) -> tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]:
     """
@@ -57,6 +61,8 @@ async def get_access_token(
         Proxy URL.
     verbose: `bool`, optional
         If True, log more details.
+    impersonate: `str`, optional
+        Allow to customize client, default to chrome.
     verify: `bool`, optional
         Whether to verify SSL certificates.
 
@@ -72,14 +78,18 @@ async def get_access_token(
     """
 
     client = AsyncSession(
-        impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
+        impersonate=impersonate,
+        proxy=proxy,
+        allow_redirects=CurlFollow.SAFE,
+        http_version=CurlHttpVersion.V3,
+        verify=verify,
     )
 
     try:
         response = await client.get(Endpoint.GOOGLE)
         if verbose:
             logger.debug(
-                f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]"
+                f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
             )
         preflight_cookies = Cookies(client.cookies)
     except Exception:

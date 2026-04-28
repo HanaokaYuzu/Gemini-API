@@ -29,7 +29,9 @@ class Gem(BaseModel):
     predefined: bool
 
     def __str__(self) -> str:
-        return f"Gem(id={self.id!r}, name={self.name!r}, predefined={self.predefined!r})"
+        return (
+            f"Gem(id={self.id!r}, name={self.name!r}, predefined={self.predefined!r})"
+        )
 
     def __repr__(self) -> str:
         desc = (
@@ -86,9 +88,9 @@ class GemJar(dict[str, Gem]):
             If neither id nor name is provided.
         """
 
-        assert not (
-            id is None and name is None
-        ), "At least one of gem id or name must be provided."
+        assert not (id is None and name is None), (
+            "At least one of gem id or name must be provided."
+        )
 
         if id is not None:
             gem_candidate = super().get(id)

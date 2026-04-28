@@ -195,7 +195,9 @@ def extract_deep_research_status_payload(
     state = (
         "completed"
         if done
-        else "awaiting_confirmation" if awaiting_confirmation else "running"
+        else "awaiting_confirmation"
+        if awaiting_confirmation
+        else "running"
     )
     exclude = {s for s in [title, query, research_id, cid] if isinstance(s, str)}
     notes = _collect_research_notes(data, exclude=exclude)
