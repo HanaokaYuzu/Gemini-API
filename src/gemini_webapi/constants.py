@@ -1,4 +1,5 @@
 import re
+import uuid
 from enum import Enum, IntEnum, StrEnum
 
 import orjson as json
@@ -13,14 +14,34 @@ DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
 MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
+# Model IDs for thinking-capable models (from web browser reverse engineering)
+_THINKING_MODEL_IDS = {"e051ce1aa80aa576", "5bf011840784117a"}
+
+
+def _is_thinking_model(model_id: str) -> bool:
+    """Check if the model ID represents a thinking model."""
+    return model_id in _THINKING_MODEL_IDS or "thinking" in model_id.lower()
+
 
 def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:
     """
     Builds the complete HTTP header dictionary required for model selection.
+
+    Format reverse-engineered from the Gemini web browser client (17 elements).
+    Key differences from pre-2026 format:
+      - Position 7: null (was 0) — 0 suppresses thinking
+      - Position 13: thinking level (5=thinking, 3=normal)
+      - Position 16: session-stable random UUID
     """
 
+    thinking_level = 5 if _is_thinking_model(model_id) else 3
+    header_uuid = str(uuid.uuid4()).upper()
+
     return {
-        MODEL_HEADER_KEY: f'[1,null,null,null,"{model_id}",null,null,0,[4],null,null,{capacity_tail}]',
+        MODEL_HEADER_KEY: (
+            f'[1,null,null,null,"{model_id}",null,null,null,[4],null,null,'
+            f'{capacity_tail},null,{thinking_level},null,null,"{header_uuid}"]'
+        ),
         "x-goog-ext-73010989-jspb": "[0]",
         "x-goog-ext-73010990-jspb": "[0]",
     }
@@ -87,7 +108,7 @@ class Headers(Enum):
     }
     UPLOAD = {"X-Tenant-Id": "bard-storage"}
     BATCH_EXEC = {
-        "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4]]",
+        "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4],null,null,null,null,null,3,null,\"00000000-0000-0000-0000-000000000000\"]",
         "x-goog-ext-73010989-jspb": "[0]",
     }
 
