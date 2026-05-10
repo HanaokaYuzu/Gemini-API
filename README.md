@@ -98,13 +98,70 @@ pip install -U gemini_webapi[browser]
 
 ## Authentication
 
+> [!IMPORTANT]
+>
+> Google Gemini requires a **full set of authentication cookies** — not just `__Secure-1PSID` and `__Secure-1PSIDTS`. The backend validates your identity across a chain of session, API, and CSRF cookies. Missing any one of them will cause `401` or `AuthError`.
+
+### Required Cookies
+
+The following cookies (typically 19–22 entries for the `.google.com` domain) are needed. They are organized by purpose:
+
+| Category | Required Cookies | Purpose |
+|---|---|---|
+| Core session | `__Secure-1PSID`, `__Secure-1PSIDTS`, `__Secure-3PSID`, `__Secure-3PSIDTS`, `SID` | Primary authentication and session rotation |
+| API auth | `APISID`, `SAPISID`, `__Secure-1PAPISID`, `__Secure-3PAPISID`, `HSID`, `SSID` | API request signing |
+| CSRF | `SIDCC`, `__Secure-1PSIDCC`, `__Secure-3PSIDCC` | Cross-site request forgery tokens |
+| Gemini app | `COMPASS`, `NID` | Gemini-specific preferences and app state |
+
+> Analytics cookies (`_ga`, `_ga_*`, `_gcl_au`) are not needed and can be safely omitted.
+
+### Method 1: Export cookies from your browser (recommended)
+
+Use a browser extension like [EditThisCookie](https://www.editthiscookie.com/) or [Cookie-Editor](https://cookie-editor.com/) to export all cookies for `.google.com` domain. Save them as a JSON file in this format:
+
+```json
+{
+    "__Secure-1PSID": "...",
+    "__Secure-1PSIDTS": "...",
+    "__Secure-3PSID": "...",
+    "__Secure-3PSIDTS": "...",
+    "SID": "...",
+    "HSID": "...",
+    "SSID": "...",
+    "APISID": "...",
+    "SAPISID": "...",
+    "__Secure-1PAPISID": "...",
+    "__Secure-3PAPISID": "...",
+    "SIDCC": "...",
+    "__Secure-1PSIDCC": "...",
+    "__Secure-3PSIDCC": "...",
+    "COMPASS": "...",
+    "NID": "..."
+}
+```
+
+### Method 2: Use browser-cookie3 (automatic)
+
 > [!TIP]
 >
-> If `browser-cookie3` is installed, you can skip this step and go directly to the [usage](#usage) section. Just make sure you are logged in to <https://gemini.google.com> in your browser.
+> If `browser-cookie3` is installed (`pip install gemini_webapi[browser]`), you can skip manual cookie export entirely. The library will load cookies directly from your local browser. Just make sure you are logged in to <https://gemini.google.com> in your browser.
 
-- Go to <https://gemini.google.com> and log in with your Google account
-- Press F12 to open the web inspector, go to the `Network` tab, and refresh the page
-- Click any request and copy the cookie values of `__Secure-1PSID` and `__Secure-1PSIDTS`
+```python
+client = GeminiClient()  # cookies auto-loaded from browser
+await client.init()
+```
+
+### Method 3: Use the capture script (Puppeteer)
+
+This repository includes `capture_cookies_v2.js` — a Puppeteer script that captures the full `Cookie` header from actual browser HTTP requests to `google.com`. This is the most reliable method, as it captures exactly what the browser sends:
+
+```sh
+node capture_cookies_v2.js
+```
+
+Make a query in the opened browser window with a thinking model. The script will auto-save all captured cookies to `cookies.json`.
+
+---
 
 > [!NOTE]
 >
@@ -133,20 +190,19 @@ services:
 
 ### Initialization
 
-Import the required packages and initialize a client with your cookies from the previous step. After successful initialization, the API will automatically refresh `__Secure-1PSIDTS` in the background as long as the process is alive.
+Load your cookies from a JSON file and initialize the client. After successful initialization, the API will automatically refresh `__Secure-1PSIDTS` in the background as long as the process is alive.
 
 ```python
 import asyncio
+import json
 from gemini_webapi import GeminiClient
 
-# Replace "COOKIE VALUE HERE" with your actual cookie values.
-# Leave Secure_1PSIDTS empty if it's not available for your account.
-Secure_1PSID = "COOKIE VALUE HERE"
-Secure_1PSIDTS = "COOKIE VALUE HERE"
-
 async def main():
-    # If browser-cookie3 is installed, simply use `client = GeminiClient()`
-    client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxy=None)
+    # Load full cookie set from a JSON file
+    with open("cookies.json", "r", encoding="utf-8") as f:
+        cookies = json.load(f)
+
+    client = GeminiClient(cookies=cookies, proxy=None)
     await client.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True)
 
 asyncio.run(main())
@@ -480,15 +536,23 @@ asyncio.run(main())
 
 ### Retrieve Model's Thought Process
 
-When using models with thinking capabilities, the model's thought process will be populated in `ModelOutput.thoughts`.
+When using models with thinking capabilities (models with "thinking" in their name), the model's reasoning process is available in `ModelOutput.thoughts` (non-streaming) or `ModelOutput.thoughts_delta` (streaming).
 
 ```python
 async def main():
+    # Non-streaming: access .thoughts on the result
     response = await client.generate_content(
-            "What's 1+1?", model="gemini-3-pro"
-        )
-    print(response.thoughts)
-    print(response.text)
+        "What's 1+1?", model="gemini-3-flash-thinking"
+    )
+    print(response.thoughts)  # The model's reasoning process
+    print(response.text)      # The final answer
+
+    # Streaming: access .thoughts_delta on each chunk
+    async for chunk in client.generate_content_stream(
+        "What's 2+3?", model="gemini-3-flash-thinking"
+    ):
+        if chunk.thoughts_delta:
+            print(chunk.thoughts_delta, end="", flush=True)
 
 asyncio.run(main())
 ```
@@ -689,13 +753,30 @@ A standalone CLI (`cli.py`) is included for interacting with Gemini from the ter
 
 ### Cookie Setup
 
-Export your cookies from [gemini.google.com](https://gemini.google.com) and save them as a JSON file. The CLI supports multiple formats:
+Export your cookies from [gemini.google.com](https://gemini.google.com) as a JSON key-value file. See [Authentication](#authentication) above for the full list of required cookies and export methods. The JSON file should look like:
 
 ```json
-{ "__Secure-1PSID": "value...", "__Secure-1PSIDTS": "value..." }
+{
+    "__Secure-1PSID": "...",
+    "__Secure-1PSIDTS": "...",
+    "__Secure-3PSID": "...",
+    "__Secure-3PSIDTS": "...",
+    "SID": "...",
+    "HSID": "...",
+    "SSID": "...",
+    "APISID": "...",
+    "SAPISID": "...",
+    "__Secure-1PAPISID": "...",
+    "__Secure-3PAPISID": "...",
+    "SIDCC": "...",
+    "__Secure-1PSIDCC": "...",
+    "__Secure-3PSIDCC": "...",
+    "COMPASS": "...",
+    "NID": "..."
+}
 ```
 
-You can also use a browser cookie extension export (array-of-objects format is supported).
+If you have `browser-cookie3` installed, the CLI will auto-detect cookies from your browser — no JSON file needed.
 
 > [!NOTE]
 >
