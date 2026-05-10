@@ -141,6 +141,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        cookies: dict | Cookies | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -168,7 +169,20 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self._lock = asyncio.Lock()
         self.kwargs = kwargs
 
-        if secure_1psid:
+        if cookies:
+            if isinstance(cookies, Cookies):
+                for c in cookies.jar:
+                    if c.name and c.value and not c.is_expired():
+                        self._cookies.set(
+                            c.name, c.value,
+                            domain=c.domain or ".google.com",
+                            path=c.path or "/",
+                        )
+            else:
+                for k, v in cookies.items():
+                    if v:
+                        self._cookies.set(k, v, domain=".google.com", path="/")
+        elif secure_1psid:
             self._cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com")
             if secure_1psidts:
                 self._cookies.set(
@@ -190,13 +204,26 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
 
         if isinstance(value, Cookies):
-            self._cookies.update(value)
+            for c in value.jar:
+                if c.name and c.value and not c.is_expired():
+                    self._cookies.set(
+                        c.name, c.value,
+                        domain=c.domain or ".google.com",
+                        path=c.path or "/",
+                    )
         elif isinstance(value, dict):
             for k, v in value.items():
-                self._cookies.set(k, v, domain=".google.com")
+                if v:
+                    self._cookies.set(k, v, domain=".google.com", path="/")
 
         if self.client:
-            self.client.cookies.update(self._cookies)
+            for c in self._cookies.jar:
+                if c.name and c.value and not c.is_expired():
+                    self.client.cookies.set(
+                        c.name, c.value,
+                        domain=c.domain or ".google.com",
+                        path=c.path or "/",
+                    )
 
     async def init(
         self,
