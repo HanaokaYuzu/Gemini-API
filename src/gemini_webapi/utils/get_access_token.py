@@ -22,12 +22,18 @@ async def _send_request(
     Send http request with provided cookies using a shared session.
     """
 
-    client.cookies.clear()
+    # Set each cookie individually for correct domain/path preservation
     if isinstance(cookies, Cookies):
-        client.cookies.update(cookies)
+        for cookie in cookies.jar:
+            if cookie.name and cookie.value and not cookie.is_expired():
+                client.cookies.set(
+                    cookie.name, cookie.value,
+                    domain=cookie.domain, path=cookie.path,
+                )
     else:
         for k, v in cookies.items():
-            client.cookies.set(k, v, domain=".google.com")
+            if v:
+                client.cookies.set(k, v, domain=".google.com", path="/")
 
     response = await client.get(Endpoint.INIT, headers=Headers.GEMINI.value)
     if verbose:
@@ -75,17 +81,62 @@ async def get_access_token(
         impersonate="chrome", proxy=proxy, allow_redirects=True, verify=verify
     )
 
+    # Set base cookies BEFORE preflight so Google sees authenticated request
+    if isinstance(base_cookies, Cookies):
+        for cookie in base_cookies.jar:
+            if cookie.name and cookie.value and not cookie.is_expired():
+                client.cookies.set(
+                    cookie.name, cookie.value,
+                    domain=cookie.domain or ".google.com",
+                    path=cookie.path or "/",
+                )
+    else:
+        for name, value in base_cookies.items():
+            if value:
+                client.cookies.set(name, value, domain=".google.com", path="/")
+
     try:
         response = await client.get(Endpoint.GOOGLE)
         if verbose:
             logger.debug(
                 f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}]"
             )
-        preflight_cookies = Cookies(client.cookies)
     except Exception:
         await client.close()
         raise
 
+    # Direct init attempt: get the init page with all cookies already on client
+    try:
+        init_response = await client.get(Endpoint.INIT, headers=Headers.GEMINI.value)
+        if verbose:
+            logger.debug(
+                f"HTTP Request: GET {Endpoint.INIT} [{init_response.status_code}]"
+            )
+        init_response.raise_for_status()
+
+        access_token = re.search(r'"SNlM0e":\s*"(.*?)"', init_response.text)
+        if access_token:
+            build_label = re.search(r'"cfb2h":\s*"(.*?)"', init_response.text)
+            session_id = re.search(r'"FdrFJe":\s*"(.*?)"', init_response.text)
+            language = re.search(r'"TuX5cc":\s*"(.*?)"', init_response.text)
+            push_id = re.search(r'"qKIAYe":\s*"(.*?)"', init_response.text)
+            if verbose:
+                logger.debug("Init attempt from Direct succeeded.")
+            return (
+                access_token.group(1),
+                build_label.group(1) if build_label else None,
+                session_id.group(1) if session_id else None,
+                language.group(1) if language else None,
+                push_id.group(1) if push_id else None,
+                client,
+            )
+        elif verbose:
+            logger.debug("Direct init: access_token not found in init response.")
+    except Exception as e:
+        if verbose:
+            logger.debug(f"Direct init attempt failed: {type(e).__name__}: {e}")
+
+    preflight_cookies = Cookies(client.cookies)
     extra_cookies = Cookies()
     if response.status_code == 200:
         extra_cookies = preflight_cookies
