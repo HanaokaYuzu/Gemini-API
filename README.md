@@ -140,7 +140,33 @@ Use a browser extension like [EditThisCookie](https://www.editthiscookie.com/) o
 }
 ```
 
-### Method 2: Use browser-cookie3 (automatic)
+### Method 2: Copy as cURL from DevTools (no extension needed)
+
+The simplest F12-only method — no extensions or extra dependencies required:
+
+1. Open <https://gemini.google.com> in Chrome → F12 → **Network** tab
+2. Refresh the page, then filter requests by `gemini.google.com`
+3. Right-click any request to `gemini.google.com` → **Copy** → **Copy as cURL (bash)**
+4. Run the extraction command below in your terminal:
+
+**Windows (PowerShell):**
+
+```powershell
+python -c "import subprocess,re,json; clip=subprocess.check_output(['powershell','-command','Get-Clipboard']).decode().strip(); m=re.search(r\"-b '([^']+)'\",clip) or re.search(r'-b \"([^\"]+)\"',clip); cookies=dict(p.split('=',1) for p in m.group(1).split('; ')); json.dump(cookies,open('cookies.json','w'),indent=2,ensure_ascii=False); print(f'Saved {len(cookies)} cookies to cookies.json')"
+```
+
+**macOS / Linux:**
+
+```bash
+pbpaste | python3 -c "import sys,re,json; clip=sys.stdin.read().strip(); m=re.search(r\"-b '([^']+)'\",clip) or re.search(r'-b \"([^\"]+)\"',clip); cookies=dict(p.split('=',1) for p in m.group(1).split('; ')); json.dump(cookies,open('cookies.json','w'),indent=2,ensure_ascii=False); print(f'Saved {len(cookies)} cookies')"
+```
+
+> On Linux, replace `pbpaste` with `xclip -selection clipboard -o` (X11) or `wl-paste` (Wayland).
+
+> [!NOTE]
+> Unlike HAR export (which strips cookies for privacy), **Copy as cURL** preserves the full cookie string via the `-b` flag. Make sure you copy a request to `gemini.google.com` — analytics/tracking requests won't contain auth cookies.
+
+### Method 3: Use browser-cookie3 (automatic)
 
 > [!TIP]
 >
@@ -151,7 +177,7 @@ client = GeminiClient()  # cookies auto-loaded from browser
 await client.init()
 ```
 
-### Method 3: Use the capture script (Puppeteer)
+### Method 4: Use the capture script (Puppeteer)
 
 This repository includes `capture_cookies_v2.js` — a Puppeteer script that captures the full `Cookie` header from actual browser HTTP requests to `google.com`. This is the most reliable method, as it captures exactly what the browser sends:
 
