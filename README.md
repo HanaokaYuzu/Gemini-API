@@ -144,24 +144,40 @@ Use a browser extension like [EditThisCookie](https://www.editthiscookie.com/) o
 
 The simplest F12-only method — no extensions or extra dependencies required:
 
-1. Open <https://gemini.google.com> in Chrome → F12 → **Network** tab
-2. Refresh the page, then filter requests by `gemini.google.com`
-3. Right-click any request to `gemini.google.com` → **Copy** → **Copy as cURL (bash)**
-4. Run the extraction command below in your terminal:
+1. Save the extraction script below as `extract_cookies.py`:
 
-**Windows (PowerShell):**
+```python
+import subprocess, re, json, sys
 
-```powershell
-python -c "import subprocess,re,json; clip=subprocess.check_output(['powershell','-command','Get-Clipboard']).decode().strip(); m=re.search(r\"-b '([^']+)'\",clip) or re.search(r'-b \"([^\"]+)\"',clip); cookies=dict(p.split('=',1) for p in m.group(1).split('; ')); json.dump(cookies,open('cookies.json','w'),indent=2,ensure_ascii=False); print(f'Saved {len(cookies)} cookies to cookies.json')"
+# Read cURL command from clipboard
+if sys.platform == 'win32':
+    clip = subprocess.check_output(
+        ['powershell', '-command', 'Get-Clipboard']
+    ).decode('utf-8').strip()
+else:
+    import subprocess as sp
+    cmd = ['pbpaste'] if sys.platform == 'darwin' else ['xclip', '-selection', 'clipboard', '-o']
+    clip = sp.check_output(cmd).decode('utf-8').strip()
+
+# Extract cookie string from -b flag (or -H 'Cookie: ...')
+m = re.search(r"-b '([^']+)'", clip) or re.search(r'-b "([^"]+)"', clip)
+if not m:
+    m = re.search(r"-H 'Cookie:\s*([^']+)'", clip) or re.search(r'-H \"Cookie:\s*([^\"]+)\"', clip)
+if not m:
+    sys.exit('No Cookie header found in clipboard. Did you copy a gemini.google.com request?')
+
+cookies = dict(p.split('=', 1) for p in m.group(1).split('; '))
+with open('cookies.json', 'w', encoding='utf-8') as f:
+    json.dump(cookies, f, indent=2, ensure_ascii=False)
+print(f'Saved {len(cookies)} cookies to cookies.json')
+for k in sorted(cookies):
+    print(f'  {k}=PRESENT' if cookies[k] else f'  {k}=EMPTY')
 ```
 
-**macOS / Linux:**
-
-```bash
-pbpaste | python3 -c "import sys,re,json; clip=sys.stdin.read().strip(); m=re.search(r\"-b '([^']+)'\",clip) or re.search(r'-b \"([^\"]+)\"',clip); cookies=dict(p.split('=',1) for p in m.group(1).split('; ')); json.dump(cookies,open('cookies.json','w'),indent=2,ensure_ascii=False); print(f'Saved {len(cookies)} cookies')"
-```
-
-> On Linux, replace `pbpaste` with `xclip -selection clipboard -o` (X11) or `wl-paste` (Wayland).
+2. Open <https://gemini.google.com> in Chrome → F12 → **Network** tab
+3. Refresh the page, filter requests by `gemini.google.com`
+4. Right-click a request to `gemini.google.com` → **Copy** → **Copy as cURL (bash)**
+5. Run: `python extract_cookies.py`
 
 > [!NOTE]
 > Unlike HAR export (which strips cookies for privacy), **Copy as cURL** preserves the full cookie string via the `-b` flag. Make sure you copy a request to `gemini.google.com` — analytics/tracking requests won't contain auth cookies.
