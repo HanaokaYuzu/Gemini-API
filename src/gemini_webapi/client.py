@@ -68,6 +68,21 @@ from .utils import (
 )
 
 
+def _is_thinking_model_param(model: Any) -> bool:
+    """Check if the model parameter represents a thinking model (supports str, Model, dict, AvailableModel)."""
+    if isinstance(model, str):
+        return "thinking" in model.lower()
+    if isinstance(model, Model):
+        return "thinking" in (model.model_name or "").lower()
+    if isinstance(model, dict):
+        return "thinking" in (model.get("model_name", "") or "").lower()
+    if hasattr(model, "model_name"):
+        return "thinking" in (getattr(model, "model_name", "") or "").lower()
+    if hasattr(model, "name"):
+        return "thinking" in (getattr(model, "name", "") or "").lower()
+    return False
+
+
 class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
     """
     Async requests client interface for gemini.google.com.
@@ -837,7 +852,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         while True:
             try:
-                inner_req_list: list[Any] = [None] * 69
+                inner_req_list: list[Any] = [None] * 80
                 inner_req_list[0] = message_content
                 inner_req_list[1] = [self.language]
                 inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
@@ -865,6 +880,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     inner_req_list[55] = [[1]]
                 inner_req_list[61] = []
                 inner_req_list[68] = 2
+                inner_req_list[79] = 5 if _is_thinking_model_param(model) else 3
 
                 uuid_val = str(uuid.uuid4()).upper()
 
@@ -1613,9 +1629,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             if self.session_id:
                 params["f.sid"] = self.session_id
 
+            batch_uuid = str(uuid.uuid4()).upper()
             request_headers = {
                 **Headers.GEMINI.value,
                 **Headers.BATCH_EXEC.value,
+                "x-goog-ext-525001261-jspb": (
+                    f"[1,null,null,null,null,null,null,null,[4],null,null,"
+                    f"null,null,3,null,null,\"{batch_uuid}\"]"
+                ),
                 **Headers.SAME_DOMAIN.value,
             }
 
