@@ -228,6 +228,27 @@ services:
 >
 > To avoid this, it's recommended to get cookies from a separate browser session and close it as soon as possible for best utilization (e.g. a fresh login in the browser's private mode). More details can be found [here](https://github.com/HanaokaYuzu/Gemini-API/issues/6).
 
+### Account Status & Model Availability
+
+During initialization, the library fetches your account status from Google's backend. You may see a warning like:
+
+```
+WARNING  Account status: UNAUTHENTICATED - Session is not authenticated or cookies have expired.
+```
+
+This is a **soft warning**, not a hard block. The `UNAUTHENTICATED` status (1016) causes Google to return a *reduced model list* from `list_models()` — typically 3-4 models instead of the full 9. However, **all models remain fully functional** when called by name:
+
+| `list_models()` shows | Also works (call by name) |
+|---|---|
+| `gemini-3-flash` | `gemini-3-flash-plus` |
+| `gemini-3-pro` | `gemini-3-pro-plus` |
+| `gemini-3-flash-thinking` | `gemini-3-flash-thinking-plus` |
+| | `gemini-3-pro-advanced` |
+| | `gemini-3-flash-advanced` |
+| | `gemini-3-flash-thinking-advanced` |
+
+The session status typically upgrades to `AVAILABLE` (1000) after a few successful requests or after `auto_refresh` rotates your cookies (enabled by default, every 600s). A hard block (e.g. `LOCATION_REJECTED`, `ACCOUNT_REJECTED`) would be logged at `WARNING` level and prevent model discovery entirely.
+
 ## Usage
 
 ### Initialization
