@@ -543,6 +543,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
         deep_research: bool = False,
+        tool: "GenerationTool | None" = None,
         **kwargs,
     ) -> ModelOutput:
         """
@@ -568,6 +569,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             If set to `True`, the ongoing conversation will not show up in Gemini history.
         deep_research: `bool`, optional
             If set to `True`, will enable deep research mode and start creating a deep research plan.
+        tool: `GenerationTool`, optional
+            Route the request to a specialized generation backend.
+            Use `GenerationTool.VIDEO` for Veo video generation or `GenerationTool.MUSIC` for Lyria music generation.
+            When set, injects the appropriate routing values into the internal request payload.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -859,6 +864,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
                 if deep_research:
                     inner_req_list[49] = 1
+                if tool is not None:
+                    from .constants import TOOL_LIST_MIN_LEN, TOOL_MODE_INDEX, TOOL_FLAG_INDEX, _TOOL_FLAG_VALUES
+                    while len(inner_req_list) < TOOL_LIST_MIN_LEN:
+                        inner_req_list.append(None)
+                    inner_req_list[TOOL_MODE_INDEX] = int(tool)
+                    inner_req_list[TOOL_FLAG_INDEX] = _TOOL_FLAG_VALUES.get(int(tool), 1)
                 inner_req_list[53] = 0
                 if deep_research:
                     inner_req_list[54] = [[[[[1]]]]]

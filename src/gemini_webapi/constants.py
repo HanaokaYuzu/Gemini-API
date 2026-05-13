@@ -274,6 +274,28 @@ class AccountStatus(IntEnum):
             return cls.ACCOUNT_REJECTED
 
 
+class GenerationTool(IntEnum):
+    """
+    Tool routing values for inner_req_list[49] to trigger specialized generation modes.
+
+    VIDEO routes to Google Veo (video generation).
+    MUSIC routes to Google Lyria (music generation).
+    """
+
+    VIDEO = 11   # inner[49]=11, inner[79]=3 → Veo
+    MUSIC = 21   # inner[49]=21, inner[79]=1 → Lyria
+
+
+TOOL_MODE_INDEX = 49       # inner_req_list index for tool selection
+TOOL_FLAG_INDEX = 79       # inner_req_list secondary mode flag
+TOOL_LIST_MIN_LEN = 80     # must pad inner_req_list from 69 to 80 when using tool
+
+_TOOL_FLAG_VALUES: dict[int, int] = {
+    GenerationTool.VIDEO: 3,
+    GenerationTool.MUSIC: 1,
+}
+
+
 class ErrorCode(IntEnum):
     """
     Known error codes returned from server.
