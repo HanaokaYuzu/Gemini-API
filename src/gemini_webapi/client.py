@@ -638,6 +638,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 temporary=temporary,
                 session_state=session_state,
                 deep_research=deep_research,
+                tool=tool,
                 **kwargs,
             ):
                 pass
@@ -775,6 +776,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         temporary: bool = False,
         session_state: dict[str, Any] | None = None,
         deep_research: bool = False,
+        tool: "GenerationTool | None" = None,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """
