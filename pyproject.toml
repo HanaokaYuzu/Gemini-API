@@ -29,6 +29,7 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 browser = ["browser-cookie3"]
+api = ["fastapi", "uvicorn"]
 
 [project.urls]
 Repository = "https://github.com/HanaokaYuzu/Gemini-API"
