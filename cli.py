@@ -509,6 +509,33 @@ async def cmd_inspect(args):
         await _cleanup(client, args, json_cookies)
 
 
+async def cmd_server(args):
+    try:
+        import uvicorn
+        from gemini_webapi.server import app
+    except ImportError:
+        raise SystemExit(
+            "FastAPI and Uvicorn are required for the server feature.\n"
+            "Please install them via: pip install fastapi uvicorn"
+        )
+
+    client, json_cookies = await _init_client(args)
+    try:
+        app.state.client = client
+        config = uvicorn.Config(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level="info"
+        )
+        server = uvicorn.Server(config)
+        logger.warning(f"Starting Gemini Web API OpenAI-Compatible Server on {args.host}:{args.port}...")
+        await server.serve()
+    finally:
+        await _cleanup(client, args, json_cookies)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # region - Argparse
 # ---------------------------------------------------------------------------
@@ -610,6 +637,11 @@ def build_parser():
     # inspect
     sub.add_parser("inspect", help="Account probe")
 
+    # server
+    p_srv = sub.add_parser("server", help="Start OpenAI-compatible API server")
+    p_srv.add_argument("--host", default="127.0.0.1", help="Server host bind address")
+    p_srv.add_argument("--port", type=int, default=9090, help="Server port bind number")
+
     return parser
 
 
@@ -648,9 +680,11 @@ async def run(args):
         return 0
     elif cmd == "inspect":
         return await cmd_inspect(args)
+    elif cmd == "server":
+        return await cmd_server(args)
     else:
         raise SystemExit(
-            "Usage: cli.py {ask|reply|research|list|read|models|download|inspect}"
+            "Usage: cli.py {ask|reply|research|list|read|models|download|inspect|server}"
         )
 
 
