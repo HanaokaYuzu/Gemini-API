@@ -1,7 +1,11 @@
 import html
+from textwrap import shorten
+
 from pydantic import BaseModel, field_validator
 
 from .image import Image, WebImage, GeneratedImage
+from .video import GeneratedVideo, GeneratedMedia
+from .research import DeepResearchPlan
 
 
 class Candidate(BaseModel):
@@ -20,6 +24,10 @@ class Candidate(BaseModel):
         List of web images in reply, can be empty.
     generated_images: `list[GeneratedImage]`, optional
         List of generated images in reply, can be empty
+    generated_videos: `list[GeneratedVideo]`, optional
+        List of generated videos in reply, can be empty
+    generated_media: `list[GeneratedMedia]`, optional
+        List of generated media (music/audio) in reply, can be empty
     """
 
     rcid: str
@@ -29,12 +37,18 @@ class Candidate(BaseModel):
     thoughts_delta: str | None = None
     web_images: list[WebImage] = []
     generated_images: list[GeneratedImage] = []
+    generated_videos: list[GeneratedVideo] = []
+    generated_media: list[GeneratedMedia] = []
+    deep_research_plan: DeepResearchPlan | None = None
 
-    def __str__(self):
-        return self.text
+    def __str__(self) -> str:
+        return shorten(self.text, width=100)
 
-    def __repr__(self):
-        return f"Candidate(rcid='{self.rcid}', text='{len(self.text) <= 20 and self.text or self.text[:20] + '...'}', images={self.images})"
+    def __repr__(self) -> str:
+        return (
+            f"Candidate(rcid={self.rcid!r}, text={shorten(self.text, width=100)!r}, "
+            f"images={self.images!r}, videos={self.generated_videos!r}, media={self.generated_media!r})"
+        )
 
     @field_validator("text", "thoughts")
     @classmethod

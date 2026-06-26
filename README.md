@@ -30,10 +30,13 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
 
 - **Persistent Cookies** - Automatically refreshes cookies in background. Optimized for always-on services.
 - **Image Generation** - Natively supports generating and editing images with natural language.
+- **Video & Audio Generation** - Supports generating videos and audio/music content natively.
+- **Deep Research** - Full deep research workflow with plan creation, status polling, and result retrieval.
 - **System Prompt** - Supports customizing the model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating content with [Gemini extensions](https://gemini.google.com/extensions), such as YouTube and Gmail.
-- **Classified Outputs** - Categorizes text, thoughts, web images, and AI-generated images in the response.
+- **Classified Outputs** - Categorizes text, thoughts, images, videos, and audio in the response.
 - **Streaming Mode** - Supports stream generation, yielding partial outputs as they are generated.
+- **CLI Tool** - Standalone command-line interface for quick interactions.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generation tasks and return outputs efficiently.
 
@@ -54,6 +57,7 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
   - [Temporary Mode](#temporary-mode)
   - [Streaming Mode](#streaming-mode)
   - [Select Language Model](#select-language-model)
+  - [List Available Models](#list-available-models)
   - [Apply System Prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Manage Custom Gems](#manage-custom-gems)
     - [Create a Custom Gem](#create-a-custom-gem)
@@ -62,9 +66,15 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
   - [Retrieve Model's Thought Process](#retrieve-models-thought-process)
   - [Retrieve Images in Response](#retrieve-images-in-response)
   - [Generate and Edit Images](#generate-and-edit-images)
+  - [Retrieve Videos and Audio](#retrieve-videos-and-audio)
   - [Generate Content with Gemini Extensions](#generate-content-with-gemini-extensions)
   - [Check and Switch to Other Reply Candidates](#check-and-switch-to-other-reply-candidates)
+  - [Deep Research](#deep-research)
   - [Logging Configuration](#logging-configuration)
+- [CLI Tool](#cli-tool)
+  - [Cookie Setup](#cookie-setup)
+  - [CLI Commands](#cli-commands)
+  - [Deep Research Workflow](#deep-research-workflow)
 - [References](#references)
 - [Stargazers](#stargazers)
 
@@ -224,7 +234,7 @@ asyncio.run(main())
 
 ### Read Conversation History
 
-You can read the conversation history of a specific chat by calling `GeminiClient.read_chat` with the chat ID.
+You can read the conversation history of a specific chat by calling `GeminiClient.read_chat` with the chat ID. It returns a `ChatHistory` object containing a list of `ChatTurn` objects ordered from newest to oldest.
 
 ```python
 async def main():
@@ -233,12 +243,22 @@ async def main():
 
     # Read the chat history
     history = await client.read_chat(chat.cid)
-    for turn in history:
-        print(
-            f"Input: {turn.user_prompt}\n"
-            f"Output: {turn.assistant_response}"
-            "\n\n----------------------------------\n\n"
-        )
+    if history:
+        for turn in history.turns:
+            print(f"[{turn.role.upper()}] {turn.text}")
+            print("\n----------------------------------\n")
+
+asyncio.run(main())
+```
+
+To list all recent chats, use `GeminiClient.list_chats`:
+
+```python
+async def main():
+    chats = client.list_chats()
+    if chats:
+        for chat_info in chats:
+            print(f"{chat_info.cid}: {chat_info.title}")
 
 asyncio.run(main())
 ```
@@ -303,12 +323,7 @@ asyncio.run(main())
 
 You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
 
-Currently available models (as of November 20, 2025):
-
-- `unspecified` - Default model
-- `gemini-3.0-pro` - Gemini 3.0 Pro
-- `gemini-3.0-flash` - Gemini 3.0 Flash
-- `gemini-3.0-flash-thinking` - Gemini 3.0 Flash Thinking
+Available models are discovered **dynamically** at init time based on your account tier. The `Model` enum provides convenient shortcuts.
 
 ```python
 from gemini_webapi.constants import Model
@@ -316,13 +331,13 @@ from gemini_webapi.constants import Model
 async def main():
     response1 = await client.generate_content(
         "What's your language model version? Reply with the version number only.",
-        model=Model.G_3_0_FLASH,
+        model=Model.BASIC_FLASH,
     )
-    print(f"Model version ({Model.G_3_0_FLASH.model_name}): {response1.text}")
+    print(f"Model version ({Model.BASIC_FLASH.model_name}): {response1.text}")
 
-    chat = client.start_chat(model="gemini-2.5-pro")
+    chat = client.start_chat(model="gemini-3-pro")
     response2 = await chat.send_message("What's your language model version? Reply with the version number only.")
-    print(f"Model version (gemini-2.5-pro): {response2.text}")
+    print(f"Model version (gemini-3-pro): {response2.text}")
 
 asyncio.run(main())
 ```
@@ -344,6 +359,21 @@ response = await client.generate_content(
 )
 ```
 
+### List Available Models
+
+The client dynamically discovers which models are available for your account at initialization. Use `GeminiClient.list_models` to see all available models and their details.
+
+```python
+async def main():
+    await client.init()  # Make sure the client is initialized first
+    models = client.list_models()
+    if models:
+        for model in models:
+            print(f"{model.display_name}: {model.model_name}")
+
+asyncio.run(main())
+```
+
 ### Apply System Prompt with Gemini Gems
 
 System prompts can be applied to conversations via [Gemini Gems](https://gemini.google.com/gems/view). To use a gem, you can pass the `gem` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. `gem` can be either a gem ID string or a `gemini_webapi.Gem` object. Only one gem can be applied to a single conversation.
@@ -355,7 +385,7 @@ System prompts can be applied to conversations via [Gemini Gems](https://gemini.
 ```python
 async def main():
     # Fetch all gems for the current account, including both predefined and user-created ones
-    await client.fetch_gems(include_hidden=False, language="en")
+    await client.fetch_gems(include_hidden=False)
 
     # Once fetched, gems will be cached in `GeminiClient.gems`
     gems = client.gems
@@ -366,7 +396,6 @@ async def main():
 
     response1 = await client.generate_content(
         "What's your system prompt?",
-        model=Model.G_3_0_FLASH,
         gem=coding_partner,
     )
     print(response1.text)
@@ -456,7 +485,7 @@ When using models with thinking capabilities, the model's thought process will b
 ```python
 async def main():
     response = await client.generate_content(
-            "What's 1+1?", model="gemini-2.5-pro"
+            "What's 1+1?", model="gemini-3-pro"
         )
     print(response.thoughts)
     print(response.text)
@@ -485,13 +514,13 @@ You can ask Gemini to generate and edit images with Nano Banana, Google's latest
 >
 > Google has some limitations on Gemini's image generation feature, so availability may vary by region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
 >
-> > This feature’s availability in any specific Gemini app is also limited to the supported languages and countries of that app.
+> > This feature's availability in any specific Gemini app is also limited to the supported languages and countries of that app.
 > >
-> > For now, this feature isn’t available to users under 18.
+> > For now, this feature isn't available to users under 18.
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 
-You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function, and skip images with invalid file names by passing `skip_invalid_filename=True`. This works for both `WebImage` and `GeneratedImage`.
+You can save images returned from Gemini locally by calling `Image.save()`. Optionally, you can specify the file path and file name by passing `path` and `filename` arguments to the function. This works for both `WebImage` and `GeneratedImage`.
 
 ```python
 async def main():
@@ -507,6 +536,35 @@ asyncio.run(main())
 >
 > By default, when asked to send images (like in the previous example), Gemini will send images fetched from the web instead of generating images with an AI model, unless you specifically ask it to "generate" images in your prompt. In this package, web images and generated images are treated differently as `WebImage` and `GeneratedImage`, and are automatically categorized in the output.
 
+### Retrieve Videos and Audio
+
+Gemini can generate videos and audio/music content. These are returned as `GeneratedVideo` and `GeneratedMedia` objects in `ModelOutput.videos` and `ModelOutput.media` respectively. You can save them to disk just like images.
+
+> [!NOTE]
+>
+> You may need an active subscription to access Gemini's video and audio generation features.
+
+```python
+async def main():
+    response = await client.generate_content("Generate a short video of a cat playing")
+
+    # Save generated videos
+    for video in response.videos:
+        result = await video.save(path="temp/", verbose=True)
+        print(f"Video saved: {result}")
+
+    # Save generated media (audio/music)
+    for media in response.media:
+        result = await media.save(path="temp/", verbose=True)
+        print(f"Media saved: {result}")
+
+asyncio.run(main())
+```
+
+> [!NOTE]
+>
+> `GeneratedMedia.save()` accepts a `download_type` parameter: `"audio"`, `"video"`, or `"both"` (default). Generated video/audio may take time to render — the save method will poll automatically until the content is ready.
+
 ### Generate Content with Gemini Extensions
 
 > [!IMPORTANT]
@@ -517,7 +575,7 @@ asyncio.run(main())
 > >
 > > To use this feature, you must be signed in to Gemini Apps.
 > >
-> > Important: If you’re under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
+> > Important: If you're under 18, Google Workspace and Maps apps currently only work with English prompts in Gemini.
 
 After activating extensions for your account, you can access them in your prompts either in natural language or by starting your prompt with "@" followed by the extension keyword.
 
@@ -559,6 +617,58 @@ async def main():
 asyncio.run(main())
 ```
 
+### Deep Research
+
+Gemini's deep research feature is an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report. You can access it programmatically through the API.
+
+> [!NOTE]
+>
+> You may need an active subscription to access Gemini's deep research feature.
+
+**Quick one-call method:**
+
+```python
+async def main():
+    result = await client.deep_research(
+        "Compare the top 3 cloud providers and their AI offerings",
+        poll_interval=10.0,
+        timeout=600.0,
+    )
+    print(f"Done: {result.done}")
+    print(result.text)
+
+asyncio.run(main())
+```
+
+**Step-by-step workflow** for more control:
+
+```python
+async def main():
+    # Step 1: Create a research plan
+    plan = await client.create_deep_research_plan(
+        "What are the latest advancements in quantum computing?"
+    )
+    print(f"Title: {plan.title}")
+    print(f"ETA: {plan.eta_text}")
+    for step in plan.steps:
+        print(f"  - {step}")
+
+    # Step 2: Start the research
+    await client.start_deep_research(plan)
+
+    # Step 3: Poll for completion
+    result = await client.wait_for_deep_research(
+        plan,
+        poll_interval=10.0,
+        timeout=600.0,
+        on_status=lambda s: print(f"Status: {s.state}"),
+    )
+
+    print(result.text)
+
+asyncio.run(main())
+```
+
 ### Logging Configuration
 
 This package uses [loguru](https://loguru.readthedocs.io/en/stable/) for logging and exposes a function `set_log_level` to control the log level. You can set the log level to one of the following values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. The default value is `INFO`.
@@ -572,6 +682,86 @@ set_log_level("DEBUG")
 > [!NOTE]
 >
 > Calling `set_log_level` for the first time will **globally** remove all existing loguru handlers. You may want to configure logging directly with loguru to avoid this issue and have more advanced control over logging behaviors.
+
+## CLI Tool
+
+A standalone CLI (`cli.py`) is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics.
+
+### Cookie Setup
+
+Export your cookies from [gemini.google.com](https://gemini.google.com) and save them as a JSON file. The CLI supports multiple formats:
+
+```json
+{ "__Secure-1PSID": "value...", "__Secure-1PSIDTS": "value..." }
+```
+
+You can also use a browser cookie extension export (array-of-objects format is supported).
+
+> [!NOTE]
+>
+> The CLI automatically persists updated cookies back to the JSON file after each run. Use `--no-persist` to disable this behavior.
+
+### CLI Commands
+
+**Global options** (placed before the subcommand):
+
+```sh
+--cookies-json PATH    Path to cookies JSON file (required)
+--proxy URL            Proxy URL (or uses HTTPS_PROXY env)
+--model NAME           Model name (see 'models' command)
+--verbose              Enable debug logging
+--no-persist           Don't update cookies file after run
+--request-timeout SEC  HTTP timeout in seconds (default: 300)
+```
+
+**Available commands:**
+
+```sh
+# Ask a single question (streams by default)
+python cli.py --cookies-json cookies.json ask "What is quantum computing?"
+
+# Ask with image input
+python cli.py --cookies-json cookies.json ask --image photo.jpg "Describe this"
+
+# Non-streaming mode
+python cli.py --cookies-json cookies.json ask --no-stream "Hello"
+
+# Continue a conversation (chat ID from previous output)
+python cli.py --cookies-json cookies.json reply c_abc123 "Tell me more"
+
+# List your chat history
+python cli.py --cookies-json cookies.json list
+
+# Read a specific chat conversation
+python cli.py --cookies-json cookies.json read c_abc123
+
+# List available models
+python cli.py --cookies-json cookies.json models
+
+# Download a generated image
+python cli.py --cookies-json cookies.json download "https://..." -o output.png
+
+# Account diagnostics (check feature availability)
+python cli.py --cookies-json cookies.json inspect
+```
+
+### Deep Research Workflow
+
+The CLI supports Gemini's Deep Research feature — an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report.
+
+```sh
+# 1. Submit a research task
+python cli.py --cookies-json cookies.json research send --prompt "AI chip competition 2025"
+
+# 2. Check progress (use the chat ID from step 1)
+python cli.py --cookies-json cookies.json research check c_abc123
+
+# 3. Fetch the full result
+python cli.py --cookies-json cookies.json research get c_abc123
+
+# 4. Save result to a file
+python cli.py --cookies-json cookies.json research get c_abc123 --output report.md
+```
 
 ## References
 

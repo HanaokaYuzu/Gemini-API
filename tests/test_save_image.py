@@ -1,10 +1,11 @@
 import os
 import unittest
 import logging
+from unittest.mock import patch, AsyncMock
 
-from httpx import HTTPError
+from curl_cffi.requests.exceptions import HTTPError
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
+from gemini_webapi import GeminiClient, AuthError, set_log_level, logger, GeneratedImage
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -17,7 +18,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            await self.geminiclient.init(auto_refresh=False)
+            await self.geminiclient.init(auto_refresh=False, verbose=True, watchdog_timeout=450)
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
 
@@ -31,26 +32,50 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.images)
         for image in response.images:
             try:
-                await image.save(verbose=True, skip_invalid_filename=True)
+                await image.save(verbose=True)
             except HTTPError as e:
                 logger.warning(e)
 
     async def test_save_generated_image(self):
         response = await self.geminiclient.generate_content(
-            "Generate a picture of random subjects"
+            "Design an application icon for an AI web app. Make it simple and modern."
         )
         self.assertTrue(response.images)
-        for image in response.images:
+
+        image = response.images[0]
+        if isinstance(image, GeneratedImage):
+            original_url = image.url
+
+            await image.save(verbose=True, full_size=False)
             await image.save(verbose=True, full_size=True)
+            self.assertFalse(
+                "=s2048-rj" in image.url,
+                "Test failed: Fallback occurred despite expecting RPC success.",
+            )
+
+            image.url = original_url
+
+            with patch.object(
+                self.geminiclient, "_get_full_size_image", new_callable=AsyncMock
+            ) as mock_rpc:
+                mock_rpc.side_effect = Exception("Simulated RPC failure for testing")
+                await image.save(verbose=True, full_size=True)
+                self.assertTrue(
+                    "=s2048-rj" in image.url,
+                    "Test failed: Expected fallback to =s2048-rj but did not happen.",
+                )
 
     async def test_save_image_to_image(self):
         response = await self.geminiclient.generate_content(
             "Design an application icon based on the provided image. Make it simple and modern.",
-            files=["assets/banner.png"],
+            files=["assets/favicon.png"],
         )
         self.assertTrue(response.images)
         for image in response.images:
-            await image.save(verbose=True, full_size=True)
+            if isinstance(image, GeneratedImage):
+                await image.save(verbose=True, full_size=True)
+            else:
+                await image.save(verbose=True)
 
 
 if __name__ == "__main__":

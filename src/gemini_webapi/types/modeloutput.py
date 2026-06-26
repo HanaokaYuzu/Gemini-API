@@ -1,7 +1,10 @@
 from pydantic import BaseModel
+from textwrap import shorten
 
 from .image import Image
 from .candidate import Candidate
+from .video import GeneratedVideo, GeneratedMedia
+from .research import DeepResearchPlan
 
 
 class ModelOutput(BaseModel):
@@ -22,11 +25,15 @@ class ModelOutput(BaseModel):
     candidates: list[Candidate]
     chosen: int = 0
 
-    def __str__(self):
-        return self.text
+    def __str__(self) -> str:
+        return shorten(self.text, width=100)
 
-    def __repr__(self):
-        return f"ModelOutput(metadata={self.metadata}, chosen={self.chosen}, candidates={self.candidates})"
+    def __repr__(self) -> str:
+        return f"ModelOutput(metadata={self.metadata!r}, chosen={self.chosen!r}, candidates={self.candidates!r})"
+
+    @property
+    def rcid(self) -> str:
+        return self.candidates[self.chosen].rcid
 
     @property
     def text(self) -> str:
@@ -49,5 +56,13 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].images
 
     @property
-    def rcid(self) -> str:
-        return self.candidates[self.chosen].rcid
+    def videos(self) -> list[GeneratedVideo]:
+        return self.candidates[self.chosen].generated_videos
+
+    @property
+    def media(self) -> list[GeneratedMedia]:
+        return self.candidates[self.chosen].generated_media
+
+    @property
+    def deep_research_plan(self) -> DeepResearchPlan | None:
+        return self.candidates[self.chosen].deep_research_plan

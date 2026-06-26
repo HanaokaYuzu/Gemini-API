@@ -202,3 +202,8 @@ Temporary Items
 
 # Temporary files
 .temp/
+temp/
+
+# Cookies and credentials
+cookies.json
+*.cookies
