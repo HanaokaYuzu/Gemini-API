@@ -451,6 +451,34 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             )
                             self._model_registry[model_id] = model
 
+                # The web model picker also returns modes separately from the
+                # primary model list.  In particular, "Thinking" (mode 5) is
+                # the Extended Thinking switch shown under Flash.  Older code
+                # ignored this block, so callers could not discover or select
+                # the capability even though its request header is known.
+                mode_models = {
+                    1: Model.BASIC_FLASH,
+                    3: Model.BASIC_PRO,
+                    5: Model.BASIC_THINKING,
+                }
+                for mode_data in get_nested_value(part_body, [24, 1], []):
+                    mode_info = get_nested_value(mode_data, [0], [])
+                    mode_code = get_nested_value(mode_info, [1])
+                    model = mode_models.get(mode_code)
+                    if model is None or model.model_id in self._model_registry:
+                        continue
+
+                    self._model_registry[model.model_id] = AvailableModel(
+                        model_id=model.model_id,
+                        model_name=model.model_name,
+                        display_name=get_nested_value(mode_info, [4], model.model_name),
+                        description=get_nested_value(mode_info, [5], ""),
+                        capacity=capacity,
+                        capacity_field=capacity_field,
+                        # The UI exposes availability at index 7 for a mode.
+                        is_available=bool(get_nested_value(mode_info, [7], False)),
+                    )
+
                 return
 
     async def _send_bard_settings(self) -> None:

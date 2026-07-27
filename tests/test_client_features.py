@@ -1,6 +1,7 @@
 import os
 import unittest
 import logging
+import os
 from pathlib import Path
 
 from gemini_webapi import GeminiClient, Gem, set_log_level, logger
@@ -170,7 +171,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_thinking_model(self):
         response = await self.geminiclient.generate_content(
             "1+1=?",
-            model=Model.BASIC_PRO,
+            model=Model.BASIC_THINKING,
         )
         logger.debug(response.thoughts)
         logger.debug(response.text)
