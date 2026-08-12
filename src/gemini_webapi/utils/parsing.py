@@ -13,28 +13,20 @@ _FLICKER_ESC_RE = re.compile(r"\\+[`*_~].*$")
 
 
 def get_clean_text(s: str) -> str:
-    """
-    Clean Gemini text by removing trailing code block artifacts and temporary escapes of Markdown markers.
-    """
-
+    """Clean Gemini text by removing trailing code block artifacts and temporary escapes of Markdown markers."""
     if not s:
         return ""
 
-    if s.endswith("\n```"):
-        s = s[:-4]
+    s = s.removesuffix("\n```")
 
     return _FLICKER_ESC_RE.sub("", s)
 
 
-def get_delta_by_fp_len(
-    new_raw: str, last_sent_clean: str, is_final: bool
-) -> tuple[str, str]:
-    """
-    Calculate text delta by aligning stable content and matching volatile symbols.
+def get_delta_by_fp_len(new_raw: str, last_sent_clean: str, is_final: bool) -> tuple[str, str]:
+    """Calculate text delta by aligning stable content and matching volatile symbols.
     Handles temporary flicker at ends and permanent escaping drift during code block transitions.
     Uses SequenceMatcher to robustly handle middle-string modifications.
     """
-
     new_c = new_raw if is_final else get_clean_text(new_raw)
 
     if new_c.startswith(last_sent_clean):
@@ -69,8 +61,7 @@ def get_delta_by_fp_len(
 def get_nested_value(
     data: Any, path: list[int | str], default: Any = None, verbose: bool = False
 ) -> Any:
-    """
-    Safely navigate through a nested structure (list or dict) using a sequence of keys/indices.
+    """Safely navigate through a nested structure (list or dict) using a sequence of keys/indices.
 
     Parameters
     ----------
@@ -82,35 +73,29 @@ def get_nested_value(
         Value to return if the path is invalid.
     verbose: `bool`
         If True, log debug information when the path cannot be fully traversed.
-    """
 
+    """
     current = data
 
     for i, key in enumerate(path):
-        found = False
-        if isinstance(key, int):
-            if isinstance(current, list) and -len(current) <= key < len(current):
+        match current, key:
+            case list(), int() if -len(current) <= key < len(current):
                 current = current[key]
-                found = True
-        elif isinstance(key, str):
-            if isinstance(current, dict) and key in current:
+            case dict(), str() if key in current:
                 current = current[key]
-                found = True
-
-        if not found:
-            if verbose:
-                logger.debug(
-                    f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
-                    f"returning default. Context: {reprlib.repr(current)}"
-                )
-            return default
+            case _:
+                if verbose:
+                    logger.debug(
+                        f"Safe navigation: path {path} ended at index {i} (key '{key}'), "
+                        f"returning default. Context: {reprlib.repr(current)}"
+                    )
+                return default
 
     return current if current is not None else default
 
 
 class StreamingFrameParser:
-    """
-    Incrementally parse Google's length-prefixed streaming frames without
+    """Incrementally parse Google's length-prefixed streaming frames without
     rescanning unfinished frame payloads after every network chunk.
 
     The parser keeps the incomplete frame state internally. Complete frames are
@@ -120,10 +105,7 @@ class StreamingFrameParser:
     """
 
     def __init__(self) -> None:
-        """
-        Initialize an empty streaming parser state.
-        """
-
+        """Initialize an empty streaming parser state."""
         self.buffer = ""
         self.expected_units: int | None = None
         self.payload_start = 0
@@ -132,17 +114,13 @@ class StreamingFrameParser:
         self.prefix_checked = False
 
     def reset(self) -> None:
-        """
-        Clear buffered text and any in-progress frame state.
-        """
-
+        """Clear buffered text and any in-progress frame state."""
         self.buffer = ""
         self._reset_frame_state()
         self.prefix_checked = False
 
     def feed(self, content: str) -> list[Any]:
-        """
-        Add decoded stream text and return all complete JSON frames.
+        """Add decoded stream text and return all complete JSON frames.
 
         Parameters
         ----------
@@ -153,8 +131,8 @@ class StreamingFrameParser:
         -------
         `list[Any]`
             Parsed JSON envelopes completed by this feed call.
-        """
 
+        """
         if not isinstance(content, str):
             raise TypeError(
                 f"Input content is expected to be a string, got {type(content).__name__} instead."
@@ -198,27 +176,18 @@ class StreamingFrameParser:
         return parsed_frames
 
     def flush(self) -> list[Any]:
-        """
-        Parse any complete frame left after the decoder has emitted final text.
-        """
-
+        """Parse any complete frame left after the decoder has emitted final text."""
         return self.feed("")
 
     def _reset_frame_state(self) -> None:
-        """
-        Clear only the currently tracked frame metadata.
-        """
-
+        """Clear only the currently tracked frame metadata."""
         self.expected_units = None
         self.payload_start = 0
         self.scanned_chars = 0
         self.scanned_units = 0
 
     def _strip_prefix_once(self) -> None:
-        """
-        Remove Google's anti-XSSI prefix once enough leading text is available.
-        """
-
+        """Remove Google's anti-XSSI prefix once enough leading text is available."""
         if self.prefix_checked:
             return
 
@@ -232,10 +201,7 @@ class StreamingFrameParser:
         self.prefix_checked = True
 
     def _read_length_marker(self) -> bool:
-        """
-        Read the next frame length marker when the marker is fully buffered.
-        """
-
+        """Read the next frame length marker when the marker is fully buffered."""
         consumed_pos = 0
         total_len = len(self.buffer)
         while consumed_pos < total_len and self.buffer[consumed_pos].isspace():
@@ -250,7 +216,7 @@ class StreamingFrameParser:
 
         match = _LENGTH_MARKER_PATTERN.match(self.buffer)
         if not match:
-            return False if self.buffer.isdecimal() else False
+            return False
         length_val = match.group(1)
         self.expected_units = int(length_val)
         self.payload_start = len(length_val)
@@ -259,10 +225,7 @@ class StreamingFrameParser:
         return True
 
     def _scan_available_payload(self) -> None:
-        """
-        Advance UTF-16 unit accounting over only the newly buffered payload text.
-        """
-
+        """Advance UTF-16 unit accounting over only the newly buffered payload text."""
         if self.expected_units is None:
             return
 
@@ -279,13 +242,11 @@ class StreamingFrameParser:
 
 
 def extract_json_from_response(text: str) -> list:
-    """
-    Extract and normalize JSON content from a Google API response.
+    """Extract and normalize JSON content from a Google API response.
 
     Length-prefixed responses are parsed through the same incremental frame
     parser used by streaming code so frame parsing behavior stays centralized.
     """
-
     if not isinstance(text, str):
         raise TypeError(
             f"Input text is expected to be a string, got {type(text).__name__} instead."

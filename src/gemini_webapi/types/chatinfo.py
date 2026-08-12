@@ -4,8 +4,7 @@ from pydantic import BaseModel
 
 
 class ChatInfo(BaseModel):
-    """
-    Chat information from the user's account.
+    """Chat information from the user's account.
 
     Parameters
     ----------
@@ -17,6 +16,7 @@ class ChatInfo(BaseModel):
         Whether the chat is pinned in the user's account. Default is `False`.
     timestamp: `float`
         The modification timestamp of the chat, including seconds and nanoseconds.
+
     """
 
     cid: str

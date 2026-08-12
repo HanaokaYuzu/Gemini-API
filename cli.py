@@ -7,20 +7,21 @@ import contextlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
 from curl_cffi import CurlFollow, CurlHttpVersion
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT / "src"))
+# Run straight from a source checkout, without the package having to be installed
+if (_src := str(Path(__file__).resolve().parent / "src")) not in sys.path:
+    sys.path.insert(0, _src)
 
-from gemini_webapi import GeminiClient, logger, set_log_level  # noqa: E402
-from gemini_webapi.constants import Model  # noqa: E402
-from gemini_webapi.exceptions import AuthError  # noqa: E402
-from gemini_webapi.types.image import GeneratedImage, WebImage  # noqa: E402
+from gemini_webapi import GeminiClient, logger, set_log_level
+from gemini_webapi.constants import BROWSER_TYPE, Model
+from gemini_webapi.exceptions import AuthError
+from gemini_webapi.types.image import GeneratedImage, WebImage
 
 # ---------------------------------------------------------------------------
 # region - Cookie helpers
@@ -44,7 +45,7 @@ def _parse_expiry(value):
         try:
             dt = parsedate_to_datetime(raw)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return int(dt.timestamp())
         except Exception:
             return None
@@ -66,9 +67,7 @@ def _load_cookies_with_meta(path):
             "expires_raw": expires_raw,
             "expires_epoch": exp,
             "expires_iso": (
-                datetime.fromtimestamp(exp, tz=timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z")
+                datetime.fromtimestamp(exp, tz=UTC).isoformat().replace("+00:00", "Z")
                 if exp is not None
                 else None
             ),
@@ -128,7 +127,7 @@ def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False)
     if merged == original:
         return
     payload = {
-        "updated_at": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+        "updated_at": datetime.now(tz=UTC).isoformat().replace("+00:00", "Z"),
         "cookies": dict(sorted(merged.items())),
     }
     Path(cookies_json_path).write_text(
@@ -153,16 +152,12 @@ def _build_client(args):
     psidts = json_cookies.get("__Secure-1PSIDTS") or os.getenv("GEMINI_SECURE_1PSIDTS")
 
     if not psid:
-        raise SystemExit(
-            "Missing __Secure-1PSID. Export from browser via --cookies-json."
-        )
+        raise SystemExit("Missing __Secure-1PSID. Export from browser via --cookies-json.")
     if not psidts:
         logger.warning("__Secure-1PSIDTS not found.")
 
     extra = {
-        k: v
-        for k, v in json_cookies.items()
-        if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}
+        k: v for k, v in json_cookies.items() if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}
     }
 
     client = GeminiClient(
@@ -424,7 +419,6 @@ async def cmd_read(args):
 
 async def cmd_download(args):
     """Download a generated image using authenticated curl_cffi session."""
-
     json_cookies = {}
     if args.cookies_json:
         json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
@@ -448,7 +442,7 @@ async def cmd_download(args):
         output = f"gemini-{url_hash}.png"
 
     async with AsyncSession(
-        impersonate="chrome145",
+        impersonate=BROWSER_TYPE,
         cookies=json_cookies,
         proxy=args.proxy,
         allow_redirects=CurlFollow.SAFE,
@@ -619,36 +613,32 @@ async def run(args):
     cmd = args.command
     if cmd == "ask":
         return await cmd_ask(args)
-    elif cmd == "download":
+    if cmd == "download":
         return await cmd_download(args)
-    elif cmd == "inspect":
+    if cmd == "inspect":
         return await cmd_inspect(args)
-    elif cmd == "list":
+    if cmd == "list":
         return await cmd_list(args)
-    elif cmd == "models":
+    if cmd == "models":
         print("Available models:\n")
         for m in Model:
             default = " (default)" if m == Model.UNSPECIFIED else ""
             print(f"  {m.model_name}{default}")
         return 0
-    elif cmd == "read":
+    if cmd == "read":
         return await cmd_read(args)
-    elif cmd == "reply":
+    if cmd == "reply":
         return await cmd_reply(args)
-    elif cmd == "research":
+    if cmd == "research":
         rc = getattr(args, "research_command", None)
         if rc == "send":
             return await cmd_research_send(args)
-        elif rc == "check":
+        if rc == "check":
             return await cmd_research_check(args)
-        elif rc == "get":
+        if rc == "get":
             return await cmd_research_get(args)
-        else:
-            raise SystemExit("Usage: research {send|check|get}")
-    else:
-        raise SystemExit(
-            "Usage: cli.py {ask|reply|research|list|read|models|download|inspect}"
-        )
+        raise SystemExit("Usage: research {send|check|get}")
+    raise SystemExit("Usage: cli.py {ask|reply|research|list|read|models|download|inspect}")
 
 
 def main():

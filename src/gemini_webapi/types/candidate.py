@@ -3,14 +3,13 @@ from textwrap import shorten
 
 from pydantic import BaseModel, field_validator
 
-from .image import Image, WebImage, GeneratedImage
-from .video import GeneratedVideo, GeneratedMedia
+from .image import GeneratedImage, Image, WebImage
 from .research import DeepResearchPlan
+from .video import GeneratedMedia, GeneratedVideo
 
 
 class Candidate(BaseModel):
-    """
-    A single reply candidate object in the model output. A full response from Gemini usually contains multiple reply candidates.
+    """A single reply candidate object in the model output. A full response from Gemini usually contains multiple reply candidates.
 
     Parameters
     ----------
@@ -28,6 +27,7 @@ class Candidate(BaseModel):
         List of generated videos in reply, can be empty
     generated_media: `list[GeneratedMedia]`, optional
         List of generated media (music/audio) in reply, can be empty
+
     """
 
     rcid: str
@@ -53,14 +53,12 @@ class Candidate(BaseModel):
     @field_validator("text", "thoughts")
     @classmethod
     def decode_html(cls, value: str) -> str:
-        """
-        Auto unescape HTML entities in text/thoughts if any.
-        """
-
+        """Auto unescape HTML entities in text/thoughts if any."""
         if value:
             value = html.unescape(value)
         return value
 
     @property
     def images(self) -> list[Image]:
-        return self.web_images + self.generated_images
+        images: list[Image] = [*self.web_images, *self.generated_images]
+        return images

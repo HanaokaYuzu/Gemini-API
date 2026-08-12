@@ -82,7 +82,7 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
 
 > [!NOTE]
 >
-> This package requires Python 3.10 or higher.
+> This package requires Python 3.11 or higher.
 
 Install or update the package with pip.
 
@@ -114,11 +114,11 @@ pip install -U gemini_webapi[browser]
 
 ```yaml
 services:
-    main:
-        environment:
-            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-        volumes:
-            - ./gemini_cookies:/tmp/gemini_webapi
+  main:
+    environment:
+      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+    volumes:
+      - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -144,10 +144,12 @@ from gemini_webapi import GeminiClient
 Secure_1PSID = "COOKIE VALUE HERE"
 Secure_1PSIDTS = "COOKIE VALUE HERE"
 
+
 async def main():
     # If browser-cookie3 is installed, simply use `client = GeminiClient()`
     client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxy=None)
     await client.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True)
+
 
 asyncio.run(main())
 ```
@@ -165,6 +167,7 @@ async def main():
     response = await client.generate_content("Hello World!")
     print(response.text)
 
+
 asyncio.run(main())
 ```
 
@@ -179,10 +182,11 @@ Gemini supports file input, including images and documents. Optionally, you can 
 ```python
 async def main():
     response = await client.generate_content(
-            "Introduce the contents of these two files. Is there any connection between them?",
-            files=["assets/sample.pdf", Path("assets/banner.png")],
-        )
+        "Introduce the contents of these two files. Is there any connection between them?",
+        files=["assets/sample.pdf", Path("assets/banner.png")],
+    )
     print(response.text)
+
 
 asyncio.run(main())
 ```
@@ -203,6 +207,7 @@ async def main():
         "Use image generation tool to modify the banner with another font and design."
     )
     print(response2.text, response2.images, sep="\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -229,6 +234,7 @@ async def main():
     response = await previous_chat.send_message("What was my previous message?")
     print(response)
 
+
 asyncio.run(main())
 ```
 
@@ -248,6 +254,7 @@ async def main():
             print(f"[{turn.role.upper()}] {turn.text}")
             print("\n----------------------------------\n")
 
+
 asyncio.run(main())
 ```
 
@@ -259,6 +266,7 @@ async def main():
     if chats:
         for chat_info in chats:
             print(f"{chat_info.cid}: {chat_info.title}")
+
 
 asyncio.run(main())
 ```
@@ -277,6 +285,7 @@ async def main():
     await client.delete_chat(chat.cid)
     print(f"Chat deleted: {chat.cid}")
 
+
 asyncio.run(main())
 ```
 
@@ -293,6 +302,7 @@ async def main():
     await chat.send_message("Fine weather today", temporary=False)
     response2 = await chat.send_message("What's my last message?", temporary=True)
     print(response2.text)
+
 
 asyncio.run(main())
 ```
@@ -312,6 +322,7 @@ async def main():
 
     print()
 
+
 asyncio.run(main())
 ```
 
@@ -328,6 +339,7 @@ Available models are discovered **dynamically** at init time based on your accou
 ```python
 from gemini_webapi.constants import Model
 
+
 async def main():
     response1 = await client.generate_content(
         "What's your language model version? Reply with the version number only.",
@@ -336,8 +348,11 @@ async def main():
     print(f"Model version ({Model.BASIC_FLASH.model_name}): {response1.text}")
 
     chat = client.start_chat(model="gemini-3-pro")
-    response2 = await chat.send_message("What's your language model version? Reply with the version number only.")
+    response2 = await chat.send_message(
+        "What's your language model version? Reply with the version number only."
+    )
     print(f"Model version (gemini-3-pro): {response2.text}")
+
 
 asyncio.run(main())
 ```
@@ -355,10 +370,7 @@ custom_model = {
     },
 }
 
-response = await client.generate_content(
-    "What's your model version?",
-    model=custom_model
-)
+response = await client.generate_content("What's your model version?", model=custom_model)
 ```
 
 ### List Available Models
@@ -372,6 +384,7 @@ async def main():
     if models:
         for model in models:
             print(f"{model.display_name}: {model.model_name}")
+
 
 asyncio.run(main())
 ```
@@ -425,17 +438,17 @@ async def main():
     new_gem = await client.create_gem(
         name="Python Tutor",
         prompt="You are a helpful Python programming tutor.",
-        description="A specialized gem for Python programming"
+        description="A specialized gem for Python programming",
     )
 
     print(f"Custom gem created: {new_gem}")
 
     # Use the newly created gem in a conversation
     response = await client.generate_content(
-        "Explain how list comprehensions work in Python",
-        gem=new_gem
+        "Explain how list comprehensions work in Python", gem=new_gem
     )
     print(response.text)
+
 
 asyncio.run(main())
 ```
@@ -457,10 +470,11 @@ async def main():
         gem=python_tutor,  # Can also pass gem ID string
         name="Advanced Python Tutor",
         prompt="You are an expert Python programming tutor.",
-        description="An advanced Python programming assistant"
+        description="An advanced Python programming assistant",
     )
 
     print(f"Custom gem updated: {updated_gem}")
+
 
 asyncio.run(main())
 ```
@@ -477,6 +491,7 @@ async def main():
     await client.delete_gem(gem_to_delete)  # Can also pass gem ID string
     print(f"Custom gem deleted: {gem_to_delete.name}")
 
+
 asyncio.run(main())
 ```
 
@@ -486,11 +501,10 @@ When using models with thinking capabilities, the model's thought process will b
 
 ```python
 async def main():
-    response = await client.generate_content(
-            "What's 1+1?", model="gemini-3-pro"
-        )
+    response = await client.generate_content("What's 1+1?", model="gemini-3-pro")
     print(response.thoughts)
     print(response.text)
+
 
 asyncio.run(main())
 ```
@@ -504,6 +518,7 @@ async def main():
     response = await client.generate_content("Send me some pictures of cats")
     for image in response.images:
         print(image, "\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -530,6 +545,7 @@ async def main():
     for i, image in enumerate(response.images):
         await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
         print(image, "\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -560,6 +576,7 @@ async def main():
         result = await media.save(path="temp/", verbose=True)
         print(f"Media saved: {result}")
 
+
 asyncio.run(main())
 ```
 
@@ -586,8 +603,11 @@ async def main():
     response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
     print(response1, "\n\n----------------------------------\n\n")
 
-    response2 = await client.generate_content("@Youtube What's the latest activity of Taylor Swift?")
+    response2 = await client.generate_content(
+        "@Youtube What's the latest activity of Taylor Swift?"
+    )
     print(response2, "\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -611,10 +631,13 @@ async def main():
     if len(response.candidates) > 1:
         # Control the ongoing conversation flow by choosing candidate manually
         new_candidate = chat.choose_candidate(index=1)  # Choose the second candidate here
-        followup_response = await chat.send_message("Tell me more about it.")  # Will generate content based on the chosen candidate
+        followup_response = await chat.send_message(
+            "Tell me more about it."
+        )  # Will generate content based on the chosen candidate
         print(new_candidate, followup_response, sep="\n\n----------------------------------\n\n")
     else:
         print("Only one candidate available.")
+
 
 asyncio.run(main())
 ```
@@ -638,6 +661,7 @@ async def main():
     )
     print(f"Done: {result.done}")
     print(result.text)
+
 
 asyncio.run(main())
 ```
@@ -667,6 +691,7 @@ async def main():
     )
 
     print(result.text)
+
 
 asyncio.run(main())
 ```

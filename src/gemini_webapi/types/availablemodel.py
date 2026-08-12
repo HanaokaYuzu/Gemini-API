@@ -1,18 +1,18 @@
 import contextlib
 import re
-import orjson as json
 from typing import Any
+
+import orjson as json
 from pydantic import BaseModel
 
-from ..constants import build_model_header, MODEL_HEADER_KEY, Model, GRPC
-from ..utils.parsing import extract_json_from_response, get_nested_value
+from gemini_webapi.constants import GRPC, MODEL_HEADER_KEY, Model, build_model_header
+from gemini_webapi.utils.parsing import extract_json_from_response, get_nested_value
 
 _VERSION_RE = re.compile(r"(\d+)(?:\.\d+)?")
 
 
 class AvailableModel(BaseModel):
-    """
-    Available model resolved dynamically from the Gemini RPC API.
+    """Available model resolved dynamically from the Gemini RPC API.
 
     Combines model identity, display info, and request header building
     into a single class. Headers are constructed at runtime from
@@ -39,6 +39,7 @@ class AvailableModel(BaseModel):
         Whether the model is available for use based on account status. Defaults to `True`.
     aliases: `list[str]`, optional
         Alternative names and identifiers matching this model.
+
     """
 
     model_id: str
@@ -62,34 +63,26 @@ class AvailableModel(BaseModel):
 
     @property
     def model_header(self) -> dict[str, str]:
-        """
-        Dynamically build the request header for this model.
+        """Dynamically build the request header for this model.
 
         Returns
         -------
         `dict[str, str]`
             A dictionary containing the required headers for model selection.
-        """
 
-        if self.capacity_field == 13:
-            tail = f"null,{self.capacity}"
-        else:
-            tail = str(self.capacity)
+        """
+        tail = f"null,{self.capacity}" if self.capacity_field == 13 else str(self.capacity)
 
         return build_model_header(self.model_id, tail, self.model_number)
 
     @property
     def advanced_only(self) -> bool:
-        """
-        Check if the model is restricted to Gemini Advanced/Plus tiers.
-        """
-
+        """Check if the model is restricted to Gemini Advanced/Plus tiers."""
         return self.capacity != 1 or self.capacity_field != 12
 
     @staticmethod
     def compute_capacity(tier_flags: list, capability_flags: list) -> tuple[int, int]:
-        """
-        Derive (capacity, capacity_field) from account flags.
+        """Derive (capacity, capacity_field) from account flags.
 
         Parameters
         ----------
@@ -102,8 +95,8 @@ class AvailableModel(BaseModel):
         -------
         `tuple[int, int]`
             A tuple of (capacity, capacity_field) for header construction.
-        """
 
+        """
         # Highest priority: override capacity_field = 13
         if 21 in tier_flags:
             return 1, 13  # Not yet observed
@@ -126,8 +119,7 @@ class AvailableModel(BaseModel):
         category_name: str,
         display_name: str,
     ) -> tuple[str, list[str]]:
-        """
-        Derive canonical `model_name` and lookup `aliases` dynamically and generically
+        """Derive canonical `model_name` and lookup `aliases` dynamically and generically
         without hardcoded model or category names.
         """
         aliases_set: set[str] = set()
@@ -164,7 +156,7 @@ class AvailableModel(BaseModel):
             primary_name = f"gemini-{model_id}"
 
         aliases_set.add(primary_name)
-        return primary_name, sorted(list(aliases_set))
+        return primary_name, sorted(aliases_set)
 
     @classmethod
     def from_rpc(
@@ -174,9 +166,7 @@ class AvailableModel(BaseModel):
         capacity_field: int = 12,
         unauthenticated: bool = False,
     ) -> "AvailableModel | None":
-        """
-        Dynamically construct an :class:`AvailableModel` instance from a single model list item in RPC part_body[15].
-        """
+        """Dynamically construct an :class:`AvailableModel` instance from a single model list item in RPC part_body[15]."""
         if not isinstance(model_data, list) or not model_data:
             return None
 
@@ -185,8 +175,7 @@ class AvailableModel(BaseModel):
             return None
 
         category_name = str(
-            get_nested_value(model_data, [1], "")
-            or get_nested_value(model_data, [10], "")
+            get_nested_value(model_data, [1], "") or get_nested_value(model_data, [10], "")
         )
         display_name = str(
             get_nested_value(model_data, [11], "")
@@ -194,8 +183,7 @@ class AvailableModel(BaseModel):
             or get_nested_value(model_data, [1], "")
         )
         description = str(
-            get_nested_value(model_data, [12], "")
-            or get_nested_value(model_data, [2], "")
+            get_nested_value(model_data, [12], "") or get_nested_value(model_data, [2], "")
         )
 
         raw_number = get_nested_value(model_data, [17])
@@ -231,9 +219,7 @@ class AvailableModel(BaseModel):
 
     @classmethod
     def from_dict(cls, model_dict: dict) -> "AvailableModel":
-        """
-        Construct an :class:`AvailableModel` from a custom dictionary.
-        """
+        """Construct an :class:`AvailableModel` from a custom dictionary."""
         if "model_name" not in model_dict or "model_header" not in model_dict:
             raise ValueError(
                 "When passing a custom model as a dictionary, 'model_name' and 'model_header' keys must be provided."
@@ -274,9 +260,7 @@ class AvailableModel(BaseModel):
         target_id: str = GRPC.GET_USER_STATUS,
         unauthenticated: bool = False,
     ) -> list["AvailableModel"]:
-        """
-        Parse all available models from an RPC response (raw string or nested JSON structure).
-        """
+        """Parse all available models from an RPC response (raw string or nested JSON structure)."""
         if isinstance(payload_data, str):
             frames = extract_json_from_response(payload_data)
         elif isinstance(payload_data, list):
@@ -313,9 +297,7 @@ class AvailableModel(BaseModel):
                     capability_flags = (
                         capability_flags if isinstance(capability_flags, list) else []
                     )
-                    capacity, capacity_field = cls.compute_capacity(
-                        tier_flags, capability_flags
-                    )
+                    capacity, capacity_field = cls.compute_capacity(tier_flags, capability_flags)
 
                     for m_data in models_list:
                         if m_instance := cls.from_rpc(
@@ -331,13 +313,11 @@ class AvailableModel(BaseModel):
 
     @staticmethod
     def build_model_id_name_mapping() -> dict[str, str]:
-        """
-        Build a mapping from `model_id` to `model_name` for all registered models.
+        """Build a mapping from `model_id` to `model_name` for all registered models.
 
         This uses the :class:`Model` enum to resolve hex identifiers to their
         canonical names (e.g., "gemini-3-pro").
         """
-
         result: dict[str, str] = {}
         for member in Model:
             if member is Model.UNSPECIFIED:
@@ -362,10 +342,7 @@ class AvailableModel(BaseModel):
 
     @staticmethod
     def build_model_id_number_mapping() -> dict[str, int]:
-        """
-        Build a mapping from `model_id` to the model number embedded in static model headers.
-        """
-
+        """Build a mapping from `model_id` to the model number embedded in static model headers."""
         result: dict[str, int] = {}
         for member in Model:
             if member is Model.UNSPECIFIED:

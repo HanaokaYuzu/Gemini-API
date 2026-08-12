@@ -1,8 +1,8 @@
+import logging
 import os
 import unittest
-import logging
 
-from gemini_webapi import GeminiClient, set_log_level, logger
+from gemini_webapi import GeminiClient, logger, set_log_level
 from gemini_webapi.exceptions import AuthError, GeminiError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
@@ -29,7 +29,7 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
         logger.debug(f"Account status snapshot: {snapshot}")
 
         summary = snapshot.get("summary", {})
-        self.assertTrue(summary["deep_research_feature_present"])
+        assert summary["deep_research_feature_present"]
 
     @logger.catch(reraise=True)
     async def test_create_research_plan(self):
@@ -43,7 +43,9 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_full_research_flow(self):
-        prompt = "Compare the top 3 most popular language models providers and their exclusive features."
+        prompt = (
+            "Compare the top 3 most popular language models providers and their exclusive features."
+        )
         result = await self.geminiclient.deep_research(prompt)
         logger.debug(f"Deep research statuses: {result.statuses}")
         logger.debug(f"Deep research result: {result.text}")

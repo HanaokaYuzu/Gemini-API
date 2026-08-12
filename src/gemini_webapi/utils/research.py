@@ -23,9 +23,8 @@ def _iter_nested(data: Any):
 
 def _find_first_match(data: Any, pattern: re.Pattern[str]) -> str | None:
     for item in _iter_nested(data):
-        if isinstance(item, str):
-            if match := pattern.search(item):
-                return match.group(0)
+        if isinstance(item, str) and (match := pattern.search(item)):
+            return match.group(0)
     return None
 
 
@@ -58,13 +57,7 @@ def _collect_research_notes(data: Any, *, exclude: set[str] | None = None) -> li
         if not isinstance(item, str):
             continue
         text = item.strip()
-        if (
-            not text
-            or text in exclude
-            or text in seen
-            or _URL_RE.match(text)
-            or len(text) < 12
-        ):
+        if not text or text in exclude or text in seen or _URL_RE.match(text) or len(text) < 12:
             continue
         seen.add(text)
         notes.append(text)
@@ -124,9 +117,7 @@ def extract_deep_research_plan(
         else None
     )
     eta_text = (
-        get_nested_value(payload, [2])
-        if isinstance(get_nested_value(payload, [2]), str)
-        else None
+        get_nested_value(payload, [2]) if isinstance(get_nested_value(payload, [2]), str) else None
     )
     confirm_prompt = (
         get_nested_value(payload, [3, 0])
@@ -187,21 +178,13 @@ def extract_deep_research_status_payload(
     if meta_dict and isinstance(meta_dict.get("70"), int):
         raw_state = meta_dict["70"]
 
-    marker_strings = [
-        item for item in _iter_nested(data) if isinstance(item, str) and item
-    ]
+    marker_strings = [item for item in _iter_nested(data) if isinstance(item, str) and item]
     done = any("immersive_entry_chip" in item for item in marker_strings)
     awaiting_confirmation = any(
         "deep_research_confirmation_content" in item for item in marker_strings
     )
 
-    state = (
-        "completed"
-        if done
-        else "awaiting_confirmation"
-        if awaiting_confirmation
-        else "running"
-    )
+    state = "completed" if done else "awaiting_confirmation" if awaiting_confirmation else "running"
     exclude = {s for s in [title, query, research_id, cid] if isinstance(s, str)}
     notes = _collect_research_notes(data, exclude=exclude)
 

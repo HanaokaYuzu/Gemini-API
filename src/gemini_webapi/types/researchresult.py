@@ -5,9 +5,7 @@ from .research import DeepResearchPlan, DeepResearchStatus
 
 
 class DeepResearchResult(BaseModel):
-    """
-    High-level result of a deep research run.
-    """
+    """High-level result of a deep research run."""
 
     plan: DeepResearchPlan
     start_output: ModelOutput | None = None

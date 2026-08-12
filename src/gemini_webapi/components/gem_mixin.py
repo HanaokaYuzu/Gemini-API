@@ -1,17 +1,35 @@
 import itertools
+from typing import TYPE_CHECKING
 
 import orjson as json
 
-from ..constants import GRPC
-from ..exceptions import APIError
-from ..types import Gem, GemJar, RPCData
-from ..utils import extract_json_from_response, get_nested_value, logger
+from gemini_webapi.constants import GRPC
+from gemini_webapi.exceptions import APIError
+from gemini_webapi.types import Gem, GemJar, RPCData
+from gemini_webapi.utils import extract_json_from_response, get_nested_value, logger
+
+if TYPE_CHECKING:
+    from curl_cffi.requests import Response
 
 
 class GemMixin:
-    """
-    Mixin class providing gem-related functionality for GeminiClient.
-    """
+    """Mixin class providing gem-related functionality for GeminiClient."""
+
+    if TYPE_CHECKING:
+        # Provided by GeminiClient, which composes this mixin
+        language: str
+
+        async def close(self, delay: float = 0) -> None: ...
+
+        async def _batch_execute(
+            self,
+            payloads: list[RPCData],
+            source_path: str = "/app",
+            close_on_error: bool = True,
+            **kwargs,
+        ) -> "Response": ...
+
+        def _check_account_status(self, raise_error: bool = False) -> bool: ...
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -19,8 +37,7 @@ class GemMixin:
 
     @property
     def gems(self) -> GemJar:
-        """
-        Returns a `GemJar` object containing cached gems.
+        """Returns a `GemJar` object containing cached gems.
         Only available after calling `GeminiClient.fetch_gems()`.
 
         Returns
@@ -32,8 +49,8 @@ class GemMixin:
         ------
         `RuntimeError`
             If `GeminiClient.fetch_gems()` has not been called before accessing this property.
-        """
 
+        """
         if self._gems is None:
             raise RuntimeError(
                 "Gems not fetched yet. Call `GeminiClient.fetch_gems()` method to fetch gems from gemini.google.com."
@@ -42,8 +59,7 @@ class GemMixin:
         return self._gems
 
     async def fetch_gems(self, include_hidden: bool = False, **kwargs) -> GemJar:
-        """
-        Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
+        """Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
 
         Note that network request will be sent every time this method is called.
         Once the gems are fetched, they will be cached and accessible via `GeminiClient.gems` property.
@@ -58,8 +74,8 @@ class GemMixin:
         -------
         :class:`GemJar`
             Refer to `gemini_webapi.types.GemJar`.
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
         response = await self._batch_execute(
@@ -104,12 +120,12 @@ class GemMixin:
 
             if not predefined_gems and not custom_gems:
                 raise Exception
-        except Exception:
+        except Exception as e:
             await self.close()
             logger.debug(f"Unexpected response data structure: {response.text}")
             raise APIError(
                 "Failed to fetch gems. Unexpected response data structure. Client will try to re-initialize on next request."
-            )
+            ) from e
 
         self._gems = GemJar(
             itertools.chain(
@@ -120,7 +136,7 @@ class GemMixin:
                             id=gem[0],
                             name=gem[1][0],
                             description=gem[1][1],
-                            prompt=gem[2] and gem[2][0] or None,
+                            prompt=(gem[2] and gem[2][0]) or None,
                             predefined=True,
                         ),
                     )
@@ -133,7 +149,7 @@ class GemMixin:
                             id=gem[0],
                             name=gem[1][0],
                             description=gem[1][1],
-                            prompt=gem[2] and gem[2][0] or None,
+                            prompt=(gem[2] and gem[2][0]) or None,
                             predefined=False,
                         ),
                     )
@@ -145,8 +161,7 @@ class GemMixin:
         return self._gems
 
     async def create_gem(self, name: str, prompt: str, description: str = "") -> Gem:
-        """
-        Create a new custom gem.
+        """Create a new custom gem.
 
         Parameters
         ----------
@@ -161,8 +176,8 @@ class GemMixin:
         -------
         :class:`Gem`
             The created gem.
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
         response = await self._batch_execute(
@@ -204,12 +219,12 @@ class GemMixin:
             gem_id = get_nested_value(part_body, [0], verbose=True)
             if not gem_id:
                 raise Exception
-        except Exception:
+        except Exception as e:
             await self.close()
             logger.debug(f"Unexpected response data structure: {response.text}")
             raise APIError(
                 "Failed to create gem. Unexpected response data structure. Client will try to re-initialize on next request."
-            )
+            ) from e
 
         return Gem(
             id=gem_id,
@@ -222,8 +237,7 @@ class GemMixin:
     async def update_gem(
         self, gem: Gem | str, name: str, prompt: str, description: str = ""
     ) -> Gem:
-        """
-        Update an existing custom gem.
+        """Update an existing custom gem.
 
         Parameters
         ----------
@@ -240,14 +254,11 @@ class GemMixin:
         -------
         :class:`Gem`
             The updated gem.
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
-        if isinstance(gem, Gem):
-            gem_id = gem.id
-        else:
-            gem_id = gem
+        gem_id = gem.id if isinstance(gem, Gem) else gem
 
         await self._batch_execute(
             [
@@ -289,27 +300,19 @@ class GemMixin:
         )
 
     async def delete_gem(self, gem: Gem | str, **kwargs) -> None:
-        """
-        Delete a custom gem.
+        """Delete a custom gem.
 
         Parameters
         ----------
         gem: `Gem | str`
             Gem to delete, can be either a `gemini_webapi.types.Gem` object or a gem id string.
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
-        if isinstance(gem, Gem):
-            gem_id = gem.id
-        else:
-            gem_id = gem
+        gem_id = gem.id if isinstance(gem, Gem) else gem
 
         await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DELETE_BOT, payload=json.dumps([gem_id]).decode("utf-8")
-                )
-            ],
+            [RPCData(rpcid=GRPC.DELETE_BOT, payload=json.dumps([gem_id]).decode("utf-8"))],
             **kwargs,
         )

@@ -1,33 +1,43 @@
+from typing import TYPE_CHECKING, Any
+
 import orjson as json
 
-from ..constants import GRPC
-from ..types import (
-    ChatHistory,
-    ChatInfo,
-    ChatTurn,
-    Candidate,
-    ModelOutput,
-    RPCData,
-)
-from ..utils import extract_json_from_response, get_nested_value, logger
+from gemini_webapi.constants import GRPC
+from gemini_webapi.types import Candidate, ChatHistory, ChatInfo, ChatTurn, ModelOutput, RPCData
+from gemini_webapi.utils import extract_json_from_response, get_nested_value, logger
+
+if TYPE_CHECKING:
+    from curl_cffi.requests import Response
 
 
 class ChatMixin:
-    """
-    Mixin class providing chat management functionality for GeminiClient.
+    """Mixin class providing chat management functionality for GeminiClient.
 
     Handles fetching, listing, reading, and deleting chats via server RPCs.
     """
+
+    if TYPE_CHECKING:
+        # Provided by GeminiClient, which composes this mixin
+        async def _batch_execute(
+            self,
+            payloads: list[RPCData],
+            source_path: str = "/app",
+            close_on_error: bool = True,
+            **kwargs,
+        ) -> "Response": ...
+
+        def _check_account_status(self, raise_error: bool = False) -> bool: ...
+
+        def _parse_candidate(
+            self, candidate_data: list[Any], cid: str, rid: str, rcid: str
+        ) -> tuple[Any, ...]: ...
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._recent_chats: list[ChatInfo] | None = None
 
     async def _fetch_recent_chats(self, recent: int = 13) -> None:
-        """
-        Fetch and parse recent chats.
-        """
-
+        """Fetch and parse recent chats."""
         if not self._check_account_status():
             return
 
@@ -71,43 +81,37 @@ class ChatMixin:
                             is_pinned = bool(get_nested_value(chat_data, [2]))
                             timestamp_data = get_nested_value(chat_data, [5])
                             timestamp = 0.0
-                            if (
-                                isinstance(timestamp_data, list)
-                                and len(timestamp_data) >= 2
-                            ):
+                            if isinstance(timestamp_data, list) and len(timestamp_data) >= 2:
                                 seconds = timestamp_data[0]
                                 nanos = timestamp_data[1]
                                 timestamp = float(seconds) + (float(nanos) / 1e9)
 
-                            if cid:
-                                if not any(c.cid == cid for c in recent_chats):
-                                    recent_chats.append(
-                                        ChatInfo(
-                                            cid=cid,
-                                            title=title,
-                                            is_pinned=is_pinned,
-                                            timestamp=timestamp,
-                                        )
+                            if cid and all(c.cid != cid for c in recent_chats):
+                                recent_chats.append(
+                                    ChatInfo(
+                                        cid=cid,
+                                        title=title,
+                                        is_pinned=is_pinned,
+                                        timestamp=timestamp,
                                     )
+                                )
                     break
 
         self._recent_chats = recent_chats
 
     def list_chats(self) -> list[ChatInfo] | None:
-        """
-        List all conversations.
+        """List all conversations.
 
         Returns
         -------
         `list[gemini_webapi.types.ChatInfo] | None`
             The list of conversations. Returns `None` if the client holds no session cache.
-        """
 
+        """
         return self._recent_chats
 
     async def read_chat(self, cid: str, limit: int = 10) -> ChatHistory | None:
-        """
-        Fetch the complete conversation history by chat ID, ordered from the latest turn to the oldest.
+        """Fetch the complete conversation history by chat ID, ordered from the latest turn to the oldest.
 
         Parameters
         ----------
@@ -120,8 +124,8 @@ class ChatMixin:
         -------
         :class:`ChatHistory` | None
             The conversation history, or None if reading failed.
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
         try:
@@ -129,9 +133,9 @@ class ChatMixin:
                 [
                     RPCData(
                         rpcid=GRPC.LIST_CONVERSATION_TURNS,
-                        payload=json.dumps(
-                            [cid, limit, None, 1, [1], [4], None, 1]
-                        ).decode("utf-8"),
+                        payload=json.dumps([cid, limit, None, 1, [1], [4], None, 1]).decode(
+                            "utf-8"
+                        ),
                     ),
                 ]
             )
@@ -151,9 +155,7 @@ class ChatMixin:
                 for conv_turn in turns_data:
                     rid = get_nested_value(conv_turn, [0, 1], "")
 
-                    # Model turn
-                    candidates_list = get_nested_value(conv_turn, [3, 0])
-                    if candidates_list:
+                    if candidates_list := get_nested_value(conv_turn, [3, 0]):
                         output_candidates = []
                         for candidate_data in candidates_list:
                             completion_status = get_nested_value(candidate_data, [8, 0])
@@ -219,9 +221,7 @@ class ChatMixin:
                                 )
                             )
 
-                    # User turn
-                    user_text = get_nested_value(conv_turn, [2, 0, 0], "")
-                    if user_text:
+                    if user_text := get_nested_value(conv_turn, [2, 0, 0], ""):
                         chat_turns.append(ChatTurn(role="user", text=user_text))
 
                 return ChatHistory(cid=cid, turns=chat_turns)
@@ -234,8 +234,7 @@ class ChatMixin:
             return None
 
     async def fetch_latest_chat_response(self, cid: str) -> ModelOutput | None:
-        """
-        Fetch the latest model response from a chat by its cid.
+        """Fetch the latest model response from a chat by its cid.
 
         ``read_chat`` returns turns newest-first, so the first model turn
         is the most recent response. Used by ``ResearchMixin`` for fallback
@@ -251,8 +250,8 @@ class ChatMixin:
         -------
         :class:`ModelOutput` | None
             The latest model output, or ``None`` if unavailable.
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
         try:
@@ -270,21 +269,18 @@ class ChatMixin:
             logger.debug(f"fetch_latest_chat_response({cid!r}): no model turns")
             return None
         except Exception as e:
-            logger.debug(
-                f"fetch_latest_chat_response({cid!r}) failed: {type(e).__name__}: {e}"
-            )
+            logger.debug(f"fetch_latest_chat_response({cid!r}) failed: {type(e).__name__}: {e}")
             return None
 
     async def delete_chat(self, cid: str) -> None:
-        """
-        Delete a specific conversation by chat id.
+        """Delete a specific conversation by chat id.
 
         Parameters
         ----------
         cid: `str`
             The ID of the chat requiring deletion (e.g. "c_...").
-        """
 
+        """
         self._check_account_status(raise_error=True)
 
         await self._batch_execute(

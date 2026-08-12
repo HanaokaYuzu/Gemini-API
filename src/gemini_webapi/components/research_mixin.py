@@ -1,26 +1,27 @@
 import asyncio
 import time
+from collections.abc import Callable
 from textwrap import shorten
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Optional
 
 import orjson as json
 
-from ..constants import (
+from gemini_webapi.constants import (
+    GEMINI_ADVANCED_QUOTA_PAYLOAD,
+    GEMINI_FLASH_QUOTA_PAYLOAD,
     GRPC,
     Model,
-    GEMINI_FLASH_QUOTA_PAYLOAD,
-    GEMINI_ADVANCED_QUOTA_PAYLOAD,
 )
-from ..exceptions import (
+from gemini_webapi.exceptions import (
     APIError,
     GeminiError,
-    ModelInvalid,
-    TemporarilyBlocked,
+    ModelInvalidError,
+    TemporarilyBlockedError,
     TimeoutError,
-    UsageLimitExceeded,
+    UsageLimitExceededError,
 )
-from ..types import DeepResearchPlan, DeepResearchResult, DeepResearchStatus, RPCData
-from ..utils import (
+from gemini_webapi.types import DeepResearchPlan, DeepResearchResult, DeepResearchStatus, RPCData
+from gemini_webapi.utils import (
     extract_deep_research_status_payload,
     extract_json_from_response,
     get_nested_value,
@@ -28,18 +29,31 @@ from ..utils import (
 )
 
 if TYPE_CHECKING:
-    from ..client import ChatSession
-    from ..types import ModelOutput
+    from curl_cffi.requests import Response
+
+    from gemini_webapi.client import ChatSession
+    from gemini_webapi.types import ModelOutput
 
 
 class ResearchMixin:
-    """
-    Mixin class providing deep research workflow helpers.
-    """
+    """Mixin class providing deep research workflow helpers."""
+
+    if TYPE_CHECKING:
+        # Provided by GeminiClient and ChatMixin, which are composed alongside this mixin
+        async def _batch_execute(
+            self,
+            payloads: list[RPCData],
+            source_path: str = "/app",
+            close_on_error: bool = True,
+            **kwargs,
+        ) -> "Response": ...
+
+        def start_chat(self, **kwargs) -> "ChatSession": ...
+
+        async def fetch_latest_chat_response(self, cid: str) -> "ModelOutput | None": ...
 
     async def inspect_account_status(self) -> dict:
         """Probe account/model capability RPCs and return raw parsed snapshots."""
-
         probes = [
             ("activity", GRPC.READ_USER_PREFERENCES, '[[["bard_activity_enabled"]]]'),
             (
@@ -165,9 +179,7 @@ class ResearchMixin:
             ]
         )
 
-    async def _collect_research_output(
-        self, chat: "ChatSession", prompt: str
-    ) -> "ModelOutput":
+    async def _collect_research_output(self, chat: "ChatSession", prompt: str) -> "ModelOutput":
         recoverable_error: GeminiError | APIError | None = None
         try:
             output = await chat.send_message(
@@ -178,9 +190,9 @@ class ResearchMixin:
             if output.deep_research_plan or preview:
                 chat.last_output = output
                 return output
-        except UsageLimitExceeded:
+        except UsageLimitExceededError:
             raise
-        except (TimeoutError, ModelInvalid, TemporarilyBlocked):
+        except (TimeoutError, ModelInvalidError, TemporarilyBlockedError):
             raise
         except (GeminiError, APIError) as e:
             recoverable_error = e
@@ -204,8 +216,7 @@ class ResearchMixin:
         chat: Optional["ChatSession"] = None,
         model: Model | str | dict = Model.UNSPECIFIED,
     ) -> DeepResearchPlan:
-        """
-        Send a deep research prompt and extract the plan Gemini proposes.
+        """Send a deep research prompt and extract the plan Gemini proposes.
 
         Parameters
         ----------
@@ -225,8 +236,8 @@ class ResearchMixin:
         ------
         `gemini_webapi.GeminiError`
             If the account is ineligible or no plan is returned.
-        """
 
+        """
         if chat is None:
             chat = self.start_chat(model=model)
 
@@ -236,9 +247,7 @@ class ResearchMixin:
         plan = output.deep_research_plan
         if not plan:
             preview = shorten(output.text or "", width=1200)
-            raise GeminiError(
-                f"Gemini did not return a deep research plan. Preview: {preview!r}"
-            )
+            raise GeminiError(f"Gemini did not return a deep research plan. Preview: {preview!r}")
 
         plan.metadata = list(chat.metadata)
         plan.cid = chat.cid or plan.cid
@@ -254,8 +263,7 @@ class ResearchMixin:
         chat: Optional["ChatSession"] = None,
         confirm_prompt: str | None = None,
     ) -> "ModelOutput":
-        """
-        Confirm and start a deep research plan.
+        """Confirm and start a deep research plan.
 
         Parameters
         ----------
@@ -270,17 +278,15 @@ class ResearchMixin:
         -------
         :class:`ModelOutput`
             The model's initial response after starting research.
-        """
 
+        """
         if chat is None:
             chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid)
         await self._deep_research_preflight()
         prompt = confirm_prompt or plan.confirm_prompt or "Start research"
         return await self._collect_research_output(chat, prompt)
 
-    async def get_deep_research_status(
-        self, research_id: str
-    ) -> DeepResearchStatus | None:
+    async def get_deep_research_status(self, research_id: str) -> DeepResearchStatus | None:
         response = await self._batch_execute(
             [
                 RPCData(
@@ -298,8 +304,7 @@ class ResearchMixin:
                 part_body = json.loads(part_body_str)
             except json.JSONDecodeError:
                 continue
-            parsed = extract_deep_research_status_payload(part_body)
-            if parsed:
+            if parsed := extract_deep_research_status_payload(part_body):
                 return DeepResearchStatus(**parsed)
         return None
 
@@ -310,8 +315,7 @@ class ResearchMixin:
         timeout: float = 600.0,
         on_status: Callable[[DeepResearchStatus], None] | None = None,
     ) -> DeepResearchResult:
-        """
-        Poll deep research status until completion or timeout.
+        """Poll deep research status until completion or timeout.
 
         Parameters
         ----------
@@ -328,8 +332,8 @@ class ResearchMixin:
         -------
         :class:`DeepResearchResult`
             Result with status history and final output.
-        """
 
+        """
         if not plan.research_id:
             raise GeminiError(
                 "Cannot poll deep research status: plan.research_id is missing. "
@@ -346,9 +350,7 @@ class ResearchMixin:
                 status = await self.get_deep_research_status(plan.research_id)
             if status:
                 statuses.append(status)
-                logger.debug(
-                    f"Deep research [{plan.research_id}] status: {status.state}"
-                )
+                logger.debug(f"Deep research [{plan.research_id}] status: {status.state}")
                 if on_status:
                     on_status(status)
                 if status.done:
@@ -380,8 +382,7 @@ class ResearchMixin:
         timeout: float = 600.0,
         on_status: Callable[[DeepResearchStatus], None] | None = None,
     ) -> DeepResearchResult:
-        """
-        Run a full deep research cycle: plan → start → wait → result.
+        """Run a full deep research cycle: plan → start → wait → result.
 
         Parameters
         ----------
@@ -393,8 +394,8 @@ class ResearchMixin:
             Maximum seconds to wait. Default 600.
         on_status: `Callable`, optional
             Callback invoked with each `DeepResearchStatus`.
-        """
 
+        """
         plan = await self.create_deep_research_plan(prompt)
         start_output = await self.start_deep_research(plan)
         result = await self.wait_for_deep_research(

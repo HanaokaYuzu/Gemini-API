@@ -1,9 +1,9 @@
+import logging
 import os
 import random
 import unittest
-import logging
 
-from gemini_webapi import GeminiClient, set_log_level, logger
+from gemini_webapi import GeminiClient, logger, set_log_level
 from gemini_webapi.exceptions import AuthError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
@@ -28,12 +28,11 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_gems(self):
         await self.geminiclient.fetch_gems(include_hidden=False)
         gems = self.geminiclient.gems
-        self.assertTrue(len(gems.filter(predefined=True)) > 0)
+        assert len(gems.filter(predefined=True)) > 0
         for gem in gems:
             logger.debug(gem)
 
-        custom_gems = gems.filter(predefined=False)
-        if custom_gems:
+        if custom_gems := gems.filter(predefined=False):
             logger.debug(f"Found {len(custom_gems)} custom gems:")
             for gem in custom_gems:
                 logger.debug(gem)
@@ -67,7 +66,7 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
         await self.geminiclient.fetch_gems()
         custom_gems = self.geminiclient.gems.filter(predefined=False)
         last_created_gem = next(iter(custom_gems.values()))
-        self.assertEqual(last_created_gem.description, updated_gem.description)
+        assert last_created_gem.description == updated_gem.description
 
     @logger.catch(reraise=True)
     async def test_delete_gem(self):
@@ -84,7 +83,7 @@ class TestGemMixin(unittest.IsolatedAsyncioTestCase):
         await self.geminiclient.fetch_gems()
         custom_gems = self.geminiclient.gems.filter(predefined=False)
         total_after_deletion = len(custom_gems)
-        self.assertEqual(total_after_deletion, total_before_deletion - 1)
+        assert total_after_deletion == total_before_deletion - 1
 
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
+import logging
 import os
 import unittest
-import logging
 from pathlib import Path
 
-from gemini_webapi import GeminiClient, Gem, set_log_level, logger
+from gemini_webapi import Gem, GeminiClient, logger, set_log_level
 from gemini_webapi.constants import Model
-from gemini_webapi.exceptions import AuthError, UsageLimitExceeded, ModelInvalid
+from gemini_webapi.exceptions import AuthError, ModelInvalidError, UsageLimitExceededError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -51,7 +51,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         models = self.geminiclient.list_models()
         if models is None:
             self.skipTest("Models list is None")
-        self.assertTrue(len(models) > 0)
+        assert len(models) > 0
         for model in models:
             logger.debug(f"{model.display_name}: {model!r}")
 
@@ -68,9 +68,9 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
                     model=model,
                 )
                 logger.debug(f"Model version ({model.model_name}): {response.text}")
-            except UsageLimitExceeded:
+            except UsageLimitExceededError:
                 logger.debug(f"Model {model.model_name} usage limit exceeded")
-            except ModelInvalid:
+            except ModelInvalidError:
                 logger.debug(f"Model {model.model_name} is not available anymore")
 
     @logger.catch(reraise=True)
@@ -91,20 +91,16 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_send_web_image(self):
-        response = await self.geminiclient.generate_content(
-            "Send me some pictures of cats"
-        )
-        self.assertTrue(response.images)
+        response = await self.geminiclient.generate_content("Send me some pictures of cats")
+        assert response.images
         logger.debug(response.text)
         for image in response.images:
             logger.debug(image)
 
     @logger.catch(reraise=True)
     async def test_image_generation(self):
-        response = await self.geminiclient.generate_content(
-            "Generate some pictures of cats"
-        )
-        self.assertTrue(response.images)
+        response = await self.geminiclient.generate_content("Generate some pictures of cats")
+        assert response.images
         logger.debug(response.text)
         for image in response.images:
             logger.debug(image)
@@ -115,18 +111,18 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             "Generate a short video of a sunset over the beach",
             model=Model.ADVANCED_PRO,
         )
-        self.assertTrue(response.videos)
+        assert response.videos
         logger.debug(response.text)
         for video in response.videos:
             logger.debug(video)
             paths = await video.save()
             video_path = paths.get("video")
             thumb_path = paths.get("video_thumbnail")
-            self.assertIsNotNone(video_path)
-            self.assertTrue(os.path.exists(str(video_path)))
+            assert video_path is not None
+            assert os.path.exists(str(video_path))
             if thumb_path:
-                self.assertTrue(os.path.exists(str(thumb_path)))
-                self.assertEqual(Path(str(video_path)).stem, Path(str(thumb_path)).stem)
+                assert os.path.exists(str(thumb_path))
+                assert Path(str(video_path)).stem == Path(str(thumb_path)).stem
             logger.debug(f"Saved video to: {paths}")
 
     @logger.catch(reraise=True)
@@ -135,15 +131,15 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             "Generate a 15-second pop music track",
             model=Model.ADVANCED_PRO,
         )
-        self.assertTrue(response.media)
+        assert response.media
         logger.debug(response.text)
         for media in response.media:
             logger.debug(media)
             paths = await media.save()
-            self.assertIn("audio", paths)
-            self.assertIn("video", paths)
-            self.assertTrue(os.path.exists(str(paths["audio"])))
-            self.assertTrue(os.path.exists(str(paths["video"])))
+            assert "audio" in paths
+            assert "video" in paths
+            assert os.path.exists(str(paths["audio"]))
+            assert os.path.exists(str(paths["video"]))
             logger.debug(f"Saved media to: {paths}")
 
     @logger.catch(reraise=True)
@@ -152,7 +148,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             "Design an application icon based on the provided image. Make it simple and modern.",
             files=["assets/banner.png"],
         )
-        self.assertTrue(response.images)
+        assert response.images
         logger.debug(response.text)
         for image in response.images:
             logger.debug(image)
@@ -179,7 +175,9 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def test_retrieve_previous_conversation(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Fine weather today")
-        self.assertTrue(chat.cid and chat.rid and chat.rcid)
+        assert chat.cid
+        assert chat.rid
+        assert chat.rcid
         previous_session = chat.metadata
         logger.debug(previous_session)
         previous_chat = self.geminiclient.start_chat(metadata=previous_session)
@@ -205,7 +203,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         chats = self.geminiclient.list_chats()
         if chats is None:
             self.skipTest("Chats list is None")
-        self.assertIsInstance(chats, list)
+        assert isinstance(chats, list)
         for chat_info in chats:
             logger.debug(f"Chat: {chat_info.title} [{chat_info.cid}]")
 
@@ -218,12 +216,10 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         chat_info = chats[0]
         history = await self.geminiclient.read_chat(chat_info.cid)
         if history is None:
-            self.skipTest(
-                f"Failed to read chat {chat_info.cid}. It might be still processing."
-            )
+            self.skipTest(f"Failed to read chat {chat_info.cid}. It might be still processing.")
 
-        self.assertIsNotNone(history)
-        self.assertEqual(history.cid, chat_info.cid)
+        assert history is not None
+        assert history.cid == chat_info.cid
         logger.debug(f"History turns: {len(history.turns)}")
 
     @logger.catch(reraise=True)
@@ -231,20 +227,20 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Hello, what is the capital of Japan?")
 
-        self.assertIsNotNone(chat.cid)
+        assert chat.cid is not None
         history = await chat.read_history()
         if history is None:
             self.skipTest("Failed to read history.")
 
-        self.assertEqual(history.cid, chat.cid)
-        self.assertTrue(len(history.turns) >= 2)
+        assert history.cid == chat.cid
+        assert len(history.turns) >= 2
         logger.debug(f"History turns in chat session: {len(history.turns)}")
 
     @logger.catch(reraise=True)
     async def test_delete_chat(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("This is a temporary conversation.")
-        self.assertIsNotNone(chat.cid)
+        assert chat.cid is not None
         await self.geminiclient.delete_chat(chat.cid)
         logger.debug(f"Chat deleted: {chat.cid}")
 
@@ -287,7 +283,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             logger.debug(candidate)
 
         new_candidate = chat.choose_candidate(index=1)
-        self.assertEqual(response.chosen, 1)
+        assert response.chosen == 1
         followup_response = await chat.send_message("Tell me more about it.")
         logger.warning(new_candidate.text)
         logger.warning(followup_response.text)

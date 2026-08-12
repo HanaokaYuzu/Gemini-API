@@ -6,33 +6,25 @@ from pathlib import Path
 import orjson as json
 from curl_cffi.requests import AsyncSession, Cookies
 
+from gemini_webapi.constants import Endpoint, Headers, format_http_version
+from gemini_webapi.exceptions import AuthError
+
 from .logger import logger
-from ..constants import Endpoint, Headers, format_http_version
-from ..exceptions import AuthError
 
 
 def _extract_cookie_value(cookies: Cookies, name: str) -> str | None:
-    """
-    Extract a cookie value from a curl_cffi Cookies jar.
-    """
-
+    """Extract a cookie value from a curl_cffi Cookies jar."""
     return next((cookie.value for cookie in cookies.jar if cookie.name == name), None)
 
 
 def _get_cookie_cache_dir() -> Path:
-    """
-    Lazy helper to get the cookie cache directory.
-    """
-
+    """Lazy helper to get the cookie cache directory."""
     _path = os.getenv("GEMINI_COOKIE_PATH")
     return Path(_path) if _path else Path(tempfile.gettempdir()) / "gemini_webapi"
 
 
 def _get_cookies_cache_path(cookies: Cookies, verbose: bool = False) -> Path | None:
-    """
-    Helper to get and ensure the cache file path based on __Secure-1PSID.
-    """
-
+    """Helper to get and ensure the cache file path based on __Secure-1PSID."""
     secure_1psid = _extract_cookie_value(cookies, "__Secure-1PSID")
     if not secure_1psid:
         if verbose:
@@ -43,8 +35,7 @@ def _get_cookies_cache_path(cookies: Cookies, verbose: bool = False) -> Path | N
 
 
 async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | None:
-    """
-    Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
+    """Refresh the __Secure-1PSIDTS cookie and store the refreshed cookie value in cache file.
 
     Parameters
     ----------
@@ -64,8 +55,8 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
         If request failed with 401 Unauthorized.
     `curl_cffi.requests.exceptions.HTTPError`
         If request failed with other status codes.
-    """
 
+    """
     path = _get_cookies_cache_path(client.cookies, verbose)
     if not path:
         return None
@@ -101,10 +92,7 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
 
 
 def save_cookies(cookies: Cookies, verbose: bool = False) -> None:
-    """
-    Save persistent cookies to cache file.
-    """
-
+    """Save persistent cookies to cache file."""
     path = _get_cookies_cache_path(cookies, verbose)
     if not path:
         return
@@ -132,6 +120,4 @@ def save_cookies(cookies: Cookies, verbose: bool = False) -> None:
         path.write_text(json.dumps(cookie_list).decode("utf-8"))
         path.chmod(0o600)  # Restrict cookie cache to owner read/write only
         if verbose:
-            logger.debug(
-                f"Saved cookies to cache successfully ({len(cookie_list)} cookies)."
-            )
+            logger.debug(f"Saved cookies to cache successfully ({len(cookie_list)} cookies).")

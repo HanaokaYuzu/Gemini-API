@@ -2,9 +2,7 @@ from pydantic import BaseModel
 
 
 class DeepResearchPlan(BaseModel):
-    """
-    Structured deep research plan extracted from Gemini's confirmation response.
-    """
+    """Structured deep research plan extracted from Gemini's confirmation response."""
 
     research_id: str | None = None
     title: str | None = None
@@ -27,9 +25,7 @@ class DeepResearchPlan(BaseModel):
 
 
 class DeepResearchStatus(BaseModel):
-    """
-    Status snapshot returned by the deep research polling RPC.
-    """
+    """Status snapshot returned by the deep research polling RPC."""
 
     research_id: str
     state: str = "running"
