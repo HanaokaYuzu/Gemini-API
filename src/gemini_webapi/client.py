@@ -554,16 +554,19 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 )
 
                 unauth = self.account_status == AccountStatus.UNAUTHENTICATED
+                parsed_any = False
                 for model_data in models_list:
                     if isinstance(model_data, list) and (
                         model := AvailableModel.from_rpc(
                             model_data,
                             capacity=capacity,
                             capacity_field=capacity_field,
-                            unauthenticated=unauth,
+                            # Guest sessions may only use the default model, listed first
+                            unavailable=unauth and parsed_any,
                         )
                     ):
                         self._model_registry[model.model_id] = model
+                        parsed_any = True
 
                 return
 

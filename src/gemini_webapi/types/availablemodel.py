@@ -164,9 +164,13 @@ class AvailableModel(BaseModel):
         model_data: list,
         capacity: int = 1,
         capacity_field: int = 12,
-        unauthenticated: bool = False,
+        unavailable: bool = False,
     ) -> "AvailableModel | None":
-        """Dynamically construct an :class:`AvailableModel` instance from a single model list item in RPC part_body[15]."""
+        """Dynamically construct an :class:`AvailableModel` instance from a single model list item in RPC part_body[15].
+
+        Pass `unavailable` to force `is_available` off for a model the account may not use,
+        regardless of what the RPC advertises.
+        """
         if not isinstance(model_data, list) or not model_data:
             return None
 
@@ -193,11 +197,7 @@ class AvailableModel(BaseModel):
             raw_secondary = get_nested_value(model_data, [9])
             model_number = raw_secondary if isinstance(raw_secondary, int) else 1
 
-        is_available = bool(get_nested_value(model_data, [7], True))
-        if unauthenticated:
-            cat_lower = category_name.lower()
-            if "lite" not in cat_lower:
-                is_available = False
+        is_available = bool(get_nested_value(model_data, [7], True)) and not unavailable
 
         model_name, aliases = cls._derive_name_and_aliases(
             model_id=model_id,
@@ -304,7 +304,8 @@ class AvailableModel(BaseModel):
                             model_data=m_data,
                             capacity=capacity,
                             capacity_field=capacity_field,
-                            unauthenticated=unauthenticated,
+                            # Guest sessions may only use the default model, listed first
+                            unavailable=unauthenticated and bool(models),
                         ):
                             models.append(m_instance)
                     if models:
