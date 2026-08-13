@@ -3,6 +3,7 @@ import os
 import unittest
 
 from gemini_webapi import GeminiClient, logger, set_log_level
+from gemini_webapi.constants import AccountStatus
 from gemini_webapi.exceptions import AuthError, GeminiError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
@@ -19,6 +20,15 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
             await self.geminiclient.init(auto_refresh=False, verbose=True)
         except AuthError as e:
             self.skipTest(e)
+
+        if self.geminiclient.account_status != AccountStatus.AVAILABLE:
+            # Initialization no longer fails without usable cookies - it falls back to a guest
+            # session, which has no history, no uploads and no model choice, so every test here
+            # would fail for the wrong reason
+            self.skipTest(
+                f"No usable account: {self.geminiclient.account_status.name} - "
+                f"{self.geminiclient.account_status.description}"
+            )
 
     async def asyncTearDown(self):
         await self.geminiclient.close()

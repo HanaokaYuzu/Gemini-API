@@ -332,30 +332,36 @@ asyncio.run(main())
 
 ### Select Language Model
 
-You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
+You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. Omit it, or pass `None`, to let Google use your account's default model.
 
-Available models are discovered **dynamically** at init time based on your account tier. The `Model` enum provides convenient shortcuts.
+Models are discovered **dynamically** at init time from your account, along with the request headers and tier capacity each one needs. Pass a name, alias, display name or id string - or an `AvailableModel` straight from `list_models()`. Names follow whatever Google publishes to your account (currently `gemini-pro`, `gemini-flash` and `gemini-flash-lite`), so run the snippet below to see your own list rather than hardcoding one.
 
 ```python
-from gemini_webapi.constants import Model
-
-
 async def main():
+    for model in client.list_models() or []:
+        print(model.model_name, "|", model.display_name, "| available:", model.is_available)
+
     response1 = await client.generate_content(
         "What's your language model version? Reply with the version number only.",
-        model=Model.BASIC_FLASH,
+        model="gemini-flash",  # a name, alias, display name or id
     )
-    print(f"Model version ({Model.BASIC_FLASH.model_name}): {response1.text}")
+    print(f"Model version (gemini-flash): {response1.text}")
 
-    chat = client.start_chat(model="gemini-3-pro")
+    chat = client.start_chat(model=client.resolve_model("pro"))
     response2 = await chat.send_message(
         "What's your language model version? Reply with the version number only."
     )
-    print(f"Model version (gemini-3-pro): {response2.text}")
+    print(f"Model version ({chat.model}): {response2.text}")
 
 
 asyncio.run(main())
 ```
+
+> [!WARNING]
+>
+> The `Model` enum is **deprecated and pending removal**. Its ids and headers are hardcoded, and its `PLUS_`/`ADVANCED_` variants ask you to know your own account tier - a value the client now reads from the account itself, which is why nine members collapse into six actual models.
+>
+> `Model.from_name` and `Model.from_dict` have been **removed**; use `client.resolve_model(name)` and `AvailableModel.from_dict` instead. Passing a member to `generate_content` still works for now: it is mapped onto your account's equivalent model, or to the default model if your account has no counterpart, and logs a warning. Names the enum alone knew - `gemini-pro-advanced` and friends - no longer resolve at all; ask for `gemini-pro` and the tier is filled in for you.
 
 You can also pass custom model header strings directly to access models that are not listed above.
 
@@ -372,6 +378,10 @@ custom_model = {
 
 response = await client.generate_content("What's your model version?", model=custom_model)
 ```
+
+> [!NOTE]
+>
+> A dictionary is read into an `AvailableModel`: the model id is taken from the header you supply and the header is then rebuilt, so `capacity` and `model_number` come from the dictionary (or its defaults) rather than from other slots of the string. Prefer a model name; reach for this only for a model discovery does not list yet.
 
 ### List Available Models
 
@@ -501,7 +511,7 @@ When using models with thinking capabilities, the model's thought process will b
 
 ```python
 async def main():
-    response = await client.generate_content("What's 1+1?", model="gemini-3-pro")
+    response = await client.generate_content("What's 1+1?", model="gemini-pro")
     print(response.thoughts)
     print(response.text)
 
@@ -735,7 +745,7 @@ You can also use a browser cookie extension export (array-of-objects format is s
 ```sh
 --cookies-json PATH    Path to cookies JSON file (required)
 --proxy URL            Proxy URL (or uses HTTPS_PROXY env)
---model NAME           Model name (see 'models' command)
+--model NAME           Model name, alias or id (default: your account's default model)
 --verbose              Enable debug logging
 --no-persist           Don't update cookies file after run
 --request-timeout SEC  HTTP timeout in seconds (default: 300)
@@ -762,7 +772,7 @@ python cli.py --cookies-json cookies.json list
 # Read a specific chat conversation
 python cli.py --cookies-json cookies.json read c_abc123
 
-# List available models
+# List the models your account can use
 python cli.py --cookies-json cookies.json models
 
 # Download a generated image

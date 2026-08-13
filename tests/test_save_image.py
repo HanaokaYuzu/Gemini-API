@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from curl_cffi.requests.exceptions import HTTPError
 
 from gemini_webapi import AuthError, GeminiClient, GeneratedImage, logger, set_log_level
+from gemini_webapi.constants import AccountStatus
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -21,6 +22,15 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             await self.geminiclient.init(auto_refresh=False, verbose=True, watchdog_timeout=450)
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
+
+        if self.geminiclient.account_status != AccountStatus.AVAILABLE:
+            # Initialization no longer fails without usable cookies - it falls back to a guest
+            # session, which has no history, no uploads and no model choice, so every test here
+            # would fail for the wrong reason
+            self.skipTest(
+                f"No usable account: {self.geminiclient.account_status.name} - "
+                f"{self.geminiclient.account_status.description}"
+            )
 
     async def asyncTearDown(self):
         await self.geminiclient.close()

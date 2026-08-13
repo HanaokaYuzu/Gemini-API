@@ -1,9 +1,11 @@
 import re
 from enum import Enum, IntEnum, StrEnum
+from functools import cache
 
 import orjson as json
 from curl_cffi import CurlHttpVersion
 from curl_cffi.requests import BrowserTypeLiteral
+from loguru import logger
 
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
@@ -136,7 +138,29 @@ class Headers(Enum):
     BATCH_EXEC = _BATCH_EXEC_HEADERS
 
 
+@cache
+def warn_deprecated_model(usage: str) -> None:
+    """Log the :class:`Model` deprecation, once per call site."""
+    logger.warning(
+        f"{usage} relies on the deprecated `Model` enum, which will be removed. Pass a model name "
+        "string instead: models are discovered per account at runtime, so the values hardcoded "
+        "here go stale whenever Google renames, renumbers or retiers a model."
+    )
+
+
 class Model(Enum):
+    """Deprecated, pending removal. Pass a model name string, or an :class:`AvailableModel`.
+
+    Model identity is discovered per account at initialization, which keeps names, ids and tier
+    capacity current without a library release. These members cannot: their ids go stale, and the
+    `PLUS_`/`ADVANCED_` variants ask the caller to know their own account tier - the same value
+    :meth:`gemini_webapi.types.AvailableModel.compute_capacity` reads from the account itself.
+
+    Nothing in this library resolves models through the enum. A member passed to
+    `generate_content` is still mapped onto the account's equivalent model, with a warning; that
+    compatibility shim is all that remains.
+    """
+
     UNSPECIFIED = ("unspecified", {}, False)
     BASIC_PRO = (
         "gemini-pro",
@@ -203,47 +227,6 @@ class Model(Enum):
             return get_nested_value(parsed, [4], "")
         except json.JSONDecodeError:
             return ""
-
-    @classmethod
-    def from_name(cls, name: str) -> "Model":
-        target = name.lower().strip()
-
-        # 1. Exact match
-        for model in cls:
-            if model.model_name == target:
-                return model
-
-        # 2. Generic version-agnostic normalized match
-        norm_target = MODEL_PREFIX_RE.sub("", target).replace("_", "-")
-
-        for model in cls:
-            if model is cls.UNSPECIFIED:
-                continue
-
-            norm_model = MODEL_PREFIX_RE.sub("", model.model_name.lower()).replace("_", "-")
-            if norm_target == norm_model or norm_target in norm_model.split("-"):
-                return model
-
-        raise ValueError(
-            f"Unknown model name: {name}. Available models: {', '.join([model.model_name for model in cls])}"
-        )
-
-    @classmethod
-    def from_dict(cls, model_dict: dict) -> "Model":
-        if "model_name" not in model_dict or "model_header" not in model_dict:
-            raise ValueError(
-                "When passing a custom model as a dictionary, 'model_name' and 'model_header' keys must be provided."
-            )
-
-        if not isinstance(model_dict["model_header"], dict):
-            raise ValueError(
-                "When passing a custom model as a dictionary, 'model_header' must be a dictionary containing valid header strings."
-            )
-
-        custom_model = cls.UNSPECIFIED
-        custom_model.model_name = model_dict["model_name"]
-        custom_model.model_header = model_dict["model_header"]
-        return custom_model
 
 
 class AccountStatus(IntEnum):

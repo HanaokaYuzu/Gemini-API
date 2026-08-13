@@ -54,6 +54,13 @@ class TestCLITool(unittest.IsolatedAsyncioTestCase):
         result = await cmd_ask(args)
         assert result == 0
 
+    async def test_cli_models(self):
+        from cli import cmd_models
+
+        args = self._parse("models")
+        result = await cmd_models(args)
+        assert result == 0
+
     async def test_cli_list_chats(self):
         from cli import cmd_list
 

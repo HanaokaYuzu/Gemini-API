@@ -5,7 +5,7 @@ from typing import Any
 import orjson as json
 from pydantic import BaseModel
 
-from gemini_webapi.constants import GRPC, MODEL_HEADER_KEY, Model, build_model_header
+from gemini_webapi.constants import GRPC, MODEL_HEADER_KEY, build_model_header
 from gemini_webapi.utils.parsing import extract_json_from_response, get_nested_value
 
 _VERSION_RE = re.compile(r"(\d+)(?:\.\d+)?")
@@ -36,7 +36,8 @@ class AvailableModel(BaseModel):
     model_number: `int`
         Internal model number mirrored into generation request payloads.
     is_available: `bool`, optional
-        Whether the model is available for use based on account status. Defaults to `True`.
+        Whether this session may select the model. True for every model an account is shown;
+        false for all but the default model of a guest session. Defaults to `True`.
     aliases: `list[str]`, optional
         Alternative names and identifiers matching this model.
 
@@ -168,8 +169,8 @@ class AvailableModel(BaseModel):
     ) -> "AvailableModel | None":
         """Dynamically construct an :class:`AvailableModel` instance from a single model list item in RPC part_body[15].
 
-        Pass `unavailable` to force `is_available` off for a model the account may not use,
-        regardless of what the RPC advertises.
+        Pass `unavailable` for a model this session may not select - every model but the first
+        for a guest. It is the only thing that clears `is_available`.
         """
         if not isinstance(model_data, list) or not model_data:
             return None
@@ -197,7 +198,9 @@ class AvailableModel(BaseModel):
             raw_secondary = get_nested_value(model_data, [9])
             model_number = raw_secondary if isinstance(raw_secondary, int) else 1
 
-        is_available = bool(get_nested_value(model_data, [7], True)) and not unavailable
+        # Only the session decides - an account may use every model it is shown, a guest may
+        # only use the default one.
+        is_available = not unavailable
 
         model_name, aliases = cls._derive_name_and_aliases(
             model_id=model_id,
@@ -311,56 +314,3 @@ class AvailableModel(BaseModel):
                     if models:
                         break
         return models
-
-    @staticmethod
-    def build_model_id_name_mapping() -> dict[str, str]:
-        """Build a mapping from `model_id` to `model_name` for all registered models.
-
-        This uses the :class:`Model` enum to resolve hex identifiers to their
-        canonical names (e.g., "gemini-3-pro").
-        """
-        result: dict[str, str] = {}
-        for member in Model:
-            if member is Model.UNSPECIFIED:
-                continue
-
-            header_value = member.model_header.get(MODEL_HEADER_KEY, "")
-            if not header_value:
-                continue
-
-            try:
-                parsed = json.loads(header_value)
-                model_id = get_nested_value(parsed, [4])
-            except json.JSONDecodeError:
-                continue
-
-            if model_id and model_id not in result:
-                base_key = "BASIC_" + member.name.split("_", 1)[-1]
-                base_member = getattr(Model, base_key, member)
-                result[model_id] = base_member.model_name
-
-        return result
-
-    @staticmethod
-    def build_model_id_number_mapping() -> dict[str, int]:
-        """Build a mapping from `model_id` to the model number embedded in static model headers."""
-        result: dict[str, int] = {}
-        for member in Model:
-            if member is Model.UNSPECIFIED:
-                continue
-
-            header_value = member.model_header.get(MODEL_HEADER_KEY, "")
-            if not header_value:
-                continue
-
-            try:
-                parsed = json.loads(header_value)
-                model_id = get_nested_value(parsed, [4])
-                model_number = parsed[-1] if parsed else None
-            except json.JSONDecodeError:
-                continue
-
-            if model_id and isinstance(model_number, int) and model_id not in result:
-                result[model_id] = model_number
-
-        return result

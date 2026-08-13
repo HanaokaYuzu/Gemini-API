@@ -19,7 +19,7 @@ if (_src := str(Path(__file__).resolve().parent / "src")) not in sys.path:
     sys.path.insert(0, _src)
 
 from gemini_webapi import GeminiClient, logger, set_log_level
-from gemini_webapi.constants import BROWSER_TYPE, Model
+from gemini_webapi.constants import BROWSER_TYPE
 from gemini_webapi.exceptions import AuthError
 from gemini_webapi.types.image import GeneratedImage, WebImage
 
@@ -369,6 +369,27 @@ async def cmd_research_get(args):
         await _cleanup(client, args, json_cookies)
 
 
+async def cmd_models(args):
+    """List the models this account discovered at initialization."""
+    client, json_cookies = await _init_client(args)
+    try:
+        items = client.list_models()
+        if not items:
+            print("No models found.")
+            return 0
+
+        name_w = max(len("Name"), max(len(m.model_name) for m in items))
+        disp_w = max(len("Display"), max(len(m.display_name) for m in items))
+        print(f"{'Name':<{name_w}}  {'Display':<{disp_w}}  ID")
+        print("-" * (name_w + disp_w + 22))
+        for m in items:
+            mark = "" if m.is_available else "  (unavailable)"
+            print(f"{m.model_name:<{name_w}}  {m.display_name:<{disp_w}}  {m.model_id}{mark}")
+        return 0
+    finally:
+        await _cleanup(client, args, json_cookies)
+
+
 async def cmd_list(args):
     client, json_cookies = await _init_client(args)
     try:
@@ -531,8 +552,8 @@ def build_parser():
     )
     parser.add_argument(
         "--model",
-        default=Model.UNSPECIFIED.model_name,
-        help="Model name",
+        default=None,
+        help="Model name, alias or id (see the 'models' command). Defaults to the account's default",
     )
     parser.add_argument(
         "--verbose",
@@ -591,7 +612,7 @@ def build_parser():
     p_read.add_argument("--output", default=None)
 
     # models
-    sub.add_parser("models", help="List models")
+    sub.add_parser("models", help="List the models available to this account")
 
     # download
     p_dl = sub.add_parser("download", help="Download image")
@@ -620,11 +641,7 @@ async def run(args):
     if cmd == "list":
         return await cmd_list(args)
     if cmd == "models":
-        print("Available models:\n")
-        for m in Model:
-            default = " (default)" if m == Model.UNSPECIFIED else ""
-            print(f"  {m.model_name}{default}")
-        return 0
+        return await cmd_models(args)
     if cmd == "read":
         return await cmd_read(args)
     if cmd == "reply":

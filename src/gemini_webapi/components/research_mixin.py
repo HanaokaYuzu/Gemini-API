@@ -20,7 +20,13 @@ from gemini_webapi.exceptions import (
     TimeoutError,
     UsageLimitExceededError,
 )
-from gemini_webapi.types import DeepResearchPlan, DeepResearchResult, DeepResearchStatus, RPCData
+from gemini_webapi.types import (
+    AvailableModel,
+    DeepResearchPlan,
+    DeepResearchResult,
+    DeepResearchStatus,
+    RPCData,
+)
 from gemini_webapi.utils import (
     extract_deep_research_status_payload,
     extract_json_from_response,
@@ -214,7 +220,7 @@ class ResearchMixin:
         self,
         prompt: str,
         chat: Optional["ChatSession"] = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: AvailableModel | Model | str | dict | None = None,
     ) -> DeepResearchPlan:
         """Send a deep research prompt and extract the plan Gemini proposes.
 
@@ -224,8 +230,9 @@ class ResearchMixin:
             Research topic or question.
         chat: `ChatSession`, optional
             Existing chat session to reuse.
-        model: `Model | str | dict`, optional
-            Model to use for generation.
+        model: `AvailableModel | str | dict`, optional
+            Model to use for generation, by name or as a model from `list_models()`.
+            Defaults to the account's default model.
 
         Returns
         -------

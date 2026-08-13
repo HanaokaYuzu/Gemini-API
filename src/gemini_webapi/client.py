@@ -40,6 +40,7 @@ from .constants import (
     Headers,
     Model,
     format_http_version,
+    warn_deprecated_model,
 )
 from .exceptions import (
     APIError,
@@ -910,10 +911,29 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
         return list(self._model_registry.values()) if self._model_registry else None
 
-    def _resolve_model_by_name(self, name: str) -> AvailableModel | Model:
-        """Resolve a model name string to an :class:`AvailableModel` from the
-        dynamic registry (preferred) or fall back to :class:`Model` enum.
+    def resolve_model(self, name: str) -> AvailableModel:
+        """Resolve a model name, alias, display name or hex id against this client's registry.
+
+        Parameters
+        ----------
+        name: `str`
+            Model name, alias, display name or `model_id` to look up.
+
+        Returns
+        -------
+        `gemini_webapi.types.AvailableModel`
+            The matching model this account discovered at initialization.
+
+        Raises
+        ------
+        `ValueError`
+            If the name matches no discovered model.
+
         """
+        return self._resolve_model_by_name(name)
+
+    def _resolve_model_by_name(self, name: str) -> AvailableModel:
+        """Resolve a model name against the models this account discovered."""
         if name in self._model_registry:
             return self._model_registry[name]
 
@@ -940,74 +960,34 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             if norm_target == norm_model or norm_target in norm_model.split("-"):
                 return m
 
-        # Fallback to Model enum for legacy static references
-        try:
-            return Model.from_name(name)
-        except Exception as e:
-            available_names = [m.model_name for m in self._model_registry.values()]
-            raise ValueError(
-                f"Unknown model name: '{name}'. Available registered models: "
-                f"{', '.join(available_names) if available_names else 'None (call client.init() first)'}"
-            ) from e
+        available_names = [m.model_name for m in self._model_registry.values()]
+        raise ValueError(
+            f"Unknown model name: '{name}'. Available registered models: "
+            f"{', '.join(available_names) if available_names else 'None (call client.init() first)'}"
+        )
 
-    def _resolve_enum_model(self, model: Model) -> Model | AvailableModel:
-        """Try to upgrade a :class:`Model` enum to an :class:`AvailableModel`
-        from the dynamic registry. Falls back to the enum itself if no match
-        is found.
+    def _resolve_enum_model(self, model: Model) -> AvailableModel | None:
+        """Upgrade a deprecated :class:`Model` member to this account's equivalent.
+
+        Returns `None` for `UNSPECIFIED`, and for a member whose hardcoded id the account does
+        not offer - both mean "no model header", letting Google pick its default rather than
+        sending an id that may no longer exist.
         """
         if model is Model.UNSPECIFIED:
-            return model
+            return None
 
-        header_value = model.model_header.get(MODEL_HEADER_KEY, "")
-        if not header_value:
-            return model
+        if header_value := model.model_header.get(MODEL_HEADER_KEY, ""):
+            with contextlib.suppress(json.JSONDecodeError):
+                parsed = json.loads(header_value)
+                model_id = get_nested_value(parsed, [4], "")
+                if model_id and model_id in self._model_registry:
+                    return self._model_registry[model_id]
 
-        with contextlib.suppress(json.JSONDecodeError):
-            parsed = json.loads(header_value)
-            model_id = get_nested_value(parsed, [4], "")
-            if model_id and model_id in self._model_registry:
-                return self._model_registry[model_id]
-        return model
-
-    @staticmethod
-    def _get_quota_flags(
-        model: Model | AvailableModel | str | dict,
-    ) -> dict[str, bool]:
-        """Determine the required quota fetch flags based on the model and task type.
-
-        Parameters
-        ----------
-        model : `Model` | `AvailableModel` | `str` | `dict`
-            The model used for generation.
-
-        Returns
-        -------
-        `dict[str, bool]`
-            A dictionary containing the required flags for _fetch_quota.
-
-        """
-        flags = {"flash": False, "advanced": False}
-
-        model_name = ""
-        if isinstance(model, (Model, AvailableModel)):
-            model_name = model.model_name.lower()
-        elif isinstance(model, str):
-            model_name = model.lower()
-        elif isinstance(model, dict):
-            model_name = model.get("model_name", "").lower()
-
-        if not model_name or model_name == "unspecified":
-            return {"flash": True, "advanced": True}
-
-        if "pro" in model_name:
-            flags["advanced"] = True
-        elif "lite" in model_name or "flash" in model_name:
-            flags["flash"] = True
-        else:
-            flags["flash"] = True
-            flags["advanced"] = True
-
-        return flags
+        logger.warning(
+            f"{model} has no counterpart in this account's models; falling back to the default "
+            "model rather than sending a hardcoded header Google may no longer accept."
+        )
+        return None
 
     def _check_account_status(self, raise_error: bool = False) -> bool:
         """Check if the account is available for higher-level operations.
@@ -1040,7 +1020,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
-        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
+        model: AvailableModel | Model | str | dict | None = None,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
@@ -1056,10 +1036,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             Text prompt provided by user.
         files: `list[str | Path | bytes | io.BytesIO]`, optional
             List of file paths or byte streams to be attached.
-        model: `Model | str | dict`, optional
-            Specify the model to use for generation.
-            Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
-            Pass a dictionary to use custom model header strings ("model_name" and "model_header" keys must be provided).
+        model: `AvailableModel | str | dict`, optional
+            Specify the model to use for generation. Pass a model name, alias or id string, or an
+            `gemini_webapi.types.AvailableModel` from `list_models()`. Omit it to let Google use
+            the account's default model. The `gemini_webapi.constants.Model` enum is deprecated
+            and still accepted, with a warning.
         gem: `Gem | str`, optional
             Specify a gem to use as system prompt for the chat session.
             Pass either a `gemini_webapi.types.Gem` object or a gem id string.
@@ -1164,7 +1145,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self,
         prompt: str,
         files: list[str | Path | bytes | io.BytesIO] | None = None,
-        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
+        model: AvailableModel | Model | str | dict | None = None,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
@@ -1186,8 +1167,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             Text prompt provided by user.
         files: `list[str | Path | bytes | io.BytesIO]`, optional
             List of file paths or byte streams to be attached.
-        model: `Model | str | dict`, optional
-            Specify the model to use for generation.
+        model: `AvailableModel | str | dict`, optional
+            Specify the model to use for generation, by name or as a model from `list_models()`.
+            Omit it to let Google use the account's default model.
         gem: `Gem | str`, optional
             Specify a gem to use as system prompt for the chat session.
         chat: `ChatSession`, optional
@@ -1278,7 +1260,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self,
         prompt: str,
         req_file_data: list[Any] | None = None,
-        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
+        model: AvailableModel | Model | str | dict | None = None,
         gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         temporary: bool = False,
@@ -1297,23 +1279,29 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         """
         assert prompt, "Prompt cannot be empty."
 
-        if isinstance(model, AvailableModel):
-            pass
+        # Resolved down to one of two things: a model this account offers, or None for "let
+        # Google pick", so nothing below has to know which form the caller passed.
+        selected: AvailableModel | None
+        if model is None or isinstance(model, AvailableModel):
+            selected = model
         elif isinstance(model, str):
-            model = self._resolve_model_by_name(model)
+            selected = self._resolve_model_by_name(model)
         elif isinstance(model, dict):
-            model = AvailableModel.from_dict(model)
+            selected = AvailableModel.from_dict(model)
         elif isinstance(model, Model):
-            model = self._resolve_enum_model(model)
+            warn_deprecated_model(f"Passing {model} to generate_content()")
+            selected = self._resolve_enum_model(model)
         else:
             raise TypeError(
-                f"'model' must be a `Model` enum, `AvailableModel`, "
-                f"string, or dictionary; got `{type(model).__name__}`"
+                f"'model' must be an `AvailableModel`, string, dictionary or None; "
+                f"got `{type(model).__name__}`"
             )
 
-        if model is not Model.UNSPECIFIED and not getattr(model, "is_available", True):
+        model_label = selected.model_name if selected else "the default model"
+
+        if selected is not None and not selected.is_available:
             raise GeminiError(
-                f"{model.model_name} is not available for use. Account status: {self.account_status.name} - {self.account_status.description}"
+                f"{model_label} is not available for use. Account status: {self.account_status.name} - {self.account_status.description}"
             )
 
         _reqid = self._reqid
@@ -1398,7 +1386,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                 inner_req_list[59] = uuid_val
 
-                model_headers = model.model_header.copy()
+                model_headers = selected.model_header.copy() if selected else {}
                 if MODEL_HEADER_KEY in model_headers:
                     model_header = json.loads(model_headers[MODEL_HEADER_KEY])
                     model_number = model_header[-1] if model_header else None
@@ -1476,7 +1464,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 match error_code:
                                     case ErrorCode.USAGE_LIMIT_EXCEEDED:
                                         raise UsageLimitExceededError(
-                                            f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
+                                            f"Usage limit exceeded for model '{model_label}'. Please wait a few minutes, "
                                             "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
                                         )
                                     case ErrorCode.MODEL_INCONSISTENT:
@@ -1486,7 +1474,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                         )
                                     case ErrorCode.MODEL_HEADER_INVALID:
                                         raise ModelInvalidError(
-                                            f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "
+                                            f"The model '{model_label}' is currently unavailable or the request structure is outdated. "
                                             "Please update 'gemini_webapi' to the latest version or report this on GitHub if the problem persists."
                                         )
                                     case ErrorCode.IP_TEMPORARILY_BLOCKED:
@@ -2188,10 +2176,11 @@ class ChatSession:
         Reply ID, if provided together with metadata, will override the second value in it.
     rcid: `str`, optional
         Reply candidate ID, if provided together with metadata, will override the third value in it.
-    model: `Model | str | dict`, optional
-        Specify the model to use for generation.
-        Pass either a `gemini_webapi.constants.Model` enum or a model name string to use predefined models.
-        Pass a dictionary to use custom model header strings ("model_name" and "model_header" keys must be provided).
+    model: `AvailableModel | str | dict`, optional
+        Specify the model to use for generation. Pass a model name, alias or id string, or an
+        `gemini_webapi.types.AvailableModel` from `list_models()`. Omit it to let Google use the
+        account's default model. The `gemini_webapi.constants.Model` enum is deprecated and still
+        accepted, with a warning.
     gem: `Gem | str`, optional
         Specify a gem to use as system prompt for the chat session.
         Pass either a `gemini_webapi.types.Gem` object or a gem id string.
@@ -2213,13 +2202,13 @@ class ChatSession:
         cid: str = "",  # chat id
         rid: str = "",  # reply id
         rcid: str = "",  # reply candidate id
-        model: Model | AvailableModel | str | dict = Model.UNSPECIFIED,
+        model: AvailableModel | Model | str | dict | None = None,
         gem: Gem | str | None = None,
     ):
         self.__metadata: list[Any] = DEFAULT_METADATA.copy()
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
-        self.model: Model | AvailableModel | str | dict = model
+        self.model: AvailableModel | Model | str | dict | None = model
         self.gem: Gem | str | None = gem
 
         if metadata:
