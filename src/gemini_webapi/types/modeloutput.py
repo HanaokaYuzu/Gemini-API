@@ -3,8 +3,9 @@ from textwrap import shorten
 from pydantic import BaseModel
 
 from .candidate import Candidate
+from .citation import Citation
 from .image import Image
-from .research import DeepResearchPlan
+from .research import DeepResearchDocument, DeepResearchPlan
 from .video import GeneratedMedia, GeneratedVideo
 
 
@@ -65,5 +66,13 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].generated_media
 
     @property
+    def citations(self) -> list[Citation]:
+        return self.candidates[self.chosen].citations
+
+    @property
     def deep_research_plan(self) -> DeepResearchPlan | None:
         return self.candidates[self.chosen].deep_research_plan
+
+    @property
+    def deep_research_document(self) -> DeepResearchDocument | None:
+        return self.candidates[self.chosen].deep_research_document

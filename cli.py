@@ -306,19 +306,22 @@ async def cmd_reply(args):
 async def cmd_research_send(args):
     client, json_cookies = await _init_client(args)
     try:
-        plan = await client.create_deep_research_plan(
-            prompt=args.prompt,
-            model=args.model,
-        )
-        await client.start_deep_research(plan=plan)
+        # The plan and its confirmation are two turns of one conversation. They must share a
+        # session, or the confirmation turn is sent without the model the plan was made with
+        # and Gemini rejects it as inconsistent with the history.
+        chat = client.start_chat(model=args.model)
+
+        plan = await client.create_deep_research_plan(prompt=args.prompt, chat=chat)
         if not plan.cid:
             raise SystemExit("Deep research failed: no chat ID.")
 
+        await client.start_deep_research(plan=plan, chat=chat)
+
         print("Deep Research task submitted\n")
         if plan.title:
-            print(f"  Title:  {plan.title}")
+            print(f"  Title:   {plan.title}")
         if plan.eta_text:
-            print(f"  ETA:    {plan.eta_text}")
+            print(f"  ETA:     {plan.eta_text}")
         if plan.steps:
             print("  Steps:")
             for step in plan.steps:
@@ -335,14 +338,24 @@ async def cmd_research_check(args):
     cid = args.chat_id
     client, json_cookies = await _init_client(args)
     try:
-        latest = await client.read_chat(cid, limit=1)
-        if latest and latest.turns and latest.turns[0].role == "model":
-            text = latest.turns[0].text
-            print("  Status: done")
-            print(f"  Response length: {len(text)} chars")
-            print(f"\n  Use 'research get {cid}' for full result.")
-        else:
+        # A ready report is the only completion signal - Gemini creates no task entity to
+        # ask for a progress state. Several turns are scanned because the plan and
+        # confirmation replies are model turns too, and the report can attach behind them.
+        history = await client.read_chat(cid, limit=10)
+        if not history or not history.turns:
             print("  Status: in progress (no response yet)")
+            return 0
+
+        for turn in history.turns:
+            document = turn.model_output.deep_research_document if turn.model_output else None
+            if document and document.ready:
+                print("  Status: completed")
+                print(f"  Title:  {document.title}")
+                print(f"  Report: {len(document.content)} chars, {len(document.sources)} sources")
+                print(f"\n  Use 'research get {cid}' for the full report.")
+                return 0
+
+        print("  Status: in progress (the report has not been attached yet)")
         return 0
     finally:
         await _cleanup(client, args, json_cookies)
@@ -485,36 +498,57 @@ async def cmd_download(args):
 
 
 async def cmd_inspect(args):
+    """Report the account state the client already gathered during init()."""
     client, json_cookies = await _init_client(args)
     try:
-        snapshot = await client.inspect_account_status()
-        summary = snapshot.get("summary", {})
-        rpc = snapshot.get("rpc", {})
-
+        status = client.account_status
         print("=== Account Diagnostics ===\n")
-        print(f"  Source path:   {snapshot.get('source_path', '?')}")
-        print(f"  Account path:  {snapshot.get('account_path') or '(none)'}")
+        print(f"  Status:  {status.name} ({status.value})")
+        print(f"           {status.description}")
 
-        print("\n  RPC Probes:")
-        for name, probe in rpc.items():
-            if not isinstance(probe, dict):
-                continue
-            if not probe.get("ok", False):
-                status = f"ERROR: {probe.get('error', '?')}"
-            elif probe.get("reject_code") is not None:
-                status = f"REJECTED (code={probe['reject_code']})"
-            else:
-                status = "OK"
-            print(f"    {name:<15} {status}")
-
-        if rejected := summary.get("rejected_probes", []):
-            print(f"\n  Rejected: {', '.join(rejected)}")
-            print("  (try refreshing cookies or different proxy)")
+        abuse = client.abuse_status
+        if abuse is None:
+            print("\n  Abuse status:  (not reported)")
+        elif abuse.get("is_clean"):
+            print("\n  Abuse status:  clean")
         else:
-            print("\n  All probes passed.")
+            print(
+                f"\n  Abuse status:  FLAGGED code={abuse.get('status_code')} "
+                f"signal={abuse.get('signal')}"
+            )
 
-        dr = summary.get("deep_research_feature_present", False)
-        print(f"\n  Deep Research available: {'yes' if dr else 'no'}")
+        if usage := client.usage_info:
+            tier = usage.get("tier", {})
+            print(f"\n  Plan tier:  {tier.get('label') or '?'} ({tier.get('id')})")
+            for key in ("current_5h", "weekly"):
+                if metric := usage.get(key):
+                    reset_at = metric.get("reset_at")
+                    resets = f" (resets {reset_at})" if reset_at else ""
+                    print(
+                        f"    {metric['window']:<8} {metric.get('usage_percentage')}% used, "
+                        f"{metric.get('remaining_credits')} credits left{resets}"
+                    )
+            if (credits := usage.get("ai_credits_remaining")) is not None:
+                print(f"    {'credits':<8} {credits} AI credits remaining")
+
+        print("\n  Quotas:")
+        for quota_id, quota in client.quotas.items():
+            if quota_id in ("extra", "usage_info"):
+                continue
+            print(
+                f"    {quota.get('label', quota_id):<28} "
+                f"{quota.get('remaining')}/{quota.get('total')} remaining "
+                f"({quota.get('usage_percentage')}% used)"
+            )
+        if extra := client.quotas.get("extra", {}).get("default", {}):
+            state = "BLOCKED" if extra.get("is_blocked") else "ok"
+            print(f"    {'extra features':<28} {state} ({extra.get('usage_percentage')}% used)")
+
+        models = client.list_models() or []
+        print(f"\n  Models discovered:  {len(models)}")
+        for m in models:
+            print(f"    {'*' if m.is_available else '-'} {m.model_name}")
+
         print()
         return 0
     finally:

@@ -1,10 +1,25 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import orjson as json
 
-from gemini_webapi.constants import GRPC
-from gemini_webapi.types import Candidate, ChatHistory, ChatInfo, ChatTurn, ModelOutput, RPCData
-from gemini_webapi.utils import extract_json_from_response, get_nested_value, logger
+from gemini_webapi.constants import GRPC, Field
+from gemini_webapi.types import (
+    Candidate,
+    ChatHistory,
+    ChatInfo,
+    ChatTurn,
+    DeepResearchDocument,
+    ModelOutput,
+    RPCData,
+)
+from gemini_webapi.utils import (
+    extract_deep_research_document,
+    extract_json_from_response,
+    get_nested_value,
+    get_rich_content_field,
+    logger,
+)
 
 if TYPE_CHECKING:
     from curl_cffi.requests import Response
@@ -160,13 +175,27 @@ class ChatMixin:
                         for candidate_data in candidates_list:
                             completion_status = get_nested_value(candidate_data, [8, 0])
                             has_progress_signal = (
-                                get_nested_value(candidate_data, [12, 6, 0]) is not None
+                                get_nested_value(
+                                    get_rich_content_field(candidate_data, Field.PROGRESS), [0]
+                                )
+                                is not None
                             )
+                            doc_data = extract_deep_research_document(candidate_data)
+                            # An accepted research turn reports status 1 with an empty
+                            # document: the task is running server-side, a normal state
+                            # rather than an interruption. The extracted document is the
+                            # test, not the raw `[30][0]` slot a YouTube card also fills.
+                            research_running = completion_status == 1 and doc_data is not None
 
                             if completion_status == 2:
                                 # Finished successfully
                                 logger.debug(
                                     f"[read_chat] Gemini has successfully finalized the response for {cid!r}."
+                                )
+                            elif research_running:
+                                logger.debug(
+                                    f"[read_chat] Deep research is running server-side for {cid!r}. "
+                                    "The report will attach to this turn once it completes."
                                 )
                             elif has_progress_signal:
                                 # Still generating / searching / thinking
@@ -194,7 +223,10 @@ class ChatMixin:
                                 generated_images,
                                 generated_videos,
                                 generated_media,
+                                citations,
                             ) = self._parse_candidate(candidate_data, cid, rid, rcid)
+                            document = DeepResearchDocument(**doc_data) if doc_data else None
+
                             output_candidates.append(
                                 Candidate(
                                     rcid=rcid,
@@ -206,6 +238,8 @@ class ChatMixin:
                                     generated_images=generated_images,
                                     generated_videos=generated_videos,
                                     generated_media=generated_media,
+                                    citations=citations,
+                                    deep_research_document=document,
                                 )
                             )
                         if output_candidates:
@@ -233,41 +267,66 @@ class ChatMixin:
             )
             return None
 
-    async def fetch_latest_chat_response(self, cid: str) -> ModelOutput | None:
+    async def fetch_latest_chat_response(
+        self,
+        cid: str,
+        limit: int = 5,
+        match: Callable[[ModelOutput], bool] | None = None,
+    ) -> ModelOutput | None:
         """Fetch the latest model response from a chat by its cid.
 
-        ``read_chat`` returns turns newest-first, so the first model turn
-        is the most recent response. Used by ``ResearchMixin`` for fallback
-        recovery when a streaming request fails but the server may have
-        already produced a response.
+        ``read_chat`` returns turns newest-first, so the first model turn is the most recent
+        response. Used by ``ResearchMixin`` for fallback recovery when a streaming request
+        fails but the server may have already produced a response.
 
         Parameters
         ----------
         cid: `str`
             The chat ID to read (e.g. ``"c_..."``).
+        limit: `int`, optional
+            Maximum number of turns to read back through, by default 5.
+        match: `Callable`, optional
+            Accept only a model output this returns `True` for, searching back from the
+            newest turn. When nothing matches the newest output is still returned, so the
+            caller always gets the conversation's current state - re-apply the same test to
+            tell the two cases apart. Deep research needs this: a repeated confirmation can
+            answer with a plain summary while the report stays on an earlier turn.
 
         Returns
         -------
         :class:`ModelOutput` | None
-            The latest model output, or ``None`` if unavailable.
+            The matching model output, the latest one when nothing matches, or ``None`` if
+            the chat has no model turns.
 
         """
         self._check_account_status(raise_error=True)
 
         try:
-            history = await self.read_chat(cid, limit=5)
+            history = await self.read_chat(cid, limit=limit)
             if not history or not history.turns:
                 logger.debug(f"fetch_latest_chat_response({cid!r}): no turns")
                 return None
+
+            latest: ModelOutput | None = None
             for turn in history.turns:  # newest-first
-                if turn.role == "model" and turn.model_output:
+                if turn.role != "model" or not turn.model_output:
+                    continue
+
+                if latest is None:
+                    latest = turn.model_output
                     logger.debug(
                         f"fetch_latest_chat_response({cid!r}): "
                         f"found model turn with {len(turn.text)} chars"
                     )
+
+                if match is None:
+                    return latest
+                if match(turn.model_output):
                     return turn.model_output
-            logger.debug(f"fetch_latest_chat_response({cid!r}): no model turns")
-            return None
+
+            if latest is None:
+                logger.debug(f"fetch_latest_chat_response({cid!r}): no model turns")
+            return latest
         except Exception as e:
             logger.debug(f"fetch_latest_chat_response({cid!r}) failed: {type(e).__name__}: {e}")
             return None

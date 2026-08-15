@@ -1,6 +1,7 @@
 import re
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import orjson as json
 from curl_cffi import CurlFollow, CurlHttpVersion
@@ -16,6 +17,41 @@ from .rotate_1psidts import (
     _get_cookie_cache_dir,
     _get_cookies_cache_path,
 )
+
+
+class InitSession(NamedTuple):
+    """Everything a successful init attempt produced.
+
+    Attributes
+    ----------
+    access_token: `str | None`
+        The "SNlM0e" value. Guest sessions have none.
+    build_label: `str | None`
+        Frontend build label sent back as the `bl` request parameter.
+    session_id: `str | None`
+        Frontend session id sent back as the `f.sid` request parameter.
+    language: `str | None`
+        Account language.
+    push_id: `str | None`
+        File upload push id.
+    client: `curl_cffi.requests.AsyncSession`
+        The **live** session that succeeded, so the caller can reuse its TLS connection.
+    cookie_source: `str`
+        Name of the cookie group that produced this session - "Cache", "Base Cookies",
+        "Browser (firefox)", "Guest". A session is accepted as soon as it yields an access
+        token, which an unauthenticated one does too, so the caller needs to know which
+        group to blame when the session turns out to be unusable.
+
+    """
+
+    access_token: str | None
+    build_label: str | None
+    session_id: str | None
+    language: str | None
+    push_id: str | None
+    client: AsyncSession
+    cookie_source: str
+
 
 _DOMAIN_NAME = "google.com"
 _COOKIE_DOMAIN = f".{_DOMAIN_NAME}"
@@ -177,7 +213,7 @@ async def get_access_token(
     verbose: bool = False,
     impersonate: BrowserTypeLiteral = BROWSER_TYPE,
     verify: bool = True,
-) -> tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]:
+) -> InitSession:
     """Send a get request to gemini.google.com for each group of available cookies and return
     the value of "SNlM0e" as access token on the first successful request.
 
@@ -187,8 +223,9 @@ async def get_access_token(
     which are then used to complete the previous groups (without ever overwriting their
     values) and, as a last resort, to attempt a guest session.
 
-    Returns the **live** AsyncSession that succeeded so the caller can reuse
-    the same TLS connection for subsequent requests.
+    Returns the **live** AsyncSession that succeeded so the caller can reuse the same TLS
+    connection for subsequent requests, along with the name of the cookie group it came
+    from.
 
     Parameters
     ----------
@@ -205,8 +242,9 @@ async def get_access_token(
 
     Returns
     -------
-    `tuple[str | None, str | None, str | None, str | None, str | None, AsyncSession]`
-        By order: access token; build label; session id; language; file push id; live AsyncSession of the successful request.
+    :class:`InitSession`
+        Named tuple of the access token, build label, session id, language, file push id,
+        the live `AsyncSession`, and the name of the cookie group that produced it.
 
     Raises
     ------
@@ -337,7 +375,7 @@ async def get_access_token(
                     if payload := _extract_payload(response):
                         if verbose:
                             logger.debug(f"Init attempt ({attempts}) from {group_name} succeeded.")
-                        return payload
+                        return payload, group_name
                     if verbose:
                         logger.debug(
                             f"Init attempt ({attempts}) from {group_name} returned no init values."
@@ -348,8 +386,9 @@ async def get_access_token(
 
             return None
 
-        if payload := await try_jars(cookie_jars_to_test):
-            return (*payload, client)
+        if result := await try_jars(cookie_jars_to_test):
+            payload, group_name = result
+            return InitSession(*payload, client=client, cookie_source=group_name)
 
         # Phase 3: Fall back to a preflight request for consent/anonymous cookies, then
         # retry the same groups completed with the missing cookies, and finally guest mode
@@ -379,8 +418,9 @@ async def get_access_token(
                 for jar, group_name in cookie_jars_to_test
             ]
             retries.append((Cookies(preflight_cookies), "Guest"))
-            if payload := await try_jars(retries):
-                return (*payload, client)
+            if result := await try_jars(retries):
+                payload, group_name = result
+                return InitSession(*payload, client=client, cookie_source=group_name)
 
         raise AuthError(
             f"Failed to initialize client after {attempts} attempts. SECURE_1PSIDTS "

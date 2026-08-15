@@ -119,7 +119,7 @@ class GemMixin:
                     continue
 
             if not predefined_gems and not custom_gems:
-                raise Exception
+                raise ValueError("No gems found in response.")
         except Exception as e:
             await self.close()
             logger.debug(f"Unexpected response data structure: {response.text}")
@@ -213,12 +213,12 @@ class GemMixin:
             response_json = extract_json_from_response(response.text)
             part_body_str = get_nested_value(response_json, [0, 2], verbose=True)
             if not part_body_str:
-                raise Exception
+                raise ValueError("Missing gem payload in response.")
 
             part_body = json.loads(part_body_str)
             gem_id = get_nested_value(part_body, [0], verbose=True)
             if not gem_id:
-                raise Exception
+                raise ValueError("Missing gem id in response.")
         except Exception as e:
             await self.close()
             logger.debug(f"Unexpected response data structure: {response.text}")

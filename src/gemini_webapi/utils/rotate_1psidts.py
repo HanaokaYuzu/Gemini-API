@@ -91,6 +91,34 @@ async def rotate_1psidts(client: AsyncSession, verbose: bool = False) -> str | N
     return None
 
 
+def clear_cookies_cache(cookies: Cookies, verbose: bool = False) -> None:
+    """Delete the cached cookies for a session.
+
+    Cached cookies are tried before the ones the caller supplied, and are accepted as soon
+    as they yield an access token - which an unauthenticated session also does. Stale cache
+    entries would therefore keep shadowing valid credentials indefinitely, so a session that
+    turns out to be unauthenticated drops its cache instead of preserving it.
+
+    Parameters
+    ----------
+    cookies: `curl_cffi.requests.Cookies`
+        Cookies identifying the cache entry, by their `__Secure-1PSID`.
+    verbose: `bool`, optional
+        If `True`, will print more infomation in logs.
+
+    """
+    path = _get_cookies_cache_path(cookies, verbose)
+    if not path or not path.is_file():
+        return
+
+    try:
+        path.unlink()
+        logger.debug(f"Cleared cached cookies at {path}.")
+    except OSError as e:
+        if verbose:
+            logger.warning(f"Failed to clear cached cookies at {path}: {e}")
+
+
 def save_cookies(cookies: Cookies, verbose: bool = False) -> None:
     """Save persistent cookies to cache file."""
     path = _get_cookies_cache_path(cookies, verbose)

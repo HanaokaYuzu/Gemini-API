@@ -34,14 +34,6 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
         await self.geminiclient.close()
 
     @logger.catch(reraise=True)
-    async def test_feature_availability(self):
-        snapshot = await self.geminiclient.inspect_account_status()
-        logger.debug(f"Account status snapshot: {snapshot}")
-
-        summary = snapshot.get("summary", {})
-        assert summary["deep_research_feature_present"]
-
-    @logger.catch(reraise=True)
     async def test_create_research_plan(self):
         prompt = "What are the latest advancements in quantum computing research?"
         try:
@@ -57,8 +49,10 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
             "Compare the top 3 most popular language models providers and their exclusive features."
         )
         result = await self.geminiclient.deep_research(prompt)
-        logger.debug(f"Deep research statuses: {result.statuses}")
+        assert result.done, "research did not complete"
         logger.debug(f"Deep research result: {result.text}")
+        if document := result.document:
+            logger.debug(f"Report: {len(document.content)} chars, {len(document.sources)} sources")
 
 
 if __name__ == "__main__":

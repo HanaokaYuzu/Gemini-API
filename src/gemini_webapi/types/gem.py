@@ -131,8 +131,7 @@ class GemJar:
         )
 
         if id is not None:
-            gem_candidate = self._gems.get(id)
-            if gem_candidate:
+            if gem_candidate := self._gems.get(id):
                 if (name is not None and gem_candidate.name == name) or name is None:
                     return gem_candidate
                 return default

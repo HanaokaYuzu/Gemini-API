@@ -37,6 +37,7 @@ from .constants import (
     AccountStatus,
     Endpoint,
     ErrorCode,
+    Field,
     Headers,
     Model,
     format_http_version,
@@ -56,6 +57,8 @@ from .types import (
     Candidate,
     ChatHistory,
     ChatInfo,
+    Citation,
+    DeepResearchDocument,
     DeepResearchPlan,
     Gem,
     GeneratedImage,
@@ -67,11 +70,15 @@ from .types import (
 )
 from .utils import (
     StreamingFrameParser,
+    clear_cookies_cache,
+    extract_citations,
+    extract_deep_research_document,
     extract_deep_research_plan,
     extract_json_from_response,
     get_access_token,
     get_delta_by_fp_len,
     get_nested_value,
+    get_rich_content_field,
     logger,
     parse_file_name,
     rotate_1psidts,
@@ -108,6 +115,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
     __slots__ = [
         "_abuse_status",
+        "_cookie_source",
         "_cookies",
         "_gems",  # From GemMixin
         "_lock",
@@ -172,6 +180,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self.activity_task: Task | None = None
         self._running: bool = False
         self._cookies = Cookies()
+        self._cookie_source: str = ""
         self._sessionid = str(uuid.uuid4()).upper()
         self._reqid: int = random.randint(10000, 99999)
         self._model_registry: dict[str, AvailableModel] = {}
@@ -189,7 +198,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
     @property
     def quotas(self) -> dict[str, dict]:
-        """Get the current account quotas/limits (obsolete, use `usage_info` for the newer compute-usage based metrics)."""
+        """Get the current account quotas/limits (obsolete, use `usage_info` for the newer compute-usage based metrics).
+
+        Each bucket reports whichever usage window is currently binding - the one closest
+        to or past its limit - rather than a window of its own, and the window pairs in the
+        request payload do not influence which one comes back. That window is resolved
+        against `usage_info` and recorded under `"window"`, where every window is listed
+        separately.
+        """
         return self._quotas
 
     @property
@@ -281,14 +297,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 self.verbose = verbose
                 self.watchdog_timeout = watchdog_timeout
                 self.impersonate = impersonate
-                (
-                    access_token,
-                    build_label,
-                    session_id,
-                    language,
-                    push_id,
-                    session,
-                ) = await get_access_token(
+                init_session = await get_access_token(
                     base_cookies=self.cookies,
                     proxy=self.proxy,
                     verbose=self.verbose,
@@ -296,14 +305,15 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     verify=self.kwargs.get("verify", True),
                 )
 
-                session.timeout = timeout
-                self.client = session
+                init_session.client.timeout = timeout
+                self.client = init_session.client
+                self._cookie_source = init_session.cookie_source
                 self._cookies.update(self.client.cookies)
-                self.access_token = access_token
-                self.build_label = build_label
-                self.session_id = session_id
-                self.language = language or DEFAULT_LANGUAGE
-                self.push_id = push_id or DEFAULT_PUSH_ID
+                self.access_token = init_session.access_token
+                self.build_label = init_session.build_label
+                self.session_id = init_session.session_id
+                self.language = init_session.language or DEFAULT_LANGUAGE
+                self.push_id = init_session.push_id or DEFAULT_PUSH_ID
                 self._running = True
                 self._sessionid = str(uuid.uuid4()).upper()
                 self._reqid = random.randint(10000, 99999)
@@ -373,6 +383,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             self._cookies.update(self.client.cookies)
             await self.client.close()
             self.client = None
+
+        # Cached cookies are tried ahead of the ones the caller supplies, so caching an
+        # unauthenticated session would restore an entry just cleared as stale, or create
+        # the very entry that shadows real credentials on the next run.
+        if self.account_status == AccountStatus.UNAUTHENTICATED:
+            logger.debug("Skipping cookie cache write: the session is not authenticated.")
+            return
 
         try:
             save_cookies(self._cookies, self.verbose)
@@ -499,10 +516,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         await self._fetch_preferences()
         await self._sync_activity()
         await self._fetch_recent_chats()
+        # Usage info first: it lists every window, which is what identifies the single
+        # binding window the quota RPC reports back.
+        await self._fetch_usage_info()
         await self._fetch_quota()
         await self._fetch_extra_quota()
         await self._fetch_abuse_status()
-        await self._fetch_usage_info()
 
     async def _fetch_user_status(self) -> None:
         """Fetch user status and parse available models dynamically from the Gemini API.
@@ -532,6 +551,20 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 logger.warning(
                     f"Account status: {self.account_status.name} - {self.account_status.description}"
                 )
+                if (
+                    self.account_status == AccountStatus.UNAUTHENTICATED
+                    and self._cookie_source.startswith("Cache")
+                ):
+                    # A stale cache entry would shadow working credentials on every later
+                    # run, since cached cookies are tried first and are accepted as soon as
+                    # they yield a token - which an unauthenticated session also does. Only
+                    # the cache is dropped, and only when it produced this session: it also
+                    # holds rotated cookies, often the freshest credentials the client has.
+                    logger.debug(
+                        "Cached cookies produced an unauthenticated session; clearing them "
+                        "so the next attempt can fall through to the supplied credentials."
+                    )
+                    clear_cookies_cache(self.cookies, self.verbose)
                 if self.account_status in [
                     AccountStatus.LOCATION_REJECTED,
                     AccountStatus.ACCOUNT_REJECTED,
@@ -641,6 +674,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             "remaining": remaining,
                             "action_id": action_id,
                             "label": display_target,
+                            "window": self._resolve_usage_window(reset_ts),
                         }
 
                         self._quotas[quota_id] = quota_data
@@ -989,6 +1023,85 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         )
         return None
 
+    def _resolve_usage_window(self, reset_ts: int | float | None) -> str | None:
+        """Name the usage window a quota bucket is reporting, by its reset time.
+
+        The quota RPC returns whichever window is currently binding without saying which
+        one that is, so the window is identified by matching its reset timestamp against
+        the windows in `usage_info`. Returns `None` when no window matches, rather than
+        guessing - the caller still has the raw reset time either way.
+        """
+        if not reset_ts:
+            return None
+
+        for window in ("current_5h", "weekly"):
+            metric = self._usage_info.get(window)
+            if not isinstance(metric, dict) or not (reset_at := metric.get("reset_at")):
+                continue
+
+            with contextlib.suppress(ValueError, TypeError):
+                # Same instant either side; a minute absorbs the two responses being
+                # generated at slightly different times
+                if abs(datetime.fromisoformat(reset_at).timestamp() - reset_ts) <= 60:
+                    return window
+
+        return None
+
+    def _quota_reset_hint(self, quota_id: str | None = None) -> str:
+        """Describe when a quota recovers, from the reset timestamps already cached.
+
+        Parameters
+        ----------
+        quota_id: `str`, optional
+            Restrict the hint to one bucket. Omit it to report whichever known quota or
+            usage window resets soonest.
+
+        Returns
+        -------
+        `str`
+            A sentence that can be appended to any message, empty when no future reset is
+            known, so callers never have to branch on it.
+
+        """
+        now = datetime.now(tz=UTC)
+        candidates: list[tuple[datetime, str]] = []
+
+        for key, quota in self._quotas.items():
+            if key in ("extra", "usage_info") or not isinstance(quota, dict):
+                continue
+            if quota_id is not None and key != quota_id:
+                continue
+            if reset_ts := quota.get("reset_time"):
+                with contextlib.suppress(ValueError, OSError, OverflowError, TypeError):
+                    candidates.append(
+                        (
+                            datetime.fromtimestamp(reset_ts, tz=UTC),
+                            str(quota.get("label") or key),
+                        )
+                    )
+
+        # Usage windows apply to the account as a whole, so they answer only the general
+        # question of what recovers next, never one about a single bucket.
+        if quota_id is None:
+            for window in ("current_5h", "weekly"):
+                metric = self._usage_info.get(window)
+                if isinstance(metric, dict) and (reset_at := metric.get("reset_at")):
+                    with contextlib.suppress(ValueError, TypeError):
+                        candidates.append((datetime.fromisoformat(reset_at), window))
+
+        upcoming = sorted((dt, label) for dt, label in candidates if dt > now)
+        if not upcoming:
+            return ""
+
+        reset_at, label = upcoming[0]
+        remaining = reset_at - now
+        hours, seconds = divmod(int(remaining.total_seconds()), 3600)
+        local = reset_at.astimezone()
+        return (
+            f" Quota for {label} resets at {local.strftime('%Y-%m-%d %H:%M:%S %Z')} "
+            f"(in {hours}h {seconds // 60}m)."
+        )
+
     def _check_account_status(self, raise_error: bool = False) -> bool:
         """Check if the account is available for higher-level operations.
 
@@ -1107,9 +1220,6 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             session_state = {
                 "last_texts": {},
                 "last_thoughts": {},
-                "last_progress_time": time.time(),
-                "is_thinking": False,
-                "is_queueing": False,
             }
             output = None
             async for chunk in self._generate(
@@ -1464,8 +1574,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 match error_code:
                                     case ErrorCode.USAGE_LIMIT_EXCEEDED:
                                         raise UsageLimitExceededError(
-                                            f"Usage limit exceeded for model '{model_label}'. Please wait a few minutes, "
-                                            "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
+                                            f"Usage limit exceeded for model '{model_label}'.{self._quota_reset_hint()} "
+                                            "You can switch to a different model (e.g., Gemini Flash), "
+                                            "or check your account limits on gemini.google.com."
                                         )
                                     case ErrorCode.MODEL_INCONSISTENT:
                                         raise ModelInvalidError(
@@ -1558,11 +1669,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                                 generated_images,
                                                 generated_videos,
                                                 generated_media,
+                                                citations,
                                             ) = self._parse_candidate(
                                                 candidate_data, cid, rid, rcid
                                             )
 
                                             deep_research_plan = None
+                                            deep_research_document = None
                                             if deep_research:
                                                 plan_data = extract_deep_research_plan(
                                                     candidate_data,
@@ -1573,6 +1686,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                                     deep_research_plan = DeepResearchPlan(
                                                         **plan_data,
                                                         cid=getattr(chat, "cid", None),
+                                                    )
+
+                                                # The report is an inline document, not text
+                                                if doc_data := extract_deep_research_document(
+                                                    candidate_data
+                                                ):
+                                                    deep_research_document = DeepResearchDocument(
+                                                        **doc_data
                                                     )
 
                                             # Check if this frame represents the complete state of the message
@@ -1677,7 +1798,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                                     generated_images=generated_images,
                                                     generated_videos=generated_videos,
                                                     generated_media=generated_media,
+                                                    citations=citations,
                                                     deep_research_plan=deep_research_plan,
+                                                    deep_research_document=deep_research_document,
                                                 )
                                             )
 
@@ -1754,19 +1877,36 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                         yield out
 
                     if not is_completed or is_thinking or is_queueing:
-                        if (
-                            cid and is_final_chunk
-                        ):  # The conversation can only be recovered if Gemini has saved the context.
+                        # A known cid means the context was saved, but reading it back needs
+                        # an account: a guest session has no history, so `read_chat` would
+                        # refuse and surface the dropped stream as a "Permission denied"
+                        # GeminiError - misleading, and not retryable. Guests fall through
+                        # to the retryable branch below instead.
+                        if cid and self._check_account_status():
                             logger.debug(
                                 f"Stream incomplete. Checking conversation history for {cid}..."
+                            )
+
+                            # `is_final_chunk` is the strong signal that a turn was
+                            # persisted, but not a necessary one: a capability refusal (e.g.
+                            # video generation on an ineligible plan) ends the stream with a
+                            # complete answer already in the conversation and no marker, and
+                            # refusing to recover there made `@running(retry=5)` re-send the
+                            # prompt six times for an answer that was already there. So
+                            # recover on any known cid, on a short leash without the marker
+                            # so a genuine abort still fails fast.
+                            recovery_deadline = (
+                                self.timeout
+                                if is_final_chunk
+                                else min(self.timeout, self.watchdog_timeout)
                             )
 
                             poll_start_time = time.time()
 
                             while True:
-                                if (time.time() - poll_start_time) > self.timeout:
+                                if (time.time() - poll_start_time) > recovery_deadline:
                                     logger.warning(
-                                        f"[Recovery] Polling for {cid} timed out after {self.timeout}s."
+                                        f"[Recovery] Polling for {cid} timed out after {recovery_deadline}s."
                                     )
                                     await self.close()
                                     if has_generated_text:
@@ -1813,6 +1953,30 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                             if chat:
                                                 recovered.metadata = chat.metadata
                                                 chat.rcid = rec_rcid
+
+                                            # `read_chat` builds candidates whose delta is
+                                            # the whole answer, which would replay text the
+                                            # stream consumer already printed - so rebase
+                                            # each delta on what was sent. `generate_content`
+                                            # is unaffected: it reads `.text` and ignores
+                                            # deltas entirely.
+                                            for i, candidate in enumerate(recovered.candidates):
+                                                sent_text = last_texts.get(
+                                                    candidate.rcid
+                                                ) or last_texts.get(f"idx_{i}", "")
+                                                sent_thoughts = last_thoughts.get(
+                                                    candidate.rcid
+                                                ) or last_thoughts.get(f"idx_{i}", "")
+
+                                                candidate.text_delta, _ = get_delta_by_fp_len(
+                                                    candidate.text, sent_text, is_final=True
+                                                )
+                                                candidate.thoughts_delta, _ = get_delta_by_fp_len(
+                                                    candidate.thoughts or "",
+                                                    sent_thoughts,
+                                                    is_final=True,
+                                                )
+
                                             yield recovered
                                             break
                                         else:
@@ -1825,11 +1989,32 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                 )
                                 await asyncio.sleep(sleep_time)
                             break
+                        elif deep_research and cid:
+                            # Confirming a research plan legitimately ends the stream without
+                            # completing the turn: the task was accepted and now runs
+                            # server-side. Retrying here re-submits the research.
+                            logger.debug(
+                                f"Deep research accepted for {cid}; the task now runs "
+                                "server-side. Not retrying the request."
+                            )
                         else:
+                            reason = (
+                                "This session cannot read history, so the turn cannot be recovered"
+                                if cid
+                                else "No CID found to recover"
+                            )
                             logger.debug(
                                 f"Stream suspended (completed={is_completed}, final_chunk={is_final_chunk}, thinking={is_thinking}, queueing={is_queueing}). "
-                                f"No CID found to recover. (Request ID: {_reqid})"
+                                f"{reason}. (Request ID: {_reqid})"
                             )
+                            # Close so the retry is a real refresh: `@running` re-runs
+                            # `init()` only when the client is stopped, and `init()` is what
+                            # picks a new backend, opening a new session and regenerating
+                            # the session id, `f.sid` and `_reqid` that decide routing. The
+                            # watchdog and the recovery timeout already close; a stream that
+                            # simply ends does not, which re-sent the prompt six times over
+                            # the same connection to the backend that just refused it.
+                            await self.close()
                             raise APIError(
                                 "The original request may have been silently aborted by Google."
                             )
@@ -1882,6 +2067,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         list[GeneratedImage],
         list[GeneratedVideo],
         list[GeneratedMedia],
+        list[Citation],
     ]:
         """Parses individual candidate data from the Gemini response.
 
@@ -1898,7 +2084,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         Returns
         -------
-        `tuple[str, str, list[WebImage], list[GeneratedImage], list[GeneratedVideo], list[GeneratedMedia]]`
+        `tuple[str, str, list[WebImage], list[GeneratedImage], list[GeneratedVideo], list[GeneratedMedia], list[Citation]]`
             By order, the returned tuple contains:
                 - text: The main response text.
                 - thoughts: The model's reasoning or internal thoughts.
@@ -1906,6 +2092,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 - generated_images: List of images generated by the model.
                 - generated_videos: List of videos generated by the model.
                 - generated_media: List of media (music/audio) generated by the model.
+                - citations: Web sources resolving the `[cite: N]` markers in the text.
 
         """
         text = get_nested_value(candidate_data, [1, 0], "")
@@ -1919,7 +2106,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         # Image handling
         web_images = []
-        for img_idx, web_img_data in enumerate(get_nested_value(candidate_data, [12, 1], [])):
+        for img_idx, web_img_data in enumerate(
+            get_rich_content_field(candidate_data, Field.WEB_IMAGES, [])
+        ):
             url = get_nested_value(web_img_data, [0, 0, 0])
             if url:
                 web_images.append(
@@ -1932,10 +2121,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     )
                 )
 
+        # The positional slot and the sparse key "8" are the same field 7, not the separate
+        # "plain" and "image to image" sources a previous concatenation implied, so only one
+        # of the two is ever populated.
         generated_images = []
         for img_idx, gen_img_data in enumerate(
-            get_nested_value(candidate_data, [12, 7, 0], [])  # Plain generation
-            + get_nested_value(candidate_data, [12, 0, "8", 0], [])  # Image to image
+            get_nested_value(
+                get_rich_content_field(candidate_data, Field.GENERATED_IMAGES), [0], []
+            )
         ):
             url = get_nested_value(gen_img_data, [0, 3, 3])
             if url:
@@ -1961,7 +2154,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         # Video handling
         generated_videos = []
-        video_info = get_nested_value(candidate_data, [12, 59, 0, 0, 0], [])
+        video_info = get_nested_value(
+            get_rich_content_field(candidate_data, Field.VIDEO), [0, 0, 0], []
+        )
         if video_info:
             urls = get_nested_value(video_info, [0, 7], [])
             if len(urls) >= 2:
@@ -1979,7 +2174,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
         # Media (Music) handling
         generated_media = []
-        media_data = get_nested_value(candidate_data, [12, 86], [])
+        media_data = get_rich_content_field(candidate_data, Field.MEDIA, [])
         if media_data:
             mp3_url = ""
             mp3_thumb = ""
@@ -2010,6 +2205,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     )
                 )
 
+        # An ordinary turn can carry `[cite: N]` markers too, not just a research report,
+        # with the sources published separately as field 43. It happens irregularly - most
+        # turns publish no field 43 at all - so an empty list here is the normal case.
+        citations = [
+            Citation(**source)
+            for source in extract_citations(get_rich_content_field(candidate_data, Field.CITATIONS))
+        ]
+
         return (
             text,
             thoughts,
@@ -2017,6 +2220,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             generated_images,
             generated_videos,
             generated_media,
+            citations,
         )
 
     async def _get_full_size_image(

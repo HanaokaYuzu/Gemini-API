@@ -1,14 +1,9 @@
-import re
 from typing import Any
 
-from .parsing import get_nested_value
+from gemini_webapi.constants import Field
 
-_RESEARCH_ID_RE = re.compile(
-    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
-    re.IGNORECASE,
-)
-_CHAT_ID_RE = re.compile(r"\bc_[A-Za-z0-9_]+\b")
-_URL_RE = re.compile(r"^https?://")
+from .citation import extract_citations
+from .parsing import get_field, get_nested_value, get_rich_content_field
 
 
 def _iter_nested(data: Any):
@@ -19,13 +14,6 @@ def _iter_nested(data: Any):
     elif isinstance(data, dict):
         for item in data.values():
             yield from _iter_nested(item)
-
-
-def _find_first_match(data: Any, pattern: re.Pattern[str]) -> str | None:
-    for item in _iter_nested(data):
-        if isinstance(item, str) and (match := pattern.search(item)):
-            return match.group(0)
-    return None
 
 
 def _find_first_string(data: Any, *, exclude: set[str] | None = None) -> str | None:
@@ -40,53 +28,62 @@ def _find_first_string(data: Any, *, exclude: set[str] | None = None) -> str | N
     )
 
 
+# Gemini sends this in the task id field of a research document instead of a real id
+_TASK_ID_PLACEHOLDER = "agency-placeholder-task-id"
+
+
 def _extract_research_id(data: Any) -> str | None:
-    return _find_first_match(data, _RESEARCH_ID_RE)
+    """Read the research task id from its field, or report that there is none.
 
+    The id belongs at `[30][0][3]` of a candidate, which Gemini fills with a placeholder
+    while the task has no real id. There is nowhere else to look: scanning the payload for
+    the first UUID-shaped string returns an id belonging to something else entirely, and a
+    report that merely discusses UUIDs is enough to poison it. `None` is the honest answer,
+    and callers handle it - completion is tracked through the conversation instead.
+    """
+    task_id = get_nested_value(data, [30, 0, 3])
+    if isinstance(task_id, str) and task_id and task_id != _TASK_ID_PLACEHOLDER:
+        return task_id
 
-def _extract_chat_id(data: Any) -> str | None:
-    return _find_first_match(data, _CHAT_ID_RE)
-
-
-def _collect_research_notes(data: Any, *, exclude: set[str] | None = None) -> list[str]:
-    exclude = exclude or set()
-    notes: list[str] = []
-    seen: set[str] = set()
-
-    for item in _iter_nested(data):
-        if not isinstance(item, str):
-            continue
-        text = item.strip()
-        if not text or text in exclude or text in seen or _URL_RE.match(text) or len(text) < 12:
-            continue
-        seen.add(text)
-        notes.append(text)
-        if len(notes) >= 12:
-            break
-
-    return notes
-
-
-def _find_first_dict_key(data: Any, key: str) -> dict[str, Any] | None:
-    return next(
-        (item for item in _iter_nested(data) if isinstance(item, dict) and key in item),
-        None,
-    )
+    return None
 
 
 def extract_deep_research_plan(
     candidate_data: list, fallback_text: str = ""
 ) -> dict[str, Any] | None:
-    meta_dict = None
+    """Extract the research plan a deep research turn proposes before starting.
+
+    Gemini answers the opening prompt with a plan - a title, numbered steps and an ETA -
+    and waits for the next turn to confirm it. The plan is field 55 of the candidate's
+    rich content block, with 56 seen as an alternate.
+
+    Parameters
+    ----------
+    candidate_data: `list`
+        The raw candidate list from the API response.
+    fallback_text: `str`, optional
+        The turn's reply text, carried through as `response_text`.
+
+    Returns
+    -------
+    `dict[str, Any] | None`
+        Plan fields ready for :class:`types.DeepResearchPlan`, or `None` if the turn
+        proposes no plan.
+
+    """
+    # These two reads cover every place a plan is published, in either encoding. A former
+    # fallback searched the payload for a dict keyed "56"/"57" - the very keys these reads
+    # resolve - so it could only match a dict outside the block, inventing a wrong plan
+    # rather than recovering a real one.
     payload = None
 
-    for key in ("56", "57"):
-        meta_dict = _find_first_dict_key(candidate_data, key)
-        if meta_dict and isinstance(meta_dict.get(key), list):
-            payload = meta_dict[key]
+    for index in (Field.RESEARCH_PLAN, Field.RESEARCH_PLAN_ALT):
+        field = get_rich_content_field(candidate_data, index)
+        if isinstance(field, list):
+            payload = field
             break
 
-    if meta_dict is None or payload is None:
+    if payload is None:
         return None
 
     research_id = _extract_research_id(candidate_data)
@@ -129,7 +126,9 @@ def extract_deep_research_plan(
         if isinstance(get_nested_value(payload, [4, 0]), str)
         else None
     )
-    raw_state = meta_dict.get("70") if isinstance(meta_dict.get("70"), int) else None
+    raw_state = get_rich_content_field(candidate_data, Field.RESEARCH_PLAN_STATE)
+    if not isinstance(raw_state, int):
+        raw_state = None
 
     if not any(
         [
@@ -158,44 +157,57 @@ def extract_deep_research_plan(
     }
 
 
-def extract_deep_research_status_payload(
-    payload: list | dict | str,
-) -> dict[str, Any] | None:
-    data = (
-        payload[0]
-        if isinstance(payload, list) and payload and isinstance(payload[0], list)
-        else payload
-    )
-    research_id = _extract_research_id(data)
-    if not research_id:
+def extract_deep_research_document(candidate_data: list) -> dict[str, Any] | None:
+    """Extract the immersive document a deep research turn attaches to its reply.
+
+    The finished report is not part of the reply text - that is only a short notice, and
+    the artifact marker pointing at the document is stripped from it. The document sits at
+    `candidate_data[30][0]`, holding its id, title and the report body as markdown. The
+    body is empty while the research is still running.
+
+    Parameters
+    ----------
+    candidate_data: `list`
+        The raw candidate list from the API response.
+
+    Returns
+    -------
+    `dict[str, Any] | None`
+        Keys `id`, `title`, `content` and `sources`, or `None` if the turn carries no
+        document.
+
+    """
+    document = get_nested_value(candidate_data, [30, 0])
+    if not isinstance(document, list):
         return None
 
-    title = get_nested_value(data, [1, 4, 0])
-    query = get_nested_value(data, [1, 4, 1])
-    cid = get_nested_value(data, [1, 3, 0]) or _extract_chat_id(data)
-    raw_state = None
-    meta_dict = _find_first_dict_key(data, "70")
-    if meta_dict and isinstance(meta_dict.get("70"), int):
-        raw_state = meta_dict["70"]
+    # `[30]` is a generic attachment block: a turn answering with a YouTube card fills it
+    # too, with a null task id. Only a research document populates the task id at `[3]`,
+    # so that separates the two without depending on the body having arrived yet.
+    if not get_nested_value(document, [3]):
+        return None
 
-    marker_strings = [item for item in _iter_nested(data) if isinstance(item, str) and item]
-    done = any("immersive_entry_chip" in item for item in marker_strings)
-    awaiting_confirmation = any(
-        "deep_research_confirmation_content" in item for item in marker_strings
+    doc_id = get_nested_value(document, [0])
+    title = get_nested_value(document, [2])
+    # [17, 0] mirrors the body; it is the fallback in case the primary field moves
+    content = get_nested_value(document, [4]) or get_nested_value(document, [17, 0]) or ""
+
+    if not isinstance(content, str):
+        content = ""
+
+    # A report publishes its citations inside the document, as field 43 of `[17][1]` or
+    # `[5]` - the same field number an ordinary grounded turn uses in its content block.
+    sources = extract_citations(
+        get_field(get_nested_value(document, [17, 1]), Field.CITATIONS)
+        or get_field(get_nested_value(document, [5]), Field.CITATIONS)
     )
 
-    state = "completed" if done else "awaiting_confirmation" if awaiting_confirmation else "running"
-    exclude = {s for s in [title, query, research_id, cid] if isinstance(s, str)}
-    notes = _collect_research_notes(data, exclude=exclude)
+    if not any([doc_id, title, content, sources]):
+        return None
 
     return {
-        "research_id": research_id,
-        "state": state,
+        "id": doc_id if isinstance(doc_id, str) else None,
         "title": title if isinstance(title, str) else None,
-        "query": query if isinstance(query, str) else None,
-        "cid": cid if isinstance(cid, str) else None,
-        "notes": notes,
-        "done": done,
-        "raw_state": raw_state,
-        "raw": payload,
+        "content": content,
+        "sources": sources,
     }

@@ -656,6 +656,28 @@ asyncio.run(main())
 
 Gemini's deep research feature is an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report. You can access it programmatically through the API.
 
+Under the hood this is an ordinary chat conversation: Gemini answers the first turn with a **plan**, and a second turn **confirms** it and starts the research. The task then runs server-side, detached from the session, so polling for the report does not require holding the conversation open.
+
+The finished report is delivered as an **inline document**, not as reply text — the reply itself is only a short notice such as *"I've completed your research"*. `result.text` returns the report, and `result.document` exposes it with its id and title:
+
+```python
+result = await client.deep_research("...")
+doc = result.document
+print(doc.title)  # 'SQLite vs DuckDB for Analytics'
+print(doc.content)  # markdown report: headings, tables, links, [cite: N] markers
+print(doc.sources)  # the web sources those [cite: N] markers resolve to
+
+Path("report.md").write_text(doc.markdown, encoding="utf-8")  # body + numbered source list
+```
+
+The same document is available on any deep research turn as `output.deep_research_document`, so a report can be recovered later from the chat alone:
+
+```python
+output = await client.fetch_latest_chat_response("c_abc123")
+if (doc := output.deep_research_document) and doc.ready:
+    print(doc.content)
+```
+
 > [!NOTE]
 >
 > You may need an active subscription to access Gemini's deep research feature.
@@ -676,28 +698,40 @@ async def main():
 asyncio.run(main())
 ```
 
-**Step-by-step workflow** for more control:
+Both turns run in a single chat session. Pass `model` to choose one, or `chat` to supply your own session and keep a reference to the conversation after the call returns.
+
+> [!TIP]
+>
+> Reports commonly take 5-10 minutes, and longer for broad topics. Raise `timeout` past the 600 second default if `result.done` comes back `False`.
+
+**Step-by-step workflow** for more control, including reviewing the plan before committing to it:
 
 ```python
 async def main():
+    # Plan and confirmation are two turns of one conversation, so share a chat session
+    chat = client.start_chat()
+
     # Step 1: Create a research plan
     plan = await client.create_deep_research_plan(
-        "What are the latest advancements in quantum computing?"
+        "What are the latest advancements in quantum computing?",
+        chat=chat,
     )
     print(f"Title: {plan.title}")
     print(f"ETA: {plan.eta_text}")
     for step in plan.steps:
         print(f"  - {step}")
 
-    # Step 2: Start the research
-    await client.start_deep_research(plan)
+    # Step 2 (optional): Ask for changes on the same session to get a revised plan back
+    # plan = await client.create_deep_research_plan("Focus on error correction", chat=chat)
 
-    # Step 3: Poll for completion
+    # Step 3: Confirm the plan to start the research
+    await client.start_deep_research(plan, chat=chat)
+
+    # Step 4: Poll for completion
     result = await client.wait_for_deep_research(
         plan,
         poll_interval=10.0,
         timeout=600.0,
-        on_status=lambda s: print(f"Status: {s.state}"),
     )
 
     print(result.text)
@@ -778,7 +812,7 @@ python cli.py --cookies-json cookies.json models
 # Download a generated image
 python cli.py --cookies-json cookies.json download "https://..." -o output.png
 
-# Account diagnostics (check feature availability)
+# Account diagnostics (status, quotas, usage limits, available models)
 python cli.py --cookies-json cookies.json inspect
 ```
 
@@ -787,11 +821,12 @@ python cli.py --cookies-json cookies.json inspect
 The CLI supports Gemini's Deep Research feature — an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report.
 
 ```sh
-# 1. Submit a research task
+# 1. Submit a research task. Prints both a chat ID and a research (task) ID
 python cli.py --cookies-json cookies.json research send --prompt "AI chip competition 2025"
 
-# 2. Check progress (use the chat ID from step 1)
-python cli.py --cookies-json cookies.json research check c_abc123
+# 2. Check progress. Pass --research-id for the actual task state - without it the chat
+#    cannot be told apart from the plan and confirmation replies, which arrive immediately
+python cli.py --cookies-json cookies.json research check c_abc123 --research-id 0f3d...
 
 # 3. Fetch the full result
 python cli.py --cookies-json cookies.json research get c_abc123

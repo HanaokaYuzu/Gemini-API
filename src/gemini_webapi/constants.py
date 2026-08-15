@@ -11,12 +11,41 @@ STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
 
+
+class Field(IntEnum):
+    """Field numbers inside Gemini's JSPB arrays.
+
+    A JSPB array addresses each field by position and collects sparse high-numbered fields
+    into a dict in its final slot, keyed by the field number + 1 - so field 86 appears
+    either at index 86 or under key "87". `utils.get_field` resolves both, so every read
+    goes through it by number rather than quoting a bundle key.
+
+    Numbering is per container. These are the fields of a candidate's rich content block
+    `[12]`, except `CITATIONS`, which carries citation groups in every container that has
+    them: a grounded reply's rich content block, and `[17][1]` / `[5]` of a research
+    document.
+    """
+
+    WEB_IMAGES = 1
+    PROGRESS = 6
+    GENERATED_IMAGES = 7
+    CITATIONS = 43
+    RESEARCH_PLAN = 55
+    RESEARCH_PLAN_ALT = 56
+    VIDEO = 59
+    RESEARCH_PLAN_STATE = 69
+    MEDIA = 86
+
+
 BROWSER_TYPE: BrowserTypeLiteral = (
     "chrome145"  # Default to chrome145 to avoid Device Bound Session Credentials
 )
 
-CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
-ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
+CARD_CONTENT_RE = re.compile(r"^https?://googleusercontent\.com/card_content/\d+")
+# Placeholder links Gemini leaves in reply text where a rendered attachment belongs. The
+# path can carry several segments - a web image search returns
+# `image_collection/image_retrieval/<id>` - which a single-segment pattern left behind.
+ARTIFACTS_RE = re.compile(r"https?://googleusercontent\.com/(?:\w+/)+\d+\n*")
 MODEL_PREFIX_RE = re.compile(r"^gemini-(?:\d+(?:\.\d+)?-)?")
 DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 

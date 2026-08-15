@@ -3,8 +3,9 @@ from textwrap import shorten
 
 from pydantic import BaseModel, field_validator
 
+from .citation import Citation
 from .image import GeneratedImage, Image, WebImage
-from .research import DeepResearchPlan
+from .research import DeepResearchDocument, DeepResearchPlan
 from .video import GeneratedMedia, GeneratedVideo
 
 
@@ -27,6 +28,12 @@ class Candidate(BaseModel):
         List of generated videos in reply, can be empty
     generated_media: `list[GeneratedMedia]`, optional
         List of generated media (music/audio) in reply, can be empty
+    citations: `list[Citation]`, optional
+        Web sources resolving the `[cite: N]` markers in `text`, can be empty
+    deep_research_plan: `DeepResearchPlan`, optional
+        Research plan proposed by a deep research turn, if any.
+    deep_research_document: `DeepResearchDocument`, optional
+        Inline report document attached by a deep research turn, if any.
 
     """
 
@@ -39,7 +46,9 @@ class Candidate(BaseModel):
     generated_images: list[GeneratedImage] = []
     generated_videos: list[GeneratedVideo] = []
     generated_media: list[GeneratedMedia] = []
+    citations: list[Citation] = []
     deep_research_plan: DeepResearchPlan | None = None
+    deep_research_document: DeepResearchDocument | None = None
 
     def __str__(self) -> str:
         return shorten(self.text, width=100)

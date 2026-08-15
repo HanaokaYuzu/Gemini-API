@@ -94,6 +94,43 @@ def get_nested_value(
     return current if current is not None else default
 
 
+def get_sparse_bundle(container: Any) -> dict | None:
+    """The dict of sparse fields a JSPB array carries in its final slot.
+
+    Low field numbers occupy their positional index, while sparse high-numbered fields are
+    collected into a dict keyed by the 1-based field number, so positional 86 appears as
+    key "87". That dict is always the array's last element, so its index moves with the
+    array's length - index 0 of a one-element block on a music turn, index 8 of a
+    nine-element block on a finished research turn - and cannot be anchored to.
+    """
+    if isinstance(container, list) and container and isinstance(container[-1], dict):
+        return container[-1]
+    return None
+
+
+def get_field(container: Any, index: int, default: Any = None) -> Any:
+    """Read field `index` of a JSPB array from whichever form carries it.
+
+    Checks the positional slot first, then the sparse bundle described in
+    :func:`get_sparse_bundle`. Only one of the two ever holds a given field.
+    """
+    if not isinstance(container, list) or not container:
+        return default
+
+    value = container[index] if 0 <= index < len(container) else None
+    # A dict in that slot is the sparse bundle itself, not the field's value
+    if value in (None, [], {}) or isinstance(value, dict):
+        bundle = get_sparse_bundle(container)
+        value = bundle.get(str(index + 1)) if bundle else None
+
+    return default if value in (None, [], {}) else value
+
+
+def get_rich_content_field(candidate_data: Any, index: int, default: Any = None) -> Any:
+    """Read field `index` of a candidate's `[12]` rich content block."""
+    return get_field(get_nested_value(candidate_data, [12]), index, default)
+
+
 class StreamingFrameParser:
     """Incrementally parse Google's length-prefixed streaming frames without
     rescanning unfinished frame payloads after every network chunk.
