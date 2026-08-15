@@ -1,20 +1,15 @@
+import importlib.util
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.cookiejar import CookieJar
 
 from .logger import logger
 
-try:
-    import browser_cookie3 as bc3
-
-    HAS_BC3 = True
-except ImportError:
-    bc3 = None
-    HAS_BC3 = False
+# `browser-cookie3` ships with the optional `browser` extra, imported lazily below
+HAS_BC3 = importlib.util.find_spec("browser_cookie3") is not None
 
 
 def load_browser_cookies(domain_name: str = "", verbose: bool = False) -> dict:
-    """
-    Try to load cookies from all supported browsers and return combined cookiejar.
+    """Try to load cookies from all supported browsers and return combined cookiejar.
     Optionally pass in a domain name to only load cookies from the specified domain.
 
     Parameters
@@ -30,9 +25,11 @@ def load_browser_cookies(domain_name: str = "", verbose: bool = False) -> dict:
         Dictionary with browser as keys and their cookies for the specified domain as values.
         Each cookie is a dictionary: `{"name": str, "value": str, "domain": str, "path": str, "expires": int}`.
         Only browsers that have cookies for the specified domain will be included.
-    """
 
-    if not HAS_BC3 or bc3 is None:
+    """
+    try:
+        import browser_cookie3 as bc3
+    except ImportError:
         if verbose:
             logger.debug(
                 "Optional dependency 'browser-cookie3' not found. Skipping browser cookie loading."

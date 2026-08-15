@@ -1,182 +1,84 @@
 import asyncio
 import time
+from collections.abc import Callable, Iterator
 from textwrap import shorten
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-import orjson as json
-
-from ..constants import GRPC, Model
-from ..exceptions import (
+from gemini_webapi.constants import Model
+from gemini_webapi.exceptions import (
     APIError,
     GeminiError,
-    ModelInvalid,
-    TemporarilyBlocked,
+    ModelInvalidError,
+    TemporarilyBlockedError,
     TimeoutError,
-    UsageLimitExceeded,
+    UsageLimitExceededError,
 )
-from ..types import DeepResearchPlan, DeepResearchResult, DeepResearchStatus, RPCData
-from ..utils import (
-    extract_deep_research_status_payload,
-    extract_json_from_response,
+from gemini_webapi.types import (
+    AvailableModel,
+    DeepResearchPlan,
+    DeepResearchResult,
+    RPCData,
+)
+from gemini_webapi.utils import (
     get_nested_value,
     logger,
 )
 
 if TYPE_CHECKING:
-    from ..client import ChatSession
-    from ..types import ModelOutput
+    from curl_cffi.requests import Response
+
+    from gemini_webapi.client import ChatSession
+
+from gemini_webapi.types import ModelOutput
+
+
+def _has_report(output: "ModelOutput") -> bool:
+    """Whether a turn carries a finished research report rather than an empty placeholder."""
+    document = output.deep_research_document
+    return bool(document and document.ready)
 
 
 class ResearchMixin:
-    """
-    Mixin class providing deep research workflow helpers.
-    """
+    """Mixin class providing deep research workflow helpers."""
 
-    async def inspect_account_status(self) -> dict:
-        """Probe account/model capability RPCs and return raw parsed snapshots."""
+    if TYPE_CHECKING:
+        # Provided by GeminiClient and ChatMixin, which are composed alongside this mixin
+        async def _batch_execute(
+            self,
+            payloads: list[RPCData],
+            source_path: str = "/app",
+            close_on_error: bool = True,
+            **kwargs,
+        ) -> "Response": ...
 
-        probes = [
-            ("activity", GRPC.BARD_SETTINGS, '[[["bard_activity_enabled"]]]'),
-            (
-                "bootstrap",
-                GRPC.DEEP_RESEARCH_BOOTSTRAP,
-                '["en",null,null,null,4,null,null,[2,4,7,15],null,[[5]]]',
-            ),
-            ("model_state", GRPC.DEEP_RESEARCH_MODEL_STATE, "[[[1,4],[6,6],[1,15]]]"),
-            ("quota", GRPC.DEEP_RESEARCH_MODEL_STATE, "[[[1,11],[2,11],[6,11]]]"),
-            ("caps", GRPC.DEEP_RESEARCH_CAPS, "[]"),
-        ]
+        def _parse_rpc_results(self, response_text: str, target_id: str) -> Iterator[Any]: ...
 
-        result: dict = {
-            "source_path": "/app",
-            "account_path": getattr(self, "account_path", ""),
-            "rpc": {},
-        }
+        def start_chat(self, **kwargs) -> "ChatSession": ...
 
-        for probe_name, rpcid, payload in probes:
-            try:
-                response = await self._batch_execute(
-                    [RPCData(rpcid=rpcid, payload=payload)], close_on_error=False
-                )
-                parsed = []
-                reject_code = None
-                parts = extract_json_from_response(response.text)
-                for part in parts:
-                    if get_nested_value(part, [0]) != "wrb.fr":
-                        continue
-                    if get_nested_value(part, [1]) != rpcid:
-                        continue
-                    code = get_nested_value(part, [5, 0])
-                    if isinstance(code, int):
-                        reject_code = code
-                    body = get_nested_value(part, [2])
-                    if isinstance(body, str):
-                        try:
-                            parsed.append(json.loads(body))
-                        except json.JSONDecodeError:
-                            parsed.append(body)
-                    elif body is not None:
-                        parsed.append(body)
+        async def fetch_latest_chat_response(
+            self,
+            cid: str,
+            limit: int = 5,
+            match: Callable[[ModelOutput], bool] | None = None,
+        ) -> ModelOutput | None: ...
 
-                result["rpc"][probe_name] = {
-                    "rpcid": rpcid,
-                    "ok": True,
-                    "status_code": response.status_code,
-                    "parsed": parsed,
-                    "reject_code": reject_code,
-                    "raw_preview": shorten(response.text, width=300),
-                }
-            except Exception as e:
-                result["rpc"][probe_name] = {
-                    "rpcid": rpcid,
-                    "ok": False,
-                    "error": f"{type(e).__name__}: {e}",
-                }
+    async def _collect_research_output(self, chat: "ChatSession", prompt: str) -> "ModelOutput":
+        """Send one turn of the research conversation and return its output.
 
-        # Summary for quick permission diagnostics
-        rejected = [
-            name
-            for name, probe in result["rpc"].items()
-            if isinstance(probe, dict) and probe.get("reject_code") == 7
-        ]
-
-        # Deep research is available when the three DR-specific probes
-        # all succeed without rejection.  The old heuristic looked for a
-        # literal "DEEP_RESEARCH" string in the responses, but the RPC
-        # payloads only contain numeric/boolean data.
-        dr_probes = ("bootstrap", "model_state", "caps")
-        dr_available = all(
-            result["rpc"].get(p, {}).get("ok", False)
-            and result["rpc"].get(p, {}).get("reject_code") is None
-            for p in dr_probes
-        )
-
-        result["summary"] = {
-            "deep_research_feature_present": dr_available,
-            "rejected_probes": rejected,
-        }
-
-        return result
-
-    async def _assert_deep_research_capable(self) -> None:
-        snapshot = await self.inspect_account_status()
-        summary = snapshot.get("summary", {})
-
-        if not summary.get("deep_research_feature_present", False):
-            rejected = summary.get("rejected_probes", [])
-            rpc = snapshot.get("rpc", {})
-            failed = [
-                name
-                for name, probe in rpc.items()
-                if isinstance(probe, dict) and not probe.get("ok", False)
-            ]
-            raise GeminiError(
-                "Current account/session appears not eligible for "
-                f"deep research. Rejected: {rejected}, Failed: {failed}"
-            )
-
-    async def _deep_research_preflight(self) -> None:
-        async def _best_effort(payloads: list[RPCData]) -> None:
-            try:
-                await self._batch_execute(payloads, close_on_error=False)
-            except APIError as e:
-                logger.warning(f"Skipping non-critical preflight RPC: {e}")
-
-        await _best_effort(
-            [
-                RPCData(
-                    rpcid=GRPC.BARD_SETTINGS,
-                    payload='[[["bard_activity_enabled"]]]',
-                )
-            ]
-        )
-
-        await _best_effort(
-            [
-                RPCData(
-                    rpcid=GRPC.DEEP_RESEARCH_BOOTSTRAP,
-                    payload='["en",null,null,null,4,null,null,'
-                    "[2,4,7,15],null,[[5]]]",
-                )
-            ]
-        )
-
-    async def _collect_research_output(
-        self, chat: "ChatSession", prompt: str
-    ) -> "ModelOutput":
+        Deep research is an ordinary multi-turn chat flagged `deep_research=True`, so the
+        turn goes through `ChatSession.send_message` and inherits the account check,
+        activity sync, retries and `last_output` bookkeeping of the normal generation path.
+        Only the recovery below is research-specific: a research turn can land server-side
+        while the request itself fails, so the chat is re-read before the error surfaces.
+        """
         recoverable_error: GeminiError | APIError | None = None
         try:
-            output = await chat.send_message(
-                prompt,
-                deep_research=True,
-            )
-            preview = (output.text or "").strip()
-            if output.deep_research_plan or preview:
-                chat.last_output = output
+            output = await chat.send_message(prompt, deep_research=True)
+            # `generate_content` already assigned `chat.last_output`, advancing the session
+            if output.deep_research_plan or (output.text or "").strip():
                 return output
-        except UsageLimitExceeded:
-            raise
-        except (TimeoutError, ModelInvalid, TemporarilyBlocked):
+        except (UsageLimitExceededError, TimeoutError, ModelInvalidError, TemporarilyBlockedError):
+            # Definitive failures - re-reading the chat cannot produce a turn that never ran
             raise
         except (GeminiError, APIError) as e:
             recoverable_error = e
@@ -191,18 +93,16 @@ class ResearchMixin:
             raise recoverable_error
 
         raise GeminiError(
-            "Gemini returned no usable output for deep research. "
-            f"chat.cid={chat.cid!r}"
+            f"Gemini returned no usable output for deep research. chat.cid={chat.cid!r}"
         )
 
     async def create_deep_research_plan(
         self,
         prompt: str,
         chat: Optional["ChatSession"] = None,
-        model: Model | str | dict = Model.UNSPECIFIED,
+        model: AvailableModel | Model | str | dict | None = None,
     ) -> DeepResearchPlan:
-        """
-        Send a deep research prompt and extract the plan Gemini proposes.
+        """Send a deep research prompt and extract the plan Gemini proposes.
 
         Parameters
         ----------
@@ -210,8 +110,9 @@ class ResearchMixin:
             Research topic or question.
         chat: `ChatSession`, optional
             Existing chat session to reuse.
-        model: `Model | str | dict`, optional
-            Model to use for generation.
+        model: `AvailableModel | str | dict`, optional
+            Model to use for generation, by name or as a model from `list_models()`.
+            Defaults to the account's default model.
 
         Returns
         -------
@@ -222,20 +123,19 @@ class ResearchMixin:
         ------
         `gemini_webapi.GeminiError`
             If the account is ineligible or no plan is returned.
-        """
 
+        """
         if chat is None:
             chat = self.start_chat(model=model)
 
-        await self._assert_deep_research_capable()
-        await self._deep_research_preflight()
+        # No preflight gate here: `generate_content()` already checks the account status and
+        # syncs activity for every `deep_research=True` request.
         output = await self._collect_research_output(chat, prompt)
+
         plan = output.deep_research_plan
         if not plan:
             preview = shorten(output.text or "", width=1200)
-            raise GeminiError(
-                "Gemini did not return a deep research plan. " f"Preview: {preview!r}"
-            )
+            raise GeminiError(f"Gemini did not return a deep research plan. Preview: {preview!r}")
 
         plan.metadata = list(chat.metadata)
         plan.cid = chat.cid or plan.cid
@@ -251,15 +151,15 @@ class ResearchMixin:
         chat: Optional["ChatSession"] = None,
         confirm_prompt: str | None = None,
     ) -> "ModelOutput":
-        """
-        Confirm and start a deep research plan.
+        """Confirm and start a deep research plan.
 
         Parameters
         ----------
         plan: `DeepResearchPlan`
             Plan returned by ``create_deep_research_plan``.
         chat: `ChatSession`, optional
-            Existing session. Created from plan metadata if omitted.
+            Session that produced the plan. Pass it to continue the same conversation;
+            omitted, an equivalent session is rebuilt from the plan's metadata.
         confirm_prompt: `str`, optional
             Override the default confirmation text.
 
@@ -267,105 +167,97 @@ class ResearchMixin:
         -------
         :class:`ModelOutput`
             The model's initial response after starting research.
-        """
 
+        """
         if chat is None:
             chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid)
-        await self._deep_research_preflight()
         prompt = confirm_prompt or plan.confirm_prompt or "Start research"
-        return await self._collect_research_output(chat, prompt)
+        output = await self._collect_research_output(chat, prompt)
 
-    async def get_deep_research_status(
-        self, research_id: str
-    ) -> DeepResearchStatus | None:
-        response = await self._batch_execute(
-            [
-                RPCData(
-                    rpcid=GRPC.DEEP_RESEARCH_STATUS,
-                    payload=json.dumps([research_id]).decode("utf-8"),
-                )
-            ]
-        )
-        response_json = extract_json_from_response(response.text)
-        for part in response_json:
-            part_body_str = get_nested_value(part, [2])
-            if not part_body_str:
-                continue
-            try:
-                part_body = json.loads(part_body_str)
-            except json.JSONDecodeError:
-                continue
-            parsed = extract_deep_research_status_payload(part_body)
-            if parsed:
-                return DeepResearchStatus(**parsed)
-        return None
+        # The task is created by this confirmation, so its turn is the first place a real
+        # id could appear. Gemini has only ever sent a placeholder, but adopting it costs
+        # nothing and keeps the plan complete should that change.
+        if confirmed := output.deep_research_plan:
+            if not plan.research_id and confirmed.research_id:
+                plan.research_id = confirmed.research_id
+            if not plan.title and confirmed.title:
+                plan.title = confirmed.title
+
+        # Keep the plan pointing at the newest turn of the conversation it now owns
+        if chat.metadata:
+            plan.metadata = list(chat.metadata)
+        plan.cid = chat.cid or plan.cid
+
+        return output
 
     async def wait_for_deep_research(
         self,
         plan: DeepResearchPlan,
         poll_interval: float = 10.0,
         timeout: float = 600.0,
-        on_status: Callable[[DeepResearchStatus], None] | None = None,
     ) -> DeepResearchResult:
-        """
-        Poll deep research status until completion or timeout.
+        """Poll the conversation until the research report appears, or until timeout.
+
+        Progress is not reported while the task runs. Gemini exposes no task entity for
+        this flow: the task id field holds the literal "agency-placeholder-task-id" from
+        the moment research starts until the report lands, both task-listing RPCs stay
+        empty throughout, and no id appears anywhere in the raw stream - so there is
+        nothing to poll for status with. The report's own arrival is the only signal.
 
         Parameters
         ----------
         plan: `DeepResearchPlan`
             Active research plan.
         poll_interval: `float`, optional
-            Seconds between status checks. Default 10.
+            Seconds between checks. Default 10.
         timeout: `float`, optional
             Maximum seconds to wait. Default 600.
-        on_status: `Callable`, optional
-            Callback invoked with each `DeepResearchStatus`.
 
         Returns
         -------
         :class:`DeepResearchResult`
-            Result with status history and final output.
-        """
+            Result carrying the final output.
 
-        if not plan.research_id:
+        """
+        # Polling only needs the conversation id - the task runs server-side, detached from
+        # any session, which is why the report survives leaving the chat.
+        cid = plan.cid or get_nested_value(plan.metadata, [0], "")
+        if not cid:
             raise GeminiError(
-                "Cannot poll deep research status: plan.research_id is missing. "
+                "Cannot poll deep research: the plan carries no chat id. "
                 "The research task may not have started successfully."
             )
 
         start = time.time()
-        statuses: list[DeepResearchStatus] = []
-        chat = self.start_chat(metadata=list(plan.metadata), cid=plan.cid)
+        final_output: ModelOutput | None = None
+        done = False
 
-        while (time.time() - start) < timeout:
-            status = None
-            if plan.research_id:
-                status = await self.get_deep_research_status(plan.research_id)
-            if status:
-                statuses.append(status)
+        while True:
+            # The document's body stays empty until the research finishes, and the reply
+            # text reads as a short notice either way, so a non-empty body is the only
+            # completion signal. It can land on an earlier turn than the newest one, hence
+            # the search rather than a plain "latest turn" read.
+            final_output = await self.fetch_latest_chat_response(cid, limit=10, match=_has_report)
+            if final_output and _has_report(final_output):
+                done = True
+                document = final_output.deep_research_document
                 logger.debug(
-                    f"Deep research [{plan.research_id}] " f"status: {status.state}"
+                    f"Deep research [{cid}] completed: "
+                    f"{len(document.content) if document else 0} chars"
                 )
-                if on_status:
-                    on_status(status)
-                if status.done:
-                    break
+                break
+
+            if (time.time() - start) >= timeout:
+                logger.warning(
+                    f"Deep research [{cid}] timed out after {timeout}s. The task keeps "
+                    "running server-side - re-read the chat later to collect the report."
+                )
+                break
+
             await asyncio.sleep(poll_interval)
 
-        if not statuses or not statuses[-1].done:
-            logger.warning(
-                f"Deep research [{plan.research_id}] timed out "
-                f"after {timeout}s with {len(statuses)} status updates"
-            )
-
-        final_output = None
-        if chat.cid:
-            final_output = await self.fetch_latest_chat_response(chat.cid)
-
-        done = bool(statuses and statuses[-1].done)
         return DeepResearchResult(
             plan=plan,
-            statuses=statuses,
             final_output=final_output,
             done=done,
         )
@@ -375,30 +267,42 @@ class ResearchMixin:
         prompt: str,
         poll_interval: float = 10.0,
         timeout: float = 600.0,
-        on_status: Callable[[DeepResearchStatus], None] | None = None,
+        model: AvailableModel | Model | str | dict | None = None,
+        chat: Optional["ChatSession"] = None,
     ) -> DeepResearchResult:
-        """
-        Run a full deep research cycle: plan → start → wait → result.
+        """Run a full deep research cycle: plan → confirm → wait → result.
+
+        The plan and its confirmation are two turns of a single conversation, so both
+        run on one `ChatSession`. To review or refine the plan between those turns, call
+        `create_deep_research_plan()` and `start_deep_research()` separately with a chat
+        session of your own instead.
 
         Parameters
         ----------
         prompt: `str`
             Research topic or question.
         poll_interval: `float`, optional
-            Seconds between status checks. Default 10.
+            Seconds between checks. Default 10.
         timeout: `float`, optional
-            Maximum seconds to wait. Default 600.
-        on_status: `Callable`, optional
-            Callback invoked with each `DeepResearchStatus`.
-        """
+            Maximum seconds to wait. Default 600. Reports commonly take 5-10 minutes, so
+            raise this for broad topics.
+        model: `AvailableModel | str | dict`, optional
+            Model to use, by name or as a model from `list_models()`. Ignored if `chat`
+            is given, which carries its own model.
+        chat: `ChatSession`, optional
+            Existing session to run the research conversation in. Pass one to keep a
+            reference to the conversation after this call returns.
 
-        plan = await self.create_deep_research_plan(prompt)
-        start_output = await self.start_deep_research(plan)
+        """
+        if chat is None:
+            chat = self.start_chat(model=model)
+
+        plan = await self.create_deep_research_plan(prompt, chat=chat)
+        start_output = await self.start_deep_research(plan, chat=chat)
         result = await self.wait_for_deep_research(
             plan,
             poll_interval=poll_interval,
             timeout=timeout,
-            on_status=on_status,
         )
         result.start_output = start_output
         return result

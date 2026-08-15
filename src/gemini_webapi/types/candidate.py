@@ -3,14 +3,14 @@ from textwrap import shorten
 
 from pydantic import BaseModel, field_validator
 
-from .image import Image, WebImage, GeneratedImage
-from .video import GeneratedVideo, GeneratedMedia
-from .research import DeepResearchPlan
+from .citation import Citation
+from .image import GeneratedImage, Image, WebImage
+from .research import DeepResearchDocument, DeepResearchPlan
+from .video import GeneratedMedia, GeneratedVideo
 
 
 class Candidate(BaseModel):
-    """
-    A single reply candidate object in the model output. A full response from Gemini usually contains multiple reply candidates.
+    """A single reply candidate object in the model output. A full response from Gemini usually contains multiple reply candidates.
 
     Parameters
     ----------
@@ -19,7 +19,7 @@ class Candidate(BaseModel):
     text: `str`
         Text output
     thoughts: `str`, optional
-        Model's thought process, can be empty. Only populated with `-thinking` models
+        Model's thought process, can be empty.
     web_images: `list[WebImage]`, optional
         List of web images in reply, can be empty.
     generated_images: `list[GeneratedImage]`, optional
@@ -28,6 +28,13 @@ class Candidate(BaseModel):
         List of generated videos in reply, can be empty
     generated_media: `list[GeneratedMedia]`, optional
         List of generated media (music/audio) in reply, can be empty
+    citations: `list[Citation]`, optional
+        Web sources resolving the `[cite: N]` markers in `text`, can be empty
+    deep_research_plan: `DeepResearchPlan`, optional
+        Research plan proposed by a deep research turn, if any.
+    deep_research_document: `DeepResearchDocument`, optional
+        Inline report document attached by a deep research turn, if any.
+
     """
 
     rcid: str
@@ -39,7 +46,9 @@ class Candidate(BaseModel):
     generated_images: list[GeneratedImage] = []
     generated_videos: list[GeneratedVideo] = []
     generated_media: list[GeneratedMedia] = []
+    citations: list[Citation] = []
     deep_research_plan: DeepResearchPlan | None = None
+    deep_research_document: DeepResearchDocument | None = None
 
     def __str__(self) -> str:
         return shorten(self.text, width=100)
@@ -53,14 +62,12 @@ class Candidate(BaseModel):
     @field_validator("text", "thoughts")
     @classmethod
     def decode_html(cls, value: str) -> str:
-        """
-        Auto unescape HTML entities in text/thoughts if any.
-        """
-
+        """Auto unescape HTML entities in text/thoughts if any."""
         if value:
             value = html.unescape(value)
         return value
 
     @property
     def images(self) -> list[Image]:
-        return self.web_images + self.generated_images
+        images: list[Image] = [*self.web_images, *self.generated_images]
+        return images

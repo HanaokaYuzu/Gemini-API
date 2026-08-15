@@ -1,15 +1,16 @@
-from pydantic import BaseModel
 from textwrap import shorten
 
-from .image import Image
+from pydantic import BaseModel
+
 from .candidate import Candidate
-from .video import GeneratedVideo, GeneratedMedia
-from .research import DeepResearchPlan
+from .citation import Citation
+from .image import Image
+from .research import DeepResearchDocument, DeepResearchPlan
+from .video import GeneratedMedia, GeneratedVideo
 
 
 class ModelOutput(BaseModel):
-    """
-    Classified output from gemini.google.com
+    """Classified output from gemini.google.com
 
     Parameters
     ----------
@@ -19,6 +20,7 @@ class ModelOutput(BaseModel):
         List of all candidates returned from gemini
     chosen: `int`, optional
         Index of the chosen candidate, by default will choose the first one
+
     """
 
     metadata: list[str]
@@ -64,5 +66,13 @@ class ModelOutput(BaseModel):
         return self.candidates[self.chosen].generated_media
 
     @property
+    def citations(self) -> list[Citation]:
+        return self.candidates[self.chosen].citations
+
+    @property
     def deep_research_plan(self) -> DeepResearchPlan | None:
         return self.candidates[self.chosen].deep_research_plan
+
+    @property
+    def deep_research_document(self) -> DeepResearchDocument | None:
+        return self.candidates[self.chosen].deep_research_document

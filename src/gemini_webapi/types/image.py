@@ -5,17 +5,17 @@ from pathlib import Path
 from textwrap import shorten
 from typing import Any
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel, ConfigDict
 
-from ..constants import Headers
-from ..utils import logger
+from gemini_webapi.constants import BROWSER_TYPE, Headers, format_http_version
+from gemini_webapi.utils import logger
 
 
 class Image(BaseModel):
-    """
-    A single image object returned from Gemini.
+    """A single image object returned from Gemini.
 
     Parameters
     ----------
@@ -29,6 +29,7 @@ class Image(BaseModel):
         Proxy used when saving image.
     client: `AsyncSession`, optional
         Used for saving file with authentication if needed.
+
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -44,7 +45,9 @@ class Image(BaseModel):
         return self.url
 
     def __repr__(self) -> str:
-        return f"Image(title={self.title!r}, alt={shorten(self.alt, width=100)!r}, url={self.url!r})"
+        return (
+            f"Image(title={self.title!r}, alt={shorten(self.alt, width=100)!r}, url={self.url!r})"
+        )
 
     async def save(
         self,
@@ -54,8 +57,7 @@ class Image(BaseModel):
         client: AsyncSession | None = None,
         **kwargs,
     ) -> str:
-        """
-        Saves the image to disk.
+        """Saves the image to disk.
 
         Parameters
         ----------
@@ -80,16 +82,12 @@ class Image(BaseModel):
         ------
         `curl_cffi.requests.exceptions.HTTPError`
             If the network request failed.
-        """
 
+        """
         if not filename or not Path(filename).suffix:
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            url_hash = hashlib.sha256(self._get_url_for_hash().encode()).hexdigest()[
-                :10
-            ]
-            base_name = (
-                Path(filename).stem if filename else self._default_filename_suffix
-            )
+            url_hash = hashlib.sha256(self._get_url_for_hash().encode()).hexdigest()[:10]
+            base_name = Path(filename).stem if filename else self._default_filename_suffix
             filename = f"{timestamp}_{url_hash}_{base_name}"
 
         close_client = False
@@ -97,9 +95,13 @@ class Image(BaseModel):
         if not req_client:
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
+            impersonate: Any = (
+                getattr(client_ref, "impersonate", BROWSER_TYPE) if client_ref else BROWSER_TYPE
+            )
             req_client = AsyncSession(
-                impersonate="chrome",
-                allow_redirects=True,
+                impersonate=impersonate,
+                allow_redirects=CurlFollow.SAFE,
+                http_version=CurlHttpVersion.NONE,
                 cookies=cookies,
                 proxy=self.proxy,
             )
@@ -108,9 +110,7 @@ class Image(BaseModel):
         try:
             path_obj = Path(path)
             path_obj.mkdir(parents=True, exist_ok=True)
-            return await self._perform_save(
-                req_client, path_obj, filename, verbose, **kwargs
-            )
+            return await self._perform_save(req_client, path_obj, filename, verbose, **kwargs)
         finally:
             if close_client:
                 await req_client.close()
@@ -118,52 +118,39 @@ class Image(BaseModel):
     async def _perform_save(
         self, req_client: AsyncSession, path_obj: Path, filename: str, verbose: bool
     ) -> str:
-        """
-        Base implementation: simple download.
-        """
-
+        """Base implementation: simple download."""
         response = await req_client.get(self.url, headers=Headers.REFERER.value)
         if verbose:
-            logger.debug(f"HTTP Request: GET {self.url} [{response.status_code}]")
-
-        if response.status_code == 200:
-            path_obj_file = Path(filename)
-            if not path_obj_file.suffix:
-                content_type = (
-                    response.headers.get("content-type", "")
-                    .split(";")[0]
-                    .strip()
-                    .lower()
-                )
-                ext = mimetypes.guess_extension(content_type) or ".png"
-                filename = f"{filename}{ext}"
-
-            dest = path_obj / filename
-            dest.write_bytes(response.content)
-
-            if verbose:
-                logger.info(f"Image saved as {dest.resolve()}")
-
-            return str(dest.resolve())
-        else:
-            raise HTTPError(
-                f"Error downloading image: {response.status_code} {response.reason}"
+            logger.debug(
+                f"HTTP Request: GET {self.url} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
             )
+
+        if response.status_code != 200:
+            raise HTTPError(f"Error downloading image: {response.status_code} {response.reason}")
+        path_obj_file = Path(filename)
+        if not path_obj_file.suffix:
+            content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            ext = mimetypes.guess_extension(content_type) or ".png"
+            filename = f"{filename}{ext}"
+
+        dest = path_obj / filename
+        dest.write_bytes(response.content)
+
+        if verbose:
+            logger.info(f"Image saved as {dest.resolve()}")
+
+        return str(dest.resolve())
 
 
 class WebImage(Image):
-    """
-    Image retrieved from web.
+    """Image retrieved from web.
 
     Returned when asking Gemini to "SEND an image of [something]".
     """
 
-    pass
-
 
 class GeneratedImage(Image):
-    """
-    Image generated by Gemini.
+    """Image generated by Gemini.
 
     Returned when asking Gemini to "GENERATE an image of [something]".
 
@@ -179,6 +166,7 @@ class GeneratedImage(Image):
         Reply candidate ID.
     image_id: `str`, optional
         Image ID generated.
+
     """
 
     client_ref: Any = None
@@ -196,8 +184,7 @@ class GeneratedImage(Image):
         verbose: bool,
         full_size: bool = True,
     ) -> str:
-        """
-        Internal method for saving GeneratedImage, handling full size resolution.
+        """Internal method for saving GeneratedImage, handling full size resolution.
 
         Parameters
         ----------
@@ -216,8 +203,8 @@ class GeneratedImage(Image):
         -------
         `str`
             Absolute path of the saved image if successfully saved.
-        """
 
+        """
         if full_size:
             if all([self.client_ref, self.cid, self.rid, self.rcid, self.image_id]):
                 try:
@@ -230,21 +217,15 @@ class GeneratedImage(Image):
                     if original_url:
                         req_url = f"{original_url}=d-I?alr=yes"
 
-                        response = await req_client.get(
-                            req_url, headers=Headers.REFERER.value
-                        )
+                        response = await req_client.get(req_url, headers=Headers.REFERER.value)
                         response.raise_for_status()
                         url_text = response.text
 
-                        response = await req_client.get(
-                            url_text, headers=Headers.REFERER.value
-                        )
+                        response = await req_client.get(url_text, headers=Headers.REFERER.value)
                         response.raise_for_status()
                         self.url = response.text
 
-                        return await super()._perform_save(
-                            req_client, path_obj, filename, verbose
-                        )
+                        return await super()._perform_save(req_client, path_obj, filename, verbose)
 
                 except Exception as e:
                     logger.debug(
@@ -255,10 +236,9 @@ class GeneratedImage(Image):
                 self.url = self.url.replace("=s1024-rj", "=s2048-rj")
             elif "=s2048-rj" not in self.url:
                 self.url += "=s2048-rj"
-        else:
-            if "=s2048-rj" in self.url:
-                self.url = self.url.replace("=s2048-rj", "=s1024-rj")
-            elif "=s1024-rj" not in self.url:
-                self.url += "=s1024-rj"
+        elif "=s2048-rj" in self.url:
+            self.url = self.url.replace("=s2048-rj", "=s1024-rj")
+        elif "=s1024-rj" not in self.url:
+            self.url += "=s1024-rj"
 
         return await super()._perform_save(req_client, path_obj, filename, verbose)

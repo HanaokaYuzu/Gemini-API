@@ -1,11 +1,11 @@
+from collections.abc import ItemsView, Iterable, Iterator, KeysView, Mapping, ValuesView
 from textwrap import shorten
 
 from pydantic import BaseModel
 
 
 class Gem(BaseModel):
-    """
-    Reusable Gemini Gem object working as a system prompt, providing additional context to the model.
+    """Reusable Gemini Gem object working as a system prompt, providing additional context to the model.
     Gemini provides a set of predefined gems, and users can create custom gems as well.
 
     Parameters
@@ -20,6 +20,7 @@ class Gem(BaseModel):
         The system prompt text that the gem provides to the model.
     predefined: `bool`
         Indicates whether the gem is predefined by Gemini or created by the user.
+
     """
 
     id: str
@@ -32,11 +33,7 @@ class Gem(BaseModel):
         return f"Gem(id={self.id!r}, name={self.name!r}, predefined={self.predefined!r})"
 
     def __repr__(self) -> str:
-        desc = (
-            shorten(self.description, width=100)
-            if self.description
-            else "No description"
-        )
+        desc = shorten(self.description, width=100) if self.description else "No description"
         prompt = shorten(self.prompt, width=100) if self.prompt else "No prompt"
         return (
             f"Gem(id={self.id!r}, name={self.name!r}, description={desc!r}, "
@@ -44,24 +41,67 @@ class Gem(BaseModel):
         )
 
 
-class GemJar(dict[str, Gem]):
-    """
-    Helper class for handling a collection of `Gem` objects, stored by their ID.
-    This class extends `dict` to allows retrieving gems with extra filtering options.
+class GemJar:
+    """Helper class for handling a collection of `Gem` objects, stored by their ID.
+
+    Behaves like a read-mostly mapping of gem id to `Gem`, with two deliberate
+    differences that are why this is not a `dict` subclass: iterating a jar yields
+    the gems themselves rather than their ids, and `get()` looks gems up by id
+    and/or name instead of taking a key and a default.
+
+    Parameters
+    ----------
+    gems: `Iterable[tuple[str, Gem]] | Mapping[str, Gem]`, optional
+        Initial gems, given either as (id, gem) pairs or as a mapping of id to gem.
+
     """
 
-    def __iter__(self):
-        """
-        Iter over the gems in the jar.
-        """
+    def __init__(self, gems: Iterable[tuple[str, Gem]] | Mapping[str, Gem] | None = None):
+        self._gems: dict[str, Gem] = dict(gems) if gems is not None else {}
 
-        return self.values().__iter__()
+    def __iter__(self) -> Iterator[Gem]:
+        """Iter over the gems in the jar."""
+        return iter(self._gems.values())
+
+    def __len__(self) -> int:
+        return len(self._gems)
+
+    def __contains__(self, id: object) -> bool:
+        return id in self._gems
+
+    def __getitem__(self, id: str) -> Gem:
+        return self._gems[id]
+
+    def __setitem__(self, id: str, gem: Gem) -> None:
+        self._gems[id] = gem
+
+    def __delitem__(self, id: str) -> None:
+        del self._gems[id]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, GemJar):
+            return self._gems == other._gems
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return f"GemJar({self._gems!r})"
+
+    def keys(self) -> KeysView[str]:
+        """Returns a view of the gem ids in the jar."""
+        return self._gems.keys()
+
+    def values(self) -> ValuesView[Gem]:
+        """Returns a view of the gems in the jar."""
+        return self._gems.values()
+
+    def items(self) -> ItemsView[str, Gem]:
+        """Returns a view of the (gem id, gem) pairs in the jar."""
+        return self._gems.items()
 
     def get(
         self, id: str | None = None, name: str | None = None, default: Gem | None = None
     ) -> Gem | None:
-        """
-        Retrieves a gem by its id and/or name.
+        """Retrieves a gem by its id and/or name.
         If both id and name are provided, returns the gem that matches both id and name.
         If only id is provided, it's a direct lookup.
         If only name is provided, it searches through the gems.
@@ -84,38 +124,28 @@ class GemJar(dict[str, Gem]):
         ------
         `AssertionError`
             If neither id nor name is provided.
-        """
 
-        assert not (
-            id is None and name is None
-        ), "At least one of gem id or name must be provided."
+        """
+        assert id is not None or name is not None, (
+            "At least one of gem id or name must be provided."
+        )
 
         if id is not None:
-            gem_candidate = super().get(id)
-            if gem_candidate:
-                if name is not None:
-                    if gem_candidate.name == name:
-                        return gem_candidate
-                    else:
-                        return default
-                else:
+            if gem_candidate := self._gems.get(id):
+                if (name is not None and gem_candidate.name == name) or name is None:
                     return gem_candidate
-            else:
                 return default
-        elif name is not None:
-            for gem_obj in self.values():
-                if gem_obj.name == name:
-                    return gem_obj
             return default
-
+        if name is not None:
+            return next(
+                (gem_obj for gem_obj in self.values() if gem_obj.name == name),
+                default,
+            )
         # Should be unreachable due to the assertion.
         return default
 
-    def filter(
-        self, predefined: bool | None = None, name: str | None = None
-    ) -> "GemJar":
-        """
-        Returns a new `GemJar` containing gems that match the given filters.
+    def filter(self, predefined: bool | None = None, name: str | None = None) -> "GemJar":
+        """Returns a new `GemJar` containing gems that match the given filters.
 
         Parameters
         ----------
@@ -128,8 +158,8 @@ class GemJar(dict[str, Gem]):
         -------
         `GemJar`
             A new `GemJar` containing the filtered gems. Can be empty if no gems match the criteria.
-        """
 
+        """
         filtered_gems = GemJar()
 
         for gem_id, gem in self.items():
@@ -140,4 +170,4 @@ class GemJar(dict[str, Gem]):
 
             filtered_gems[gem_id] = gem
 
-        return GemJar(filtered_gems)
+        return filtered_gems

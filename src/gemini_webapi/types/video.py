@@ -5,17 +5,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from curl_cffi import CurlFollow, CurlHttpVersion
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import HTTPError
 from pydantic import BaseModel, ConfigDict
 
-from ..constants import Headers
-from ..utils import logger
+from gemini_webapi.constants import BROWSER_TYPE, Headers, format_http_version
+from gemini_webapi.utils import logger
 
 
 class Video(BaseModel):
-    """
-    A single video object returned from Gemini.
+    """A single video object returned from Gemini.
 
     Parameters
     ----------
@@ -27,6 +27,7 @@ class Video(BaseModel):
         Proxy used when saving video.
     client: `AsyncSession`, optional
         Used for saving file with authentication if needed.
+
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -51,8 +52,7 @@ class Video(BaseModel):
         client: AsyncSession | None = None,
         **kwargs,
     ) -> Any:
-        """
-        Saves the video to disk.
+        """Saves the video to disk.
 
         Parameters
         ----------
@@ -72,16 +72,12 @@ class Video(BaseModel):
         -------
         dict[str, str | None]
             The result of the `_perform_save` method (usually a dict of paths).
-        """
 
+        """
         if not filename or not Path(filename).suffix:
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            url_hash = hashlib.sha256(self._get_url_for_hash().encode()).hexdigest()[
-                :10
-            ]
-            base_name = (
-                Path(filename).stem if filename else self._default_filename_suffix
-            )
+            url_hash = hashlib.sha256(self._get_url_for_hash().encode()).hexdigest()[:10]
+            base_name = Path(filename).stem if filename else self._default_filename_suffix
             filename = f"{timestamp}_{url_hash}_{base_name}"
 
         close_client = False
@@ -89,9 +85,13 @@ class Video(BaseModel):
         if not req_client:
             client_ref = getattr(self, "client_ref", None)
             cookies = getattr(client_ref, "cookies", None) if client_ref else None
+            impersonate: Any = (
+                getattr(client_ref, "impersonate", BROWSER_TYPE) if client_ref else BROWSER_TYPE
+            )
             req_client = AsyncSession(
-                impersonate="chrome",
-                allow_redirects=True,
+                impersonate=impersonate,
+                allow_redirects=CurlFollow.SAFE,
+                http_version=CurlHttpVersion.NONE,
                 cookies=cookies,
                 proxy=self.proxy,
             )
@@ -100,9 +100,7 @@ class Video(BaseModel):
         try:
             path_obj = Path(path)
             path_obj.mkdir(parents=True, exist_ok=True)
-            return await self._perform_save(
-                req_client, path_obj, filename, verbose, **kwargs
-            )
+            return await self._perform_save(req_client, path_obj, filename, verbose, **kwargs)
         finally:
             if close_client:
                 await req_client.close()
@@ -110,13 +108,8 @@ class Video(BaseModel):
     async def _perform_save(
         self, req_client: AsyncSession, path_obj: Path, filename: str, verbose: bool
     ) -> dict[str, str | None]:
-        """
-        Base implementation: simple download.
-        """
-
-        path = await self._download_file(
-            req_client, self.url, path_obj, filename, ".mp4", verbose
-        )
+        """Base implementation: simple download."""
+        path = await self._download_file(req_client, self.url, path_obj, filename, ".mp4", verbose)
         return {"video": path, "video_thumbnail": None}
 
     @staticmethod
@@ -128,22 +121,18 @@ class Video(BaseModel):
         default_ext: str = ".mp4",
         verbose: bool = False,
     ) -> str | None:
-        """
-        Internal helper to download a file and determine its extension.
-        """
-
+        """Internal helper to download a file and determine its extension."""
         response = await req_client.get(url, headers=Headers.REFERER.value)
         if verbose:
-            logger.debug(f"HTTP Request: GET {url} [{response.status_code}]")
+            logger.debug(
+                f"HTTP Request: GET {url} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
+            )
 
         if response.status_code == 200:
             path_obj_file = Path(filename)
             if not path_obj_file.suffix:
                 content_type = (
-                    response.headers.get("content-type", "")
-                    .split(";")[0]
-                    .strip()
-                    .lower()
+                    response.headers.get("content-type", "").split(";")[0].strip().lower()
                 )
                 ext = mimetypes.guess_extension(content_type) or default_ext
                 filename = f"{filename}{ext}"
@@ -155,17 +144,13 @@ class Video(BaseModel):
                 logger.info(f"File saved as {dest.resolve()}")
 
             return str(dest.resolve())
-        elif response.status_code == 206:
+        if response.status_code == 206:
             return "206"
-        else:
-            raise HTTPError(
-                f"Error downloading file: {response.status_code} {response.reason}"
-            )
+        raise HTTPError(f"Error downloading file: {response.status_code} {response.reason}")
 
 
 class GeneratedVideo(Video):
-    """
-    Video generated by Gemini.
+    """Video generated by Gemini.
 
     Parameters
     ----------
@@ -179,6 +164,7 @@ class GeneratedVideo(Video):
         Reply ID.
     rcid: `str`, optional
         Reply candidate ID.
+
     """
 
     client_ref: Any = None
@@ -191,10 +177,7 @@ class GeneratedVideo(Video):
     async def _perform_save(
         self, req_client: AsyncSession, path_obj: Path, filename: str, verbose: bool
     ) -> dict[str, str | None]:
-        """
-        Internal method for GeneratedVideo, handling thumbnails and polling.
-        """
-
+        """Internal method for GeneratedVideo, handling thumbnails and polling."""
         thumb_path = None
         if self.thumbnail:
             thumb_base = Path(filename).stem
@@ -211,17 +194,15 @@ class GeneratedVideo(Video):
                 req_client, self.url, path_obj, filename, ".mp4", verbose
             )
 
-            if video_path == "206":
-                if verbose:
-                    logger.info("Video still generating (206), retrying in 10s...")
-                await asyncio.sleep(10)
-            else:
+            if video_path != "206":
                 return {"video": video_path, "video_thumbnail": thumb_path}
+            if verbose:
+                logger.info("Video still generating (206), retrying in 10s...")
+            await asyncio.sleep(10)
 
 
 class GeneratedMedia(GeneratedVideo):
-    """
-    Media (audio/video) generated by Google's AI.
+    """Media (audio/video) generated by Google's AI.
 
     Parameters
     ----------
@@ -233,6 +214,7 @@ class GeneratedMedia(GeneratedVideo):
         Title. Defaults to "[Media]".
 
     Refers to `GeneratedVideo` for inherited attributes and saving logic.
+
     """
 
     mp3_url: str = ""
@@ -276,8 +258,7 @@ class GeneratedMedia(GeneratedVideo):
         verbose: bool,
         download_type: Literal["audio", "video", "both"] = "both",
     ) -> dict[str, str | None]:
-        """
-        Internal method for GeneratedMedia, handling audio/video downloads and polling.
+        """Internal method for GeneratedMedia, handling audio/video downloads and polling.
 
         Parameters
         ----------
@@ -297,9 +278,8 @@ class GeneratedMedia(GeneratedVideo):
         `dict[str, str | None]`
             A dictionary containing absolute paths of the downloaded files
             (e.g., {"audio": ..., "video": ..., "audio_thumbnail": ..., "video_thumbnail": ...}).
-        """
 
-        results: dict[str, str | None] = {}
+        """
         tasks = []
 
         if download_type in ["audio", "both"] and self.mp3_url:
@@ -320,7 +300,7 @@ class GeneratedMedia(GeneratedVideo):
                         req_client,
                         self.mp3_thumbnail,
                         path_obj,
-                        filename + "_audio_thumb",
+                        f"{filename}_audio_thumb",
                         verbose,
                         "audio_thumbnail",
                     )
@@ -344,16 +324,14 @@ class GeneratedMedia(GeneratedVideo):
                         req_client,
                         self.thumbnail,
                         path_obj,
-                        filename + "_video_thumb",
+                        f"{filename}_video_thumb",
                         verbose,
                         "video_thumbnail",
                     )
                 )
 
         downloaded = await asyncio.gather(*tasks)
-        for key, file_path in downloaded:
-            results[key] = file_path
-
+        results: dict[str, str | None] = dict(downloaded)
         return results
 
     @staticmethod
@@ -367,17 +345,12 @@ class GeneratedMedia(GeneratedVideo):
         key: str,
     ) -> tuple[str, str | None]:
         while True:
-            path = await Video._download_file(
-                req_client, url, path_obj, filename, ext, verbose
-            )
-            if path == "206":
-                if verbose:
-                    logger.info(
-                        f"Media ({key}) still generating (206), retrying in 10s..."
-                    )
-                await asyncio.sleep(10)
-            else:
+            path = await Video._download_file(req_client, url, path_obj, filename, ext, verbose)
+            if path != "206":
                 return key, path
+            if verbose:
+                logger.info(f"Media ({key}) still generating (206), retrying in 10s...")
+            await asyncio.sleep(10)
 
     @staticmethod
     async def _download_thumbnail(
@@ -389,9 +362,7 @@ class GeneratedMedia(GeneratedVideo):
         key: str,
     ) -> tuple[str, str | None]:
         try:
-            path = await Video._download_file(
-                req_client, url, path_obj, filename, ".jpg", verbose
-            )
+            path = await Video._download_file(req_client, url, path_obj, filename, ".jpg", verbose)
             return key, path
         except Exception as e:
             if verbose:

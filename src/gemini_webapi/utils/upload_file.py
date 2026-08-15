@@ -7,15 +7,13 @@ from curl_cffi import CurlMime
 from curl_cffi.requests import AsyncSession
 from pydantic import ConfigDict, validate_call
 
+from gemini_webapi.constants import Endpoint, Headers, format_http_version
+
 from .logger import logger
-from ..constants import Endpoint, Headers
 
 
 def _generate_random_name(extension: str = ".txt") -> str:
-    """
-    Generate a random filename using a large integer for better performance.
-    """
-
+    """Generate a random filename using a large integer for better performance."""
     return f"input_{random.randint(1000000, 9999999)}{extension}"
 
 
@@ -27,8 +25,7 @@ async def upload_file(
     filename: str | None = None,
     verbose: bool = False,
 ) -> str:
-    """
-    Upload a file to Google's server and return its identifier.
+    """Upload a file to Google's server and return its identifier.
 
     Parameters
     ----------
@@ -53,8 +50,8 @@ async def upload_file(
     ------
     `curl_cffi.requests.exceptions.HTTPError`
         If the upload request failed.
-    """
 
+    """
     if isinstance(file, (str, Path)):
         file_path = Path(file)
         if not file_path.is_file():
@@ -98,7 +95,7 @@ async def upload_file(
         )
         if verbose:
             logger.debug(
-                f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}]"
+                f"HTTP Request: POST {Endpoint.UPLOAD} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
             )
         response.raise_for_status()
         return response.text
@@ -107,8 +104,7 @@ async def upload_file(
 
 
 def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:
-    """
-    Parse the file name from the given path or generate a random one for in-memory data.
+    """Parse the file name from the given path or generate a random one for in-memory data.
 
     Parameters
     ----------
@@ -119,8 +115,8 @@ def parse_file_name(file: str | Path | bytes | io.BytesIO) -> str:
     -------
     `str`
         File name with extension.
-    """
 
+    """
     if isinstance(file, (str, Path)):
         file = Path(file)
         if not file.is_file():

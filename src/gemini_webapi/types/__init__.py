@@ -1,6 +1,7 @@
 # flake8: noqa
 
 from .candidate import Candidate
+from .citation import Citation
 from .gem import Gem, GemJar
 from .grpc import RPCData
 from .image import Image, WebImage, GeneratedImage
@@ -9,5 +10,5 @@ from .modeloutput import ModelOutput
 from .availablemodel import AvailableModel
 from .chatinfo import ChatInfo
 from .chathistory import ChatTurn, ChatHistory
-from .research import DeepResearchPlan, DeepResearchStatus
+from .research import DeepResearchDocument, DeepResearchPlan
 from .researchresult import DeepResearchResult

@@ -1,12 +1,12 @@
 import sys
+
 from loguru import logger as _logger
 
 _handler_id = None
 
 
 def set_log_level(level: str | int) -> None:
-    """
-    Set the log level for gemini_webapi. The default log level is "INFO".
+    """Set the log level for gemini_webapi. The default log level is "INFO".
 
     Note: calling this function for the first time will globally remove all existing loguru
     handlers. To avoid this, you may want to set logging behaviors directly with loguru.
@@ -21,8 +21,8 @@ def set_log_level(level: str | int) -> None:
     >>> from gemini_webapi import set_log_level
     >>> set_log_level("DEBUG")  # Show debug messages
     >>> set_log_level("ERROR")  # Only show errors
-    """
 
+    """
     global _handler_id
 
     _logger.remove(_handler_id)

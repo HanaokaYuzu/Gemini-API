@@ -4,12 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gemini-webapi"
-authors = [
-    {name = "UZQueen"},
-]
+authors = [{ name = "UZQueen" }]
 description = "✨ An elegant async Python wrapper for Google Gemini web app"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 keywords = ["API", "async", "Gemini", "Bard", "Google", "Generative AI", "LLM"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -18,17 +16,23 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "curl-cffi~=0.15.0",
-    "loguru~=0.7.3",
-    "orjson~=3.11.7",
-    "pydantic~=2.12.5",
+  "curl-cffi~=0.16.0",
+  "loguru~=0.7.3",
+  "orjson~=3.11.9",
+  "pydantic~=2.12.5",
 ]
 dynamic = ["version"]
 
 [project.optional-dependencies]
 browser = ["browser-cookie3"]
+dev = ["pyright", "ruff", "ty"]
+
+[dependency-groups]
+dev = [
+  "gemini-webapi[browser,dev]", # browser extra keeps the optional import type-checkable
+]
 
 [project.urls]
 Repository = "https://github.com/HanaokaYuzu/Gemini-API"
@@ -41,3 +45,37 @@ include = ["gemini_webapi"]
 [tool.setuptools_scm]
 version_scheme = "post-release"
 local_scheme = "no-local-version"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "G",   # flake8-logging-format
+  "I",   # isort
+  "LOG", # flake8-logging
+  "N",   # pep8-naming
+  "PIE", # flake8-pie
+  "PT",  # flake8-pytest-style
+  "RET", # flake8-return
+  "RUF", # ruff-specific rules
+  "SIM", # flake8-simplify
+  "TID", # flake8-tidy-imports
+  "UP",  # pyupgrade
+  "W",   # pycodestyle warnings
+]
+ignore = [
+  "E501", # line too long, enforced by the formatter for code
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+typeCheckingMode = "standard"

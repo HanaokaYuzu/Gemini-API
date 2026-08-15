@@ -1,8 +1,9 @@
+import logging
 import os
 import unittest
-import logging
 
-from gemini_webapi import GeminiClient, set_log_level, logger
+from gemini_webapi import GeminiClient, logger, set_log_level
+from gemini_webapi.constants import AccountStatus
 from gemini_webapi.exceptions import AuthError, GeminiError
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
@@ -20,16 +21,17 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
         except AuthError as e:
             self.skipTest(e)
 
+        if self.geminiclient.account_status != AccountStatus.AVAILABLE:
+            # Initialization no longer fails without usable cookies - it falls back to a guest
+            # session, which has no history, no uploads and no model choice, so every test here
+            # would fail for the wrong reason
+            self.skipTest(
+                f"No usable account: {self.geminiclient.account_status.name} - "
+                f"{self.geminiclient.account_status.description}"
+            )
+
     async def asyncTearDown(self):
         await self.geminiclient.close()
-
-    @logger.catch(reraise=True)
-    async def test_feature_availability(self):
-        snapshot = await self.geminiclient.inspect_account_status()
-        logger.debug(f"Account status snapshot: {snapshot}")
-
-        summary = snapshot.get("summary", {})
-        self.assertTrue(summary["deep_research_feature_present"])
 
     @logger.catch(reraise=True)
     async def test_create_research_plan(self):
@@ -43,10 +45,14 @@ class TestResearchMixin(unittest.IsolatedAsyncioTestCase):
 
     @logger.catch(reraise=True)
     async def test_full_research_flow(self):
-        prompt = "Compare the top 3 most popular language models providers and their exclusive features."
+        prompt = (
+            "Compare the top 3 most popular language models providers and their exclusive features."
+        )
         result = await self.geminiclient.deep_research(prompt)
-        logger.debug(f"Deep research statuses: {result.statuses}")
+        assert result.done, "research did not complete"
         logger.debug(f"Deep research result: {result.text}")
+        if document := result.document:
+            logger.debug(f"Report: {len(document.content)} chars, {len(document.sources)} sources")
 
 
 if __name__ == "__main__":

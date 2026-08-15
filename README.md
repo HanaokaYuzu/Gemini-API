@@ -82,7 +82,7 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
 
 > [!NOTE]
 >
-> This package requires Python 3.10 or higher.
+> This package requires Python 3.11 or higher.
 
 Install or update the package with pip.
 
@@ -114,11 +114,11 @@ pip install -U gemini_webapi[browser]
 
 ```yaml
 services:
-    main:
-        environment:
-            GEMINI_COOKIE_PATH: /tmp/gemini_webapi
-        volumes:
-            - ./gemini_cookies:/tmp/gemini_webapi
+  main:
+    environment:
+      GEMINI_COOKIE_PATH: /tmp/gemini_webapi
+    volumes:
+      - ./gemini_cookies:/tmp/gemini_webapi
 ```
 
 > [!NOTE]
@@ -144,10 +144,12 @@ from gemini_webapi import GeminiClient
 Secure_1PSID = "COOKIE VALUE HERE"
 Secure_1PSIDTS = "COOKIE VALUE HERE"
 
+
 async def main():
     # If browser-cookie3 is installed, simply use `client = GeminiClient()`
     client = GeminiClient(Secure_1PSID, Secure_1PSIDTS, proxy=None)
     await client.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True)
+
 
 asyncio.run(main())
 ```
@@ -165,6 +167,7 @@ async def main():
     response = await client.generate_content("Hello World!")
     print(response.text)
 
+
 asyncio.run(main())
 ```
 
@@ -179,10 +182,11 @@ Gemini supports file input, including images and documents. Optionally, you can 
 ```python
 async def main():
     response = await client.generate_content(
-            "Introduce the contents of these two files. Is there any connection between them?",
-            files=["assets/sample.pdf", Path("assets/banner.png")],
-        )
+        "Introduce the contents of these two files. Is there any connection between them?",
+        files=["assets/sample.pdf", Path("assets/banner.png")],
+    )
     print(response.text)
+
 
 asyncio.run(main())
 ```
@@ -203,6 +207,7 @@ async def main():
         "Use image generation tool to modify the banner with another font and design."
     )
     print(response2.text, response2.images, sep="\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -229,6 +234,7 @@ async def main():
     response = await previous_chat.send_message("What was my previous message?")
     print(response)
 
+
 asyncio.run(main())
 ```
 
@@ -248,6 +254,7 @@ async def main():
             print(f"[{turn.role.upper()}] {turn.text}")
             print("\n----------------------------------\n")
 
+
 asyncio.run(main())
 ```
 
@@ -259,6 +266,7 @@ async def main():
     if chats:
         for chat_info in chats:
             print(f"{chat_info.cid}: {chat_info.title}")
+
 
 asyncio.run(main())
 ```
@@ -277,6 +285,7 @@ async def main():
     await client.delete_chat(chat.cid)
     print(f"Chat deleted: {chat.cid}")
 
+
 asyncio.run(main())
 ```
 
@@ -293,6 +302,7 @@ async def main():
     await chat.send_message("Fine weather today", temporary=False)
     response2 = await chat.send_message("What's my last message?", temporary=True)
     print(response2.text)
+
 
 asyncio.run(main())
 ```
@@ -312,6 +322,7 @@ async def main():
 
     print()
 
+
 asyncio.run(main())
 ```
 
@@ -321,26 +332,36 @@ asyncio.run(main())
 
 ### Select Language Model
 
-You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
+You can specify which language model to use by passing the `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. Omit it, or pass `None`, to let Google use your account's default model.
 
-Available models are discovered **dynamically** at init time based on your account tier. The `Model` enum provides convenient shortcuts.
+Models are discovered **dynamically** at init time from your account, along with the request headers and tier capacity each one needs. Pass a name, alias, display name or id string - or an `AvailableModel` straight from `list_models()`. Names follow whatever Google publishes to your account (currently `gemini-pro`, `gemini-flash` and `gemini-flash-lite`), so run the snippet below to see your own list rather than hardcoding one.
 
 ```python
-from gemini_webapi.constants import Model
-
 async def main():
+    for model in client.list_models() or []:
+        print(model.model_name, "|", model.display_name, "| available:", model.is_available)
+
     response1 = await client.generate_content(
         "What's your language model version? Reply with the version number only.",
-        model=Model.BASIC_FLASH,
+        model="gemini-flash",  # a name, alias, display name or id
     )
-    print(f"Model version ({Model.BASIC_FLASH.model_name}): {response1.text}")
+    print(f"Model version (gemini-flash): {response1.text}")
 
-    chat = client.start_chat(model="gemini-3-pro")
-    response2 = await chat.send_message("What's your language model version? Reply with the version number only.")
-    print(f"Model version (gemini-3-pro): {response2.text}")
+    chat = client.start_chat(model=client.resolve_model("pro"))
+    response2 = await chat.send_message(
+        "What's your language model version? Reply with the version number only."
+    )
+    print(f"Model version ({chat.model}): {response2.text}")
+
 
 asyncio.run(main())
 ```
+
+> [!WARNING]
+>
+> The `Model` enum is **deprecated and pending removal**. Its ids and headers are hardcoded, and its `PLUS_`/`ADVANCED_` variants ask you to know your own account tier - a value the client now reads from the account itself, which is why nine members collapse into six actual models.
+>
+> `Model.from_name` and `Model.from_dict` have been **removed**; use `client.resolve_model(name)` and `AvailableModel.from_dict` instead. Passing a member to `generate_content` still works for now: it is mapped onto your account's equivalent model, or to the default model if your account has no counterpart, and logs a warning. Names the enum alone knew - `gemini-pro-advanced` and friends - no longer resolve at all; ask for `gemini-pro` and the tier is filled in for you.
 
 You can also pass custom model header strings directly to access models that are not listed above.
 
@@ -349,15 +370,18 @@ You can also pass custom model header strings directly to access models that are
 custom_model = {
     "model_name": "xxx",
     "model_header": {
-        "x-goog-ext-525001261-jspb": "[1,null,null,null,'e6fa609c3fa255c0',null,null,null,[4]]"
+        "x-goog-ext-525001261-jspb": '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4,5,6,8],null,null,1,null,null,1,1,"EA3C5672-E422-4A5F-BE26-B5B57D3B9AC3"]',
+        "x-goog-ext-73010989-jspb": "[0]",
+        "x-goog-ext-73010990-jspb": "[0,0,0]",
     },
 }
 
-response = await client.generate_content(
-    "What's your model version?",
-    model=custom_model
-)
+response = await client.generate_content("What's your model version?", model=custom_model)
 ```
+
+> [!NOTE]
+>
+> A dictionary is read into an `AvailableModel`: the model id is taken from the header you supply and the header is then rebuilt, so `capacity` and `model_number` come from the dictionary (or its defaults) rather than from other slots of the string. Prefer a model name; reach for this only for a model discovery does not list yet.
 
 ### List Available Models
 
@@ -370,6 +394,7 @@ async def main():
     if models:
         for model in models:
             print(f"{model.display_name}: {model.model_name}")
+
 
 asyncio.run(main())
 ```
@@ -423,17 +448,17 @@ async def main():
     new_gem = await client.create_gem(
         name="Python Tutor",
         prompt="You are a helpful Python programming tutor.",
-        description="A specialized gem for Python programming"
+        description="A specialized gem for Python programming",
     )
 
     print(f"Custom gem created: {new_gem}")
 
     # Use the newly created gem in a conversation
     response = await client.generate_content(
-        "Explain how list comprehensions work in Python",
-        gem=new_gem
+        "Explain how list comprehensions work in Python", gem=new_gem
     )
     print(response.text)
+
 
 asyncio.run(main())
 ```
@@ -455,10 +480,11 @@ async def main():
         gem=python_tutor,  # Can also pass gem ID string
         name="Advanced Python Tutor",
         prompt="You are an expert Python programming tutor.",
-        description="An advanced Python programming assistant"
+        description="An advanced Python programming assistant",
     )
 
     print(f"Custom gem updated: {updated_gem}")
+
 
 asyncio.run(main())
 ```
@@ -475,6 +501,7 @@ async def main():
     await client.delete_gem(gem_to_delete)  # Can also pass gem ID string
     print(f"Custom gem deleted: {gem_to_delete.name}")
 
+
 asyncio.run(main())
 ```
 
@@ -484,11 +511,10 @@ When using models with thinking capabilities, the model's thought process will b
 
 ```python
 async def main():
-    response = await client.generate_content(
-            "What's 1+1?", model="gemini-3-pro"
-        )
+    response = await client.generate_content("What's 1+1?", model="gemini-pro")
     print(response.thoughts)
     print(response.text)
+
 
 asyncio.run(main())
 ```
@@ -502,6 +528,7 @@ async def main():
     response = await client.generate_content("Send me some pictures of cats")
     for image in response.images:
         print(image, "\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -528,6 +555,7 @@ async def main():
     for i, image in enumerate(response.images):
         await image.save(path="temp/", filename=f"cat_{i}.png", verbose=True)
         print(image, "\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -558,6 +586,7 @@ async def main():
         result = await media.save(path="temp/", verbose=True)
         print(f"Media saved: {result}")
 
+
 asyncio.run(main())
 ```
 
@@ -584,8 +613,11 @@ async def main():
     response1 = await client.generate_content("@Gmail What's the latest message in my mailbox?")
     print(response1, "\n\n----------------------------------\n\n")
 
-    response2 = await client.generate_content("@Youtube What's the latest activity of Taylor Swift?")
+    response2 = await client.generate_content(
+        "@Youtube What's the latest activity of Taylor Swift?"
+    )
     print(response2, "\n\n----------------------------------\n\n")
+
 
 asyncio.run(main())
 ```
@@ -609,10 +641,13 @@ async def main():
     if len(response.candidates) > 1:
         # Control the ongoing conversation flow by choosing candidate manually
         new_candidate = chat.choose_candidate(index=1)  # Choose the second candidate here
-        followup_response = await chat.send_message("Tell me more about it.")  # Will generate content based on the chosen candidate
+        followup_response = await chat.send_message(
+            "Tell me more about it."
+        )  # Will generate content based on the chosen candidate
         print(new_candidate, followup_response, sep="\n\n----------------------------------\n\n")
     else:
         print("Only one candidate available.")
+
 
 asyncio.run(main())
 ```
@@ -620,6 +655,28 @@ asyncio.run(main())
 ### Deep Research
 
 Gemini's deep research feature is an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report. You can access it programmatically through the API.
+
+Under the hood this is an ordinary chat conversation: Gemini answers the first turn with a **plan**, and a second turn **confirms** it and starts the research. The task then runs server-side, detached from the session, so polling for the report does not require holding the conversation open.
+
+The finished report is delivered as an **inline document**, not as reply text — the reply itself is only a short notice such as *"I've completed your research"*. `result.text` returns the report, and `result.document` exposes it with its id and title:
+
+```python
+result = await client.deep_research("...")
+doc = result.document
+print(doc.title)  # 'SQLite vs DuckDB for Analytics'
+print(doc.content)  # markdown report: headings, tables, links, [cite: N] markers
+print(doc.sources)  # the web sources those [cite: N] markers resolve to
+
+Path("report.md").write_text(doc.markdown, encoding="utf-8")  # body + numbered source list
+```
+
+The same document is available on any deep research turn as `output.deep_research_document`, so a report can be recovered later from the chat alone:
+
+```python
+output = await client.fetch_latest_chat_response("c_abc123")
+if (doc := output.deep_research_document) and doc.ready:
+    print(doc.content)
+```
 
 > [!NOTE]
 >
@@ -637,34 +694,48 @@ async def main():
     print(f"Done: {result.done}")
     print(result.text)
 
+
 asyncio.run(main())
 ```
 
-**Step-by-step workflow** for more control:
+Both turns run in a single chat session. Pass `model` to choose one, or `chat` to supply your own session and keep a reference to the conversation after the call returns.
+
+> [!TIP]
+>
+> Reports commonly take 5-10 minutes, and longer for broad topics. Raise `timeout` past the 600 second default if `result.done` comes back `False`.
+
+**Step-by-step workflow** for more control, including reviewing the plan before committing to it:
 
 ```python
 async def main():
+    # Plan and confirmation are two turns of one conversation, so share a chat session
+    chat = client.start_chat()
+
     # Step 1: Create a research plan
     plan = await client.create_deep_research_plan(
-        "What are the latest advancements in quantum computing?"
+        "What are the latest advancements in quantum computing?",
+        chat=chat,
     )
     print(f"Title: {plan.title}")
     print(f"ETA: {plan.eta_text}")
     for step in plan.steps:
         print(f"  - {step}")
 
-    # Step 2: Start the research
-    await client.start_deep_research(plan)
+    # Step 2 (optional): Ask for changes on the same session to get a revised plan back
+    # plan = await client.create_deep_research_plan("Focus on error correction", chat=chat)
 
-    # Step 3: Poll for completion
+    # Step 3: Confirm the plan to start the research
+    await client.start_deep_research(plan, chat=chat)
+
+    # Step 4: Poll for completion
     result = await client.wait_for_deep_research(
         plan,
         poll_interval=10.0,
         timeout=600.0,
-        on_status=lambda s: print(f"Status: {s.state}"),
     )
 
     print(result.text)
+
 
 asyncio.run(main())
 ```
@@ -708,7 +779,7 @@ You can also use a browser cookie extension export (array-of-objects format is s
 ```sh
 --cookies-json PATH    Path to cookies JSON file (required)
 --proxy URL            Proxy URL (or uses HTTPS_PROXY env)
---model NAME           Model name (see 'models' command)
+--model NAME           Model name, alias or id (default: your account's default model)
 --verbose              Enable debug logging
 --no-persist           Don't update cookies file after run
 --request-timeout SEC  HTTP timeout in seconds (default: 300)
@@ -735,13 +806,13 @@ python cli.py --cookies-json cookies.json list
 # Read a specific chat conversation
 python cli.py --cookies-json cookies.json read c_abc123
 
-# List available models
+# List the models your account can use
 python cli.py --cookies-json cookies.json models
 
 # Download a generated image
 python cli.py --cookies-json cookies.json download "https://..." -o output.png
 
-# Account diagnostics (check feature availability)
+# Account diagnostics (status, quotas, usage limits, available models)
 python cli.py --cookies-json cookies.json inspect
 ```
 
@@ -750,11 +821,12 @@ python cli.py --cookies-json cookies.json inspect
 The CLI supports Gemini's Deep Research feature — an autonomous research agent that browses the web, analyzes sources, and produces a comprehensive report.
 
 ```sh
-# 1. Submit a research task
+# 1. Submit a research task. Prints both a chat ID and a research (task) ID
 python cli.py --cookies-json cookies.json research send --prompt "AI chip competition 2025"
 
-# 2. Check progress (use the chat ID from step 1)
-python cli.py --cookies-json cookies.json research check c_abc123
+# 2. Check progress. Pass --research-id for the actual task state - without it the chat
+#    cannot be told apart from the plan and confirmation replies, which arrive immediately
+python cli.py --cookies-json cookies.json research check c_abc123 --research-id 0f3d...
 
 # 3. Fetch the full result
 python cli.py --cookies-json cookies.json research get c_abc123

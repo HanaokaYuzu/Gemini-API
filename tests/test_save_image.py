@@ -1,11 +1,12 @@
+import logging
 import os
 import unittest
-import logging
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from curl_cffi.requests.exceptions import HTTPError
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level, logger, GeneratedImage
+from gemini_webapi import AuthError, GeminiClient, GeneratedImage, logger, set_log_level
+from gemini_webapi.constants import AccountStatus
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -22,6 +23,15 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         except AuthError:
             self.skipTest("Test was skipped due to invalid cookies")
 
+        if self.geminiclient.account_status != AccountStatus.AVAILABLE:
+            # Initialization no longer fails without usable cookies - it falls back to a guest
+            # session, which has no history, no uploads and no model choice, so every test here
+            # would fail for the wrong reason
+            self.skipTest(
+                f"No usable account: {self.geminiclient.account_status.name} - "
+                f"{self.geminiclient.account_status.description}"
+            )
+
     async def asyncTearDown(self):
         await self.geminiclient.close()
 
@@ -29,7 +39,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         response = await self.geminiclient.generate_content(
             "Show me some pictures of random subjects"
         )
-        self.assertTrue(response.images)
+        assert response.images
         for image in response.images:
             try:
                 await image.save(verbose=True)
@@ -40,7 +50,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         response = await self.geminiclient.generate_content(
             "Design an application icon for an AI web app. Make it simple and modern."
         )
-        self.assertTrue(response.images)
+        assert response.images
 
         image = response.images[0]
         if isinstance(image, GeneratedImage):
@@ -48,9 +58,8 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
 
             await image.save(verbose=True, full_size=False)
             await image.save(verbose=True, full_size=True)
-            self.assertFalse(
-                "=s2048-rj" in image.url,
-                "Test failed: Fallback occurred despite expecting RPC success.",
+            assert "=s2048-rj" not in image.url, (
+                "Test failed: Fallback occurred despite expecting RPC success."
             )
 
             image.url = original_url
@@ -60,9 +69,8 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             ) as mock_rpc:
                 mock_rpc.side_effect = Exception("Simulated RPC failure for testing")
                 await image.save(verbose=True, full_size=True)
-                self.assertTrue(
-                    "=s2048-rj" in image.url,
-                    "Test failed: Expected fallback to =s2048-rj but did not happen.",
+                assert "=s2048-rj" in image.url, (
+                    "Test failed: Expected fallback to =s2048-rj but did not happen."
                 )
 
     async def test_save_image_to_image(self):
@@ -70,7 +78,7 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             "Design an application icon based on the provided image. Make it simple and modern.",
             files=["assets/favicon.png"],
         )
-        self.assertTrue(response.images)
+        assert response.images
         for image in response.images:
             if isinstance(image, GeneratedImage):
                 await image.save(verbose=True, full_size=True)

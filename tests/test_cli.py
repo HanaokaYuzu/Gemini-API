@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import sys
@@ -5,12 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# Ensure the repo root is on sys.path so `cli` can be imported directly
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
+# Make the repo root (for `cli`) and the source tree importable without installing
+if (_root := str(Path(__file__).resolve().parent.parent)) not in sys.path:
+    sys.path.insert(0, _root)
+if (_src := str(Path(__file__).resolve().parent.parent / "src")) not in sys.path:
+    sys.path.insert(0, _src)
 
-from cli import build_parser  # noqa: E402
+from cli import build_parser
 
 
 @unittest.skipUnless(
@@ -30,10 +32,8 @@ class TestCLITool(unittest.IsolatedAsyncioTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(cls._cookie_path)
-        except OSError:
-            pass
 
     def _parse(self, *argv):
         parser = build_parser()
@@ -52,21 +52,28 @@ class TestCLITool(unittest.IsolatedAsyncioTestCase):
 
         args = self._parse("ask", "Give me a inspiring idea for web development")
         result = await cmd_ask(args)
-        self.assertEqual(result, 0)
+        assert result == 0
+
+    async def test_cli_models(self):
+        from cli import cmd_models
+
+        args = self._parse("models")
+        result = await cmd_models(args)
+        assert result == 0
 
     async def test_cli_list_chats(self):
         from cli import cmd_list
 
         args = self._parse("list")
         result = await cmd_list(args)
-        self.assertEqual(result, 0)
+        assert result == 0
 
     async def test_cli_inspect(self):
         from cli import cmd_inspect
 
         args = self._parse("inspect")
         result = await cmd_inspect(args)
-        self.assertEqual(result, 0)
+        assert result == 0
 
 
 if __name__ == "__main__":

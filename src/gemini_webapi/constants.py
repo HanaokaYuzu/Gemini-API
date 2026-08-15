@@ -1,28 +1,74 @@
 import re
 from enum import Enum, IntEnum, StrEnum
+from functools import cache
 
 import orjson as json
+from curl_cffi import CurlHttpVersion
+from curl_cffi.requests import BrowserTypeLiteral
+from loguru import logger
 
 STREAMING_FLAG_INDEX = 7
 GEM_FLAG_INDEX = 19
 TEMPORARY_CHAT_FLAG_INDEX = 45
 
-CARD_CONTENT_RE = re.compile(r"^http://googleusercontent\.com/card_content/\d+")
-ARTIFACTS_RE = re.compile(r"http://googleusercontent\.com/\w+/\d+\n*")
+
+class Field(IntEnum):
+    """Field numbers inside Gemini's JSPB arrays.
+
+    A JSPB array addresses each field by position and collects sparse high-numbered fields
+    into a dict in its final slot, keyed by the field number + 1 - so field 86 appears
+    either at index 86 or under key "87". `utils.get_field` resolves both, so every read
+    goes through it by number rather than quoting a bundle key.
+
+    Numbering is per container. These are the fields of a candidate's rich content block
+    `[12]`, except `CITATIONS`, which carries citation groups in every container that has
+    them: a grounded reply's rich content block, and `[17][1]` / `[5]` of a research
+    document.
+    """
+
+    WEB_IMAGES = 1
+    PROGRESS = 6
+    GENERATED_IMAGES = 7
+    CITATIONS = 43
+    RESEARCH_PLAN = 55
+    RESEARCH_PLAN_ALT = 56
+    VIDEO = 59
+    RESEARCH_PLAN_STATE = 69
+    MEDIA = 86
+
+
+BROWSER_TYPE: BrowserTypeLiteral = (
+    "chrome145"  # Default to chrome145 to avoid Device Bound Session Credentials
+)
+
+CARD_CONTENT_RE = re.compile(r"^https?://googleusercontent\.com/card_content/\d+")
+# Placeholder links Gemini leaves in reply text where a rendered attachment belongs. The
+# path can carry several segments - a web image search returns
+# `image_collection/image_retrieval/<id>` - which a single-segment pattern left behind.
+ARTIFACTS_RE = re.compile(r"https?://googleusercontent\.com/(?:\w+/)+\d+\n*")
+MODEL_PREFIX_RE = re.compile(r"^gemini-(?:\d+(?:\.\d+)?-)?")
 DEFAULT_METADATA = ["", "", "", None, None, None, None, None, None, ""]
 
 MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
+DEFAULT_LANGUAGE = "en"
+DEFAULT_PUSH_ID = "feeds/mcudyrk2a4khkz"
 
-def build_model_header(model_id: str, capacity_tail: str | int) -> dict[str, str]:
-    """
-    Builds the complete HTTP header dictionary required for model selection.
-    """
+# Gemini Flash Quota: Targeted at Gemini Flash & Flash Lite models
+GEMINI_FLASH_QUOTA_PAYLOAD = "[[[1,11],[2,11],[6,11]]]"
 
+# Gemini Advanced Quota: Targeted at Gemini Pro models & Extended Thinking level
+GEMINI_ADVANCED_QUOTA_PAYLOAD = "[[[1,4],[6,6],[1,15]]]"
+
+
+def build_model_header(
+    model_id: str, capacity_tail: str | int, model_number: int
+) -> dict[str, str]:
+    """Builds the complete HTTP header dictionary required for model selection."""
     return {
-        MODEL_HEADER_KEY: f'[1,null,null,null,"{model_id}",null,null,0,[4],null,null,{capacity_tail}]',
+        MODEL_HEADER_KEY: f'[1,null,null,null,"{model_id}",null,null,0,[4,5,6,8],null,null,{capacity_tail}, null,null,{model_number}]',
         "x-goog-ext-73010989-jspb": "[0]",
-        "x-goog-ext-73010990-jspb": "[0]",
+        "x-goog-ext-73010990-jspb": "[0,0,0]",
     }
 
 
@@ -36,107 +82,158 @@ class Endpoint(StrEnum):
 
 
 class GRPC(StrEnum):
-    """
-    Google RPC ids used in Gemini API.
-    """
+    """Google RPC ids used in Gemini API."""
 
-    # Chat methods
-    LIST_CHATS = "MaZiqc"
-    READ_CHAT = "hNvQHb"
-    DELETE_CHAT_1 = "GzXR5e"
-    DELETE_CHAT_2 = "qWymEb"
+    # Conversation methods
+    LIST_CONVERSATIONS = "MaZiqc"
+    LIST_CONVERSATION_TURNS = "hNvQHb"
+    GET_CONVERSATION_TURN = "EqPOKe"
+    DELETE_CONVERSATION = "GzXR5e"
+    UPDATE_CONVERSATION = "MUAZcd"
+    MARK_LAST_CONVERSATION_TURN = "kOWVAe"
+    GENERATE_HEADLINE = "ukz1Fe"
 
     # Gem methods
-    LIST_GEMS = "CNgdBe"
-    CREATE_GEM = "oMH3Zd"
-    UPDATE_GEM = "kHv0Vd"
-    DELETE_GEM = "UXcSJb"
+    LIST_BOTS = "CNgdBe"
+    CREATE_BOT = "oMH3Zd"
+    GET_BOT = "HcT8bb"
+    UPDATE_BOT_METADATA = "kHv0Vd"
+    DELETE_BOT = "UXcSJb"
+    DELETE_BOT_AND_CONVERSATIONS = "Nwkn9"
 
-    # Deep research methods
-    DEEP_RESEARCH_STATUS = "kwDCne"
-    DEEP_RESEARCH_PREFS = "L5adhe"
-    DEEP_RESEARCH_BOOTSTRAP = "ku4Jyf"
-    DEEP_RESEARCH_MODEL_STATE = "qpEbW"
-    DEEP_RESEARCH_CAPS = "aPya6c"
-    DEEP_RESEARCH_ACK = "PCck7e"
+    # Task & Research methods
+    CREATE_TASK = "Jba3ib"
+    GET_TASK = "kwDCne"
+    GET_ALL_TASKS = "XPSWpd"
+    GET_TASKS_IN_CONVERSATION = "qWymEb"
+    GET_CANDIDATES = "PCck7e"
+    LIST_DISCOVERY_CARDS = "ku4Jyf"
+    GET_DISCOVERY_CARD = "oApPWc"
+    LIST_DISCOVERY_BANNERS = "Te6DCf"
 
+    # Artifact methods
+    LIST_GEMINI_APP_ARTIFACTS = "jGArJ"
+    DELETE_GEMINI_APP_ARTIFACTS = "PGX16d"
+
+    # Memory methods
+    LIST_MEMORIES = "ZKcapf"
+    CREATE_MEMORY = "xVRQX"
+    UPDATE_MEMORY = "gSnMcd"
+    DELETE_MEMORY = "Ok9j9b"
+    DELETE_ALL_MEMORIES = "YgU2Cc"
+
+    # User & System methods
     GET_USER_STATUS = "otAQ7b"
+    CHECK_GEMINI_QUOTA = "qpEbW"
+    CHECK_QUOTA = "aPya6c"
+    DOWNLOAD_GENERATED_IMAGE = "c8o8Fe"
+    GET_ABUSE_STATUS = "GPRiHf"
+    UPDATE_USER_PREFERENCES = "L5adhe"
+    READ_USER_PREFERENCES = "ESY5D"
+    CONTINUE_SHARED_CONVERSATION = "ra9Swb"
+    GET_USAGE_INFO = "jSf9Qc"
 
-    LIST_MODELS = "otAQ7b"
 
-    GET_FULL_SIZE_IMAGE = "c8o8Fe"
-
-    BARD_SETTINGS = "ESY5D"
+# Header sets are built here rather than inline in `Headers` so that every enum
+# member is a plain reference, keeping them recognizable as members to linters
+_REFERER_HEADERS = {
+    "Origin": "https://gemini.google.com",
+    "Referer": "https://gemini.google.com/",
+}
+_SAME_DOMAIN_HEADERS = {
+    "X-Same-Domain": "1",
+}
+_GEMINI_HEADERS = {
+    "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+    **_REFERER_HEADERS,
+}
+_ROTATE_COOKIES_HEADERS = {
+    "Content-Type": "application/json",
+    "Origin": "https://accounts.google.com",
+}
+_UPLOAD_HEADERS = {"X-Tenant-Id": "bard-storage"}
+_BATCH_EXEC_HEADERS = {
+    MODEL_HEADER_KEY: "[1,null,null,null,null,null,null,null,[4,5,6,8],null,null,null,null,null,null,null]",
+    "x-goog-ext-73010989-jspb": "[0]",
+}
 
 
 class Headers(Enum):
-    REFERER = {
-        "Origin": "https://gemini.google.com",
-        "Referer": "https://gemini.google.com/",
-    }
-    SAME_DOMAIN = {
-        "X-Same-Domain": "1",
-    }
-    GEMINI = {
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-        **REFERER,
-    }
-    ROTATE_COOKIES = {
-        "Content-Type": "application/json",
-        "Origin": "https://accounts.google.com",
-    }
-    UPLOAD = {"X-Tenant-Id": "bard-storage"}
-    BATCH_EXEC = {
-        "x-goog-ext-525001261-jspb": "[1,null,null,null,null,null,null,null,[4]]",
-        "x-goog-ext-73010989-jspb": "[0]",
-    }
+    REFERER = _REFERER_HEADERS
+    SAME_DOMAIN = _SAME_DOMAIN_HEADERS
+    GEMINI = _GEMINI_HEADERS
+    ROTATE_COOKIES = _ROTATE_COOKIES_HEADERS
+    UPLOAD = _UPLOAD_HEADERS
+    BATCH_EXEC = _BATCH_EXEC_HEADERS
+
+
+@cache
+def warn_deprecated_model(usage: str) -> None:
+    """Log the :class:`Model` deprecation, once per call site."""
+    logger.warning(
+        f"{usage} relies on the deprecated `Model` enum, which will be removed. Pass a model name "
+        "string instead: models are discovered per account at runtime, so the values hardcoded "
+        "here go stale whenever Google renames, renumbers or retiers a model."
+    )
 
 
 class Model(Enum):
+    """Deprecated, pending removal. Pass a model name string, or an :class:`AvailableModel`.
+
+    Model identity is discovered per account at initialization, which keeps names, ids and tier
+    capacity current without a library release. These members cannot: their ids go stale, and the
+    `PLUS_`/`ADVANCED_` variants ask the caller to know their own account tier - the same value
+    :meth:`gemini_webapi.types.AvailableModel.compute_capacity` reads from the account itself.
+
+    Nothing in this library resolves models through the enum. A member passed to
+    `generate_content` is still mapped onto the account's equivalent model, with a warning; that
+    compatibility shim is all that remains.
+    """
+
     UNSPECIFIED = ("unspecified", {}, False)
     BASIC_PRO = (
-        "gemini-3-pro",
-        build_model_header("9d8ca3786ebdfbea", 1),
+        "gemini-pro",
+        build_model_header("9d8ca3786ebdfbea", 1, 3),
         False,
     )
     BASIC_FLASH = (
-        "gemini-3-flash",
-        build_model_header("fbb127bbb056c959", 1),
+        "gemini-flash",
+        build_model_header("fbb127bbb056c959", 1, 1),
         False,
     )
-    BASIC_THINKING = (
-        "gemini-3-flash-thinking",
-        build_model_header("5bf011840784117a", 1),
+    BASIC_LITE = (
+        "gemini-flash-lite",
+        build_model_header("cf41b0e0dd7d53e5", 1, 6),
         False,
     )
     PLUS_PRO = (
-        "gemini-3-pro-plus",
-        build_model_header("e6fa609c3fa255c0", 4),
+        "gemini-pro-plus",
+        build_model_header("e6fa609c3fa255c0", 4, 3),
         True,
     )
     PLUS_FLASH = (
-        "gemini-3-flash-plus",
-        build_model_header("56fdd199312815e2", 4),
+        "gemini-flash-plus",
+        build_model_header("56fdd199312815e2", 4, 1),
         True,
     )
-    PLUS_THINKING = (
-        "gemini-3-flash-thinking-plus",
-        build_model_header("e051ce1aa80aa576", 4),
+    PLUS_LITE = (
+        "gemini-flash-lite-plus",
+        build_model_header("8c46e95b1a07cecc", 4, 6),
         True,
     )
     ADVANCED_PRO = (
-        "gemini-3-pro-advanced",
-        build_model_header("e6fa609c3fa255c0", 2),
+        "gemini-pro-advanced",
+        build_model_header("e6fa609c3fa255c0", 2, 3),
         True,
     )
     ADVANCED_FLASH = (
-        "gemini-3-flash-advanced",
-        build_model_header("56fdd199312815e2", 2),
+        "gemini-flash-advanced",
+        build_model_header("56fdd199312815e2", 2, 1),
         True,
     )
-    ADVANCED_THINKING = (
-        "gemini-3-flash-thinking-advanced",
-        build_model_header("e051ce1aa80aa576", 2),
+    ADVANCED_LITE = (
+        "gemini-flash-lite-advanced",
+        build_model_header("8c46e95b1a07cecc", 2, 6),
         True,
     )
 
@@ -147,10 +244,7 @@ class Model(Enum):
 
     @property
     def model_id(self) -> str:
-        """
-        Extract the internal model_id from the model_header.
-        """
-
+        """Extract the internal model_id from the model_header."""
         header_value = self.model_header.get(MODEL_HEADER_KEY)
         if not header_value:
             return ""
@@ -163,38 +257,11 @@ class Model(Enum):
         except json.JSONDecodeError:
             return ""
 
-    @classmethod
-    def from_name(cls, name: str) -> "Model":
-        for model in cls:
-            if model.model_name == name:
-                return model
-
-        raise ValueError(
-            f"Unknown model name: {name}. Available models: {', '.join([model.model_name for model in cls])}"
-        )
-
-    @classmethod
-    def from_dict(cls, model_dict: dict) -> "Model":
-        if "model_name" not in model_dict or "model_header" not in model_dict:
-            raise ValueError(
-                "When passing a custom model as a dictionary, 'model_name' and 'model_header' keys must be provided."
-            )
-
-        if not isinstance(model_dict["model_header"], dict):
-            raise ValueError(
-                "When passing a custom model as a dictionary, 'model_header' must be a dictionary containing valid header strings."
-            )
-
-        custom_model = cls.UNSPECIFIED
-        custom_model.model_name = model_dict["model_name"]
-        custom_model.model_header = model_dict["model_header"]
-        return custom_model
-
 
 class AccountStatus(IntEnum):
-    """
-    Numeric status codes returned by the GetUserStatus RPC and their descriptions.
-    """
+    """Numeric status codes returned by the GetUserStatus RPC and their descriptions."""
+
+    description: str  # Second element of each member value, assigned in __new__
 
     AVAILABLE = 1000, "Account is authorized and has normal access."
 
@@ -251,8 +318,7 @@ class AccountStatus(IntEnum):
 
     @classmethod
     def from_status_code(cls, status_code: int | None) -> "AccountStatus":
-        """
-        Map numeric account status codes to AccountStatus enum members.
+        """Map numeric account status codes to AccountStatus enum members.
 
         Parameters
         ----------
@@ -263,8 +329,8 @@ class AccountStatus(IntEnum):
         -------
         `AccountStatus`
              The mapped AccountStatus enum member.
-        """
 
+        """
         if status_code is None or status_code == 1000:
             return cls.AVAILABLE
 
@@ -275,12 +341,20 @@ class AccountStatus(IntEnum):
 
 
 class ErrorCode(IntEnum):
-    """
-    Known error codes returned from server.
-    """
+    """Known error codes returned from server."""
 
-    TEMPORARY_ERROR_1013 = 1013  # Randomly raised when generating with certain models, but disappears soon after
+    TEMPORARY_ERROR_1013 = (
+        1013  # Randomly raised when generating with certain models, but disappears soon after
+    )
     USAGE_LIMIT_EXCEEDED = 1037
     MODEL_INCONSISTENT = 1050
     MODEL_HEADER_INVALID = 1052
     IP_TEMPORARILY_BLOCKED = 1060
+
+
+def format_http_version(version_int: int) -> str:
+    """Format the raw HTTP version integer from curl_cffi into a human-readable string."""
+    try:
+        return CurlHttpVersion(version_int).name
+    except ValueError:
+        return str(version_int)
