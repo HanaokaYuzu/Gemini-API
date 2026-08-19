@@ -84,17 +84,29 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
 >
 > This package requires Python 3.11 or higher.
 
-Install or update the package with pip.
+Install or update the package with [`uv`](https://docs.astral.sh/uv/):
+
+```sh
+uv tool install gemini-webapi
+```
+
+To also enable automatic cookie import from your local browser, install the `browser` extra:
+
+```sh
+uv tool install gemini-webapi --with browser-cookie3
+```
+
+You can still install with `pip` if you prefer:
 
 ```sh
 pip install -U gemini_webapi
 ```
 
-Optionally, the package offers a way to automatically import cookies from your local browser via optional dependency `browser-cookie3`. To enable this feature, install `gemini_webapi[browser]` instead. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
-
 ```sh
 pip install -U gemini_webapi[browser]
 ```
+
+Supported platforms and browsers for `browser-cookie3` can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
 
 ## Authentication
 
@@ -756,7 +768,23 @@ set_log_level("DEBUG")
 
 ## CLI Tool
 
-A standalone CLI (`cli.py`) is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics.
+A standalone CLI is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics.
+
+### Installation
+
+Install the package as a command-line tool with [`uv`](https://docs.astral.sh/uv/):
+
+```sh
+uv tool install gemini-webapi
+```
+
+Or install from a local clone:
+
+```sh
+uv tool install .
+```
+
+This adds the `gemini-webapi` command to your `PATH`. If you are running from a source checkout without installing, you can still use `python cli.py`.
 
 ### Cookie Setup
 
@@ -789,31 +817,31 @@ You can also use a browser cookie extension export (array-of-objects format is s
 
 ```sh
 # Ask a single question (streams by default)
-python cli.py --cookies-json cookies.json ask "What is quantum computing?"
+gemini-webapi --cookies-json cookies.json ask "What is quantum computing?"
 
 # Ask with image input
-python cli.py --cookies-json cookies.json ask --image photo.jpg "Describe this"
+gemini-webapi --cookies-json cookies.json ask --image photo.jpg "Describe this"
 
 # Non-streaming mode
-python cli.py --cookies-json cookies.json ask --no-stream "Hello"
+gemini-webapi --cookies-json cookies.json ask --no-stream "Hello"
 
 # Continue a conversation (chat ID from previous output)
-python cli.py --cookies-json cookies.json reply c_abc123 "Tell me more"
+gemini-webapi --cookies-json cookies.json reply c_abc123 "Tell me more"
 
 # List your chat history
-python cli.py --cookies-json cookies.json list
+gemini-webapi --cookies-json cookies.json list
 
 # Read a specific chat conversation
-python cli.py --cookies-json cookies.json read c_abc123
+gemini-webapi --cookies-json cookies.json read c_abc123
 
 # List the models your account can use
-python cli.py --cookies-json cookies.json models
+gemini-webapi --cookies-json cookies.json models
 
 # Download a generated image
-python cli.py --cookies-json cookies.json download "https://..." -o output.png
+gemini-webapi --cookies-json cookies.json download "https://..." -o output.png
 
 # Account diagnostics (status, quotas, usage limits, available models)
-python cli.py --cookies-json cookies.json inspect
+gemini-webapi --cookies-json cookies.json inspect
 ```
 
 ### Deep Research Workflow
@@ -822,17 +850,17 @@ The CLI supports Gemini's Deep Research feature — an autonomous research agent
 
 ```sh
 # 1. Submit a research task. Prints both a chat ID and a research (task) ID
-python cli.py --cookies-json cookies.json research send --prompt "AI chip competition 2025"
+gemini-webapi --cookies-json cookies.json research send --prompt "AI chip competition 2025"
 
 # 2. Check progress. Pass --research-id for the actual task state - without it the chat
 #    cannot be told apart from the plan and confirmation replies, which arrive immediately
-python cli.py --cookies-json cookies.json research check c_abc123 --research-id 0f3d...
+gemini-webapi --cookies-json cookies.json research check c_abc123 --research-id 0f3d...
 
 # 3. Fetch the full result
-python cli.py --cookies-json cookies.json research get c_abc123
+gemini-webapi --cookies-json cookies.json research get c_abc123
 
 # 4. Save result to a file
-python cli.py --cookies-json cookies.json research get c_abc123 --output report.md
+gemini-webapi --cookies-json cookies.json research get c_abc123 --output report.md
 ```
 
 ## References
