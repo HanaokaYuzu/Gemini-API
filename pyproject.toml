@@ -34,6 +34,9 @@ dev = [
   "gemini-webapi[browser,dev]", # browser extra keeps the optional import type-checkable
 ]
 
+[project.scripts]
+gemini-webapi = "gemini_webapi.cli:main"
+
 [project.urls]
 Repository = "https://github.com/HanaokaYuzu/Gemini-API"
 Issues = "https://github.com/HanaokaYuzu/Gemini-API/issues"

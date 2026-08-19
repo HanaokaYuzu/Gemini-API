@@ -12,7 +12,7 @@ if (_root := str(Path(__file__).resolve().parent.parent)) not in sys.path:
 if (_src := str(Path(__file__).resolve().parent.parent / "src")) not in sys.path:
     sys.path.insert(0, _src)
 
-from cli import build_parser
+from gemini_webapi.cli import build_parser
 
 
 @unittest.skipUnless(
@@ -48,28 +48,28 @@ class TestCLITool(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_cli_ask_stream(self):
-        from cli import cmd_ask
+        from gemini_webapi.cli import cmd_ask
 
         args = self._parse("ask", "Give me a inspiring idea for web development")
         result = await cmd_ask(args)
         assert result == 0
 
     async def test_cli_models(self):
-        from cli import cmd_models
+        from gemini_webapi.cli import cmd_models
 
         args = self._parse("models")
         result = await cmd_models(args)
         assert result == 0
 
     async def test_cli_list_chats(self):
-        from cli import cmd_list
+        from gemini_webapi.cli import cmd_list
 
         args = self._parse("list")
         result = await cmd_list(args)
         assert result == 0
 
     async def test_cli_inspect(self):
-        from cli import cmd_inspect
+        from gemini_webapi.cli import cmd_inspect
 
         args = self._parse("inspect")
         result = await cmd_inspect(args)
