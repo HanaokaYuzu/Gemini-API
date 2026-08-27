@@ -345,6 +345,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                 logger.success("Gemini client initialized successfully.")
             except Exception:
+                self._running = False
                 await self.close()
                 raise
 
@@ -365,6 +366,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 f"triggered client closing."
             )
 
+        was_running = self._running
         self._running = False
 
         if self.close_task:
@@ -383,6 +385,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             self._cookies.update(self.client.cookies)
             await self.client.close()
             self.client = None
+
+        # Only save cookies if the client was running and successfully initialized.
+        # When init() fails (e.g. network/DNS error), self._cookies only contains uninitialized
+        # or initial base cookies, which must never overwrite existing valid cache files.
+        if not was_running:
+            return
 
         # Cached cookies are tried ahead of the ones the caller supplies, so caching an
         # unauthenticated session would restore an entry just cleared as stale, or create
