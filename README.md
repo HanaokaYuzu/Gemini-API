@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD033 MD041 -->
+
 <p align="center">
     <img src="https://raw.githubusercontent.com/HanaokaYuzu/Gemini-API/master/assets/banner.png" width="55%" alt="Gemini Banner" align="center">
 </p>
@@ -90,7 +92,7 @@ Install or update the package with pip.
 pip install -U gemini_webapi
 ```
 
-Optionally, the package offers a way to automatically import cookies from your local browser via optional dependency `browser-cookie3`. To enable this feature, install `gemini_webapi[browser]` instead. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
+Optionally, the package offers a way to automatically import cookies from your local browser via optional dependency `browser-cookie3`. To enable this feature, install `gemini_webapi[browser]` instead. Currently, only Firefox is supported. The latest information about supported browsers can be found in the [browser-cookie3](https://github.com/borisbabic/browser_cookie3) repository.
 
 ```sh
 pip install -U gemini_webapi[browser]
@@ -127,7 +129,13 @@ services:
 >
 > This feature may require you to log in to your Google account again in the browser. This is expected behavior and won't affect the API's functionality.
 >
-> To avoid this, it's recommended to get cookies from a separate browser session and close it as soon as possible for best utilization (e.g. a fresh login in the browser's private mode). More details can be found [here](https://github.com/HanaokaYuzu/Gemini-API/issues/6).
+> To avoid this, it's recommended to get cookies from a separate browser session and close it as soon as possible for best utilization (e.g. a fresh login in the browser's private mode). More details can be found [in issue #6](https://github.com/HanaokaYuzu/Gemini-API/issues/6).
+
+<!-- markdownlint-disable-line MD028 -->
+
+> [!TIP]
+>
+> If cookies expire frequently, use Firefox to extract cookies. Recent versions of Chromium-based browsers use "Device Bound Session Credentials", which improves security but causes cookies to remain valid for only a few hours and prevents them from being renewed.
 
 ## Usage
 
@@ -624,7 +632,7 @@ asyncio.run(main())
 
 > [!NOTE]
 >
-> For region availability, your Google account's **preferred language** only needs to be set to one of the three supported languages listed above. You can change your language settings [here](https://myaccount.google.com/language).
+> For region availability, your Google account's **preferred language** only needs to be set to one of the three supported languages listed above. You can change your language settings [in your Google account settings](https://myaccount.google.com/language).
 
 ### Check and Switch to Other Reply Candidates
 
@@ -658,7 +666,7 @@ Gemini's deep research feature is an autonomous research agent that browses the 
 
 Under the hood this is an ordinary chat conversation: Gemini answers the first turn with a **plan**, and a second turn **confirms** it and starts the research. The task then runs server-side, detached from the session, so polling for the report does not require holding the conversation open.
 
-The finished report is delivered as an **inline document**, not as reply text — the reply itself is only a short notice such as *"I've completed your research"*. `result.text` returns the report, and `result.document` exposes it with its id and title:
+The finished report is delivered as an **inline document**, not as reply text — the reply itself is only a short notice such as _"I've completed your research"_. `result.text` returns the report, and `result.document` exposes it with its id and title:
 
 ```python
 result = await client.deep_research("...")

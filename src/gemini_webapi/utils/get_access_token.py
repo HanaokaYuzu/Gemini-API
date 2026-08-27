@@ -5,10 +5,26 @@ from typing import NamedTuple
 
 import orjson as json
 from curl_cffi import CurlFollow, CurlHttpVersion
+from curl_cffi.curl import CurlError
 from curl_cffi.requests import AsyncSession, BrowserTypeLiteral, Cookies, Response
+from curl_cffi.requests.exceptions import (
+    ConnectionError as CurlConnectionError,
+)
+from curl_cffi.requests.exceptions import (
+    HTTPError,
+)
+from curl_cffi.requests.exceptions import (
+    Timeout as CurlTimeout,
+)
 
 from gemini_webapi.constants import BROWSER_TYPE, Endpoint, Headers, format_http_version
-from gemini_webapi.exceptions import AuthError
+from gemini_webapi.exceptions import (
+    AuthError,
+    TemporarilyBlockedError,
+)
+from gemini_webapi.exceptions import (
+    TimeoutError as GeminiTimeoutError,
+)
 
 from .load_browser_cookies import HAS_BC3, load_browser_cookies
 from .logger import logger
@@ -249,7 +265,15 @@ async def get_access_token(
     Raises
     ------
     `gemini_webapi.AuthError`
-        If all requests failed.
+        If all candidate cookie groups failed authentication or yielded no valid init tokens.
+    `gemini_webapi.TimeoutError`
+        If a request timed out during initialization.
+    `gemini_webapi.TemporarilyBlockedError`
+        If the client's IP is rate-limited (HTTP 429).
+    `curl_cffi.requests.exceptions.HTTPError`
+        If Google Gemini returned an unexpected 5xx server error.
+    `curl_cffi.requests.exceptions.CurlError`
+        If a network or transport connection failure occurred.
 
     """
     client = AsyncSession(
@@ -380,9 +404,37 @@ async def get_access_token(
                         logger.debug(
                             f"Init attempt ({attempts}) from {group_name} returned no init values."
                         )
-                except Exception:
+                except HTTPError as e:
+                    status = e.response.status_code if e.response else None
+                    if status == 429:
+                        raise TemporarilyBlockedError(
+                            "Your IP address has been temporarily flagged or blocked by Google (HTTP 429). "
+                            "Please try using a proxy, a different network, or wait for a while before retrying."
+                        ) from e
+                    if status and status >= 500:
+                        if verbose:
+                            logger.warning(
+                                f"Init attempt ({attempts}) from {group_name} failed due to Google server error (HTTP {status})."
+                            )
+                        raise
                     if verbose:
-                        logger.debug(f"Init attempt ({attempts}) from {group_name} failed.")
+                        logger.debug(
+                            f"Init attempt ({attempts}) from {group_name} failed (HTTP {status})."
+                        )
+                except (CurlTimeout, TimeoutError) as e:
+                    if verbose:
+                        logger.warning(
+                            f"Init attempt ({attempts}) from {group_name} timed out: {e}"
+                        )
+                    raise GeminiTimeoutError(
+                        f"Request timed out while connecting to {Endpoint.INIT}: {e}"
+                    ) from e
+                except (CurlConnectionError, CurlError, OSError) as e:
+                    if verbose:
+                        logger.warning(
+                            f"Init attempt ({attempts}) from {group_name} failed due to network error: {e}"
+                        )
+                    raise
 
             return None
 
@@ -404,12 +456,21 @@ async def get_access_token(
             preflight_cookies = (
                 Cookies(client.cookies) if response.status_code == 200 else Cookies()
             )
-        except Exception:
+        except (CurlTimeout, TimeoutError) as e:
+            raise GeminiTimeoutError(
+                f"Request timed out while connecting to {Endpoint.GOOGLE}: {e}"
+            ) from e
+        except (CurlConnectionError, CurlError, OSError) as e:
+            if not isinstance(e, HTTPError):
+                raise
+            logger.warning(f"Preflight request to google.com failed: {e}")
+            preflight_cookies = Cookies()
+        except Exception as e:
             if not cookie_jars_to_test:
-                # Nothing else to fall back on, surface the underlying network error
+                # Nothing else to fall back on, surface the underlying error
                 raise
 
-            logger.warning("Preflight request to google.com failed.")
+            logger.warning(f"Preflight request to google.com failed: {e}")
             preflight_cookies = Cookies()
 
         if _jar_signature(preflight_cookies):
