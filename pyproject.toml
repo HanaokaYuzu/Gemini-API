@@ -20,7 +20,7 @@ requires-python = ">=3.11"
 dependencies = [
   "curl-cffi~=0.16.2",
   "loguru~=0.7.3",
-  "orjson~=3.11.9",
+  "orjson>=3.11.9,<3.13.0",
   "pydantic~=2.12.5",
 ]
 dynamic = ["version"]
