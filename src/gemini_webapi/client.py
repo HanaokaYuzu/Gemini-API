@@ -23,6 +23,8 @@ from .constants import (
     ARTIFACTS_RE,
     BROWSER_TYPE,
     CARD_CONTENT_RE,
+    COOKIE_1PSID,
+    COOKIE_1PSIDTS,
     DEFAULT_LANGUAGE,
     DEFAULT_METADATA,
     DEFAULT_PUSH_ID,
@@ -72,6 +74,7 @@ from .utils import (
     StreamingFrameParser,
     clear_cookies_cache,
     extract_citations,
+    extract_cookie_value,
     extract_deep_research_document,
     extract_deep_research_plan,
     extract_json_from_response,
@@ -115,6 +118,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
     __slots__ = [
         "_abuse_status",
+        "_base_psid",
         "_cookie_source",
         "_cookies",
         "_gems",  # From GemMixin
@@ -188,13 +192,12 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self._quotas: dict[str, dict] = {}
         self._usage_info: dict[str, Any] = {}
         self.kwargs = kwargs
+        self._base_psid: str | None = secure_1psid
 
         if secure_1psid:
-            self._cookies.set("__Secure-1PSID", secure_1psid, domain=".google.com", secure=True)
+            self._cookies.set(COOKIE_1PSID, secure_1psid, domain=".google.com", secure=True)
             if secure_1psidts:
-                self._cookies.set(
-                    "__Secure-1PSIDTS", secure_1psidts, domain=".google.com", secure=True
-                )
+                self._cookies.set(COOKIE_1PSIDTS, secure_1psidts, domain=".google.com", secure=True)
 
     @property
     def quotas(self) -> dict[str, dict]:
@@ -309,6 +312,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 self.client = init_session.client
                 self._cookie_source = init_session.cookie_source
                 self._cookies.update(self.client.cookies)
+                if not self._base_psid and self._cookies:
+                    self._base_psid = extract_cookie_value(self._cookies, COOKIE_1PSID)
                 self.access_token = init_session.access_token
                 self.build_label = init_session.build_label
                 self.session_id = init_session.session_id
@@ -399,8 +404,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             logger.debug("Skipping cookie cache write: the session is not authenticated.")
             return
 
+        current_psid = extract_cookie_value(self._cookies, COOKIE_1PSID)
+        if not self._base_psid and not current_psid:
+            logger.debug("Skipping cookie cache write: __Secure-1PSID not found.")
+            return
+
         try:
-            save_cookies(self._cookies, self.verbose)
+            save_cookies(self._cookies, base_psid=self._base_psid, verbose=self.verbose)
         except OSError as e:
             logger.warning(f"Failed to save cookies to cache file: {e}")
 
@@ -468,7 +478,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             try:
                 async with self._lock:
                     # Refresh all cookies in the background to keep the session alive.
-                    new_1psidts = await rotate_1psidts(self._live_client, self.verbose)
+                    new_1psidts = await rotate_1psidts(
+                        self._live_client, base_psid=self._base_psid, verbose=self.verbose
+                    )
 
                     if not new_1psidts:
                         logger.warning(
@@ -568,11 +580,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     # they yield a token - which an unauthenticated session also does. Only
                     # the cache is dropped, and only when it produced this session: it also
                     # holds rotated cookies, often the freshest credentials the client has.
-                    logger.debug(
-                        "Cached cookies produced an unauthenticated session; clearing them "
-                        "so the next attempt can fall through to the supplied credentials."
+                    logger.warning(
+                        "Session is unauthenticated with cached cookies (running in guest mode). "
+                        "The cached cookies may have expired or been revoked. Please check your cookies."
                     )
-                    clear_cookies_cache(self.cookies, self.verbose)
+                    clear_cookies_cache(
+                        self.cookies, base_psid=self._base_psid, verbose=self.verbose
+                    )
                 if self.account_status in [
                     AccountStatus.LOCATION_REJECTED,
                     AccountStatus.ACCOUNT_REJECTED,
@@ -1546,7 +1560,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     if response.status_code != 200:
                         await self.close()
                         raise APIError(
-                            f"Failed to generate contents. Status: {response.status_code}"
+                            f"Failed to generate contents. Status: {response.status_code}",
+                            status_code=response.status_code,
+                            response=response,
                         )
 
                     stream_parser = StreamingFrameParser()
@@ -2351,7 +2367,11 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if response.status_code != 200:
             if close_on_error:
                 await self.close()
-            raise APIError(f"Batch execution failed with status code {response.status_code}")
+            raise APIError(
+                f"Batch execution failed with status code {response.status_code}",
+                status_code=response.status_code,
+                response=response,
+            )
 
         return response
 
