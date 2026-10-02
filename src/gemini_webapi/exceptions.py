@@ -28,3 +28,7 @@ class ModelInvalidError(GeminiError):
 
 class TemporarilyBlockedError(GeminiError):
     """Exception for 429 Too Many Requests when IP is temporarily blocked."""
+
+
+class AttestationError(Exception):
+    """Non-retryable failure to obtain valid request attestation."""
