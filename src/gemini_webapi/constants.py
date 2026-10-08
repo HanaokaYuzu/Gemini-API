@@ -54,6 +54,11 @@ MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 DEFAULT_LANGUAGE = "en"
 DEFAULT_PUSH_ID = "feeds/mcudyrk2a4khkz"
 
+COOKIE_CACHE_PREFIX = ".cached_cookies_"
+COOKIE_CACHE_EXTENSION = ".json"
+COOKIE_1PSID = "__Secure-1PSID"
+COOKIE_1PSIDTS = "__Secure-1PSIDTS"
+
 # Gemini Flash Quota: Targeted at Gemini Flash & Flash Lite models
 GEMINI_FLASH_QUOTA_PAYLOAD = "[[[1,11],[2,11],[6,11]]]"
 

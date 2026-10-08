@@ -17,7 +17,16 @@ from curl_cffi.requests.exceptions import (
     Timeout as CurlTimeout,
 )
 
-from gemini_webapi.constants import BROWSER_TYPE, Endpoint, Headers, format_http_version
+from gemini_webapi.constants import (
+    BROWSER_TYPE,
+    COOKIE_1PSID,
+    COOKIE_1PSIDTS,
+    COOKIE_CACHE_EXTENSION,
+    COOKIE_CACHE_PREFIX,
+    Endpoint,
+    Headers,
+    format_http_version,
+)
 from gemini_webapi.exceptions import (
     AuthError,
     TemporarilyBlockedError,
@@ -26,12 +35,17 @@ from gemini_webapi.exceptions import (
     TimeoutError as GeminiTimeoutError,
 )
 
+from .decorators import (
+    execute_with_retry,
+    is_transient_network_error,
+)
 from .load_browser_cookies import HAS_BC3, load_browser_cookies
 from .logger import logger
 from .rotate_1psidts import (
-    _extract_cookie_value,
-    _get_cookie_cache_dir,
-    _get_cookies_cache_path,
+    extract_cookie_value,
+    get_cookie_cache_dir,
+    get_cookies_cache_path,
+    migrate_legacy_cache,
 )
 
 
@@ -135,6 +149,13 @@ def _load_cached_jar(
     except Exception as e:
         logger.warning(f"Failed to parse cached cookies as JSON: {e}")
         return None
+
+    if isinstance(cookies_data, dict):
+        if "cookies" in cookies_data and isinstance(cookies_data["cookies"], list):
+            cookies_data = cookies_data["cookies"]
+        else:
+            logger.warning("Failed to load cached cookies: unexpected cache file format.")
+            return None
 
     if not isinstance(cookies_data, list):
         logger.warning("Failed to load cached cookies: unexpected cache file format.")
@@ -290,37 +311,48 @@ async def get_access_token(
         tried_sessions: dict[str, set[str]] = {}
 
         base_jar = _to_jar(base_cookies)
-        base_psid = _extract_cookie_value(base_jar, "__Secure-1PSID")
-        base_psidts = _extract_cookie_value(base_jar, "__Secure-1PSIDTS")
+        base_psid = extract_cookie_value(base_jar, COOKIE_1PSID)
 
         def register(jar: Cookies, group_name: str, psid: str | None) -> None:
             cookie_jars_to_test.append((jar, group_name))
             if psid:
-                psidts = _extract_cookie_value(jar, "__Secure-1PSIDTS") or ""
+                psidts = extract_cookie_value(jar, COOKIE_1PSIDTS) or ""
                 tried_sessions.setdefault(psid, set()).add(psidts)
 
         # Cached cookies come first: they hold the most recently rotated __Secure-1PSIDTS
         if base_psid:
             probe = Cookies()
-            probe.set("__Secure-1PSID", base_psid, domain=_COOKIE_DOMAIN, secure=True)
-            cache_file = _get_cookies_cache_path(probe)
+            probe.set(COOKIE_1PSID, base_psid, domain=_COOKIE_DOMAIN, secure=True)
+            cache_file = get_cookies_cache_path(probe, base_psid=base_psid, verbose=verbose)
 
             if cache_file and cache_file.is_file():
-                if (jar := _load_cached_jar(cache_file, base_jar, verbose)) is not None:
+                if (
+                    jar := _load_cached_jar(cache_file, jar=base_jar, verbose=verbose)
+                ) is not None:
                     register(jar, "Cache", base_psid)
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file not found.")
-        elif cache_files := list(_get_cookie_cache_dir().glob(".cached_cookies_*.json")):
+        elif cache_files := list(
+            get_cookie_cache_dir().glob(f"{COOKIE_CACHE_PREFIX}*{COOKIE_CACHE_EXTENSION}")
+        ):
             cache_file = max(cache_files, key=lambda p: p.stat().st_mtime)
             if (jar := _load_cached_jar(cache_file, verbose=verbose)) is not None:
-                register(jar, "Cache (Latest)", cache_file.stem[16:])
+                psid = extract_cookie_value(jar, COOKIE_1PSID)
+                if (
+                    psid
+                    and cache_file.name == f"{COOKIE_CACHE_PREFIX}{psid}{COOKIE_CACHE_EXTENSION}"
+                ):
+                    cache_file = (
+                        migrate_legacy_cache(cache_file, psid, verbose=verbose) or cache_file
+                    )
+                alias = cache_file.name.removeprefix(COOKIE_CACHE_PREFIX).removesuffix(
+                    COOKIE_CACHE_EXTENSION
+                )
+                register(jar, "Cache (Latest)", alias)
 
-        # User provided cookies, skipped if the cache already covers the same session
+        # User provided cookies, registered as candidate group to try or fall back on if Cache fails
         if base_psid:
-            if (base_psidts or "") not in tried_sessions.get(base_psid, set()):
-                register(Cookies(base_jar), "Base Cookies", base_psid)
-            elif verbose:
-                logger.debug("Skipping base cookies as they match cached cookies.")
+            register(Cookies(base_jar), "Base Cookies", base_psid)
         elif verbose and not cookie_jars_to_test:
             logger.debug("Skipping loading base cookies. __Secure-1PSID is not provided.")
 
@@ -329,8 +361,8 @@ async def get_access_token(
             if browser_cookies := load_browser_cookies(domain_name=_DOMAIN_NAME, verbose=verbose):
                 for browser, cookie_list in browser_cookies.items():
                     temp_cookies = {c["name"]: c["value"] for c in cookie_list}
-                    secure_1psid = temp_cookies.get("__Secure-1PSID")
-                    secure_1psidts = temp_cookies.get("__Secure-1PSIDTS", "")
+                    secure_1psid = temp_cookies.get(COOKIE_1PSID)
+                    secure_1psidts = temp_cookies.get(COOKIE_1PSIDTS, "")
 
                     if not secure_1psid:
                         continue
@@ -350,8 +382,8 @@ async def get_access_token(
                     for cookie in cookie_list:
                         # Load only __Secure-1PSID and __Secure-1PSIDTS to prevent HTTP 401 errors when rotating cookies.
                         if cookie["name"] not in [
-                            "__Secure-1PSID",
-                            "__Secure-1PSIDTS",
+                            COOKIE_1PSID,
+                            COOKIE_1PSIDTS,
                         ]:
                             continue
 
@@ -394,9 +426,41 @@ async def get_access_token(
                 tried_jars.add(signature)
 
                 attempts += 1
+
+                async def _send(target_jar: Cookies = jar) -> Response:
+                    return await _send_request(client, target_jar, verbose=verbose)
+
+                def _on_retry(
+                    e: Exception,
+                    attempt: int,
+                    delay: float,
+                    curr_attempt: int = attempts,
+                    curr_group: str = group_name,
+                ) -> None:
+                    if verbose:
+                        logger.warning(
+                            f"Transient network error on init attempt ({curr_attempt}) from {curr_group}: {e}. "
+                            f"Retrying in {delay:.1f}s ({attempt}/3)..."
+                        )
+
                 try:
-                    response = await _send_request(client, jar, verbose=verbose)
+                    response = await execute_with_retry(
+                        _send,
+                        max_retries=3,
+                        factor=1.5,
+                        is_transient=is_transient_network_error,
+                        on_retry=_on_retry,
+                    )
                     if payload := _extract_payload(response):
+                        access_token = payload[0]
+                        # For authenticated candidate groups, require a valid access token.
+                        # If no access token was returned (guest page), candidate failed to authenticate.
+                        if not access_token and group_name != "Guest":
+                            if verbose:
+                                logger.debug(
+                                    f"Init attempt ({attempts}) from {group_name} returned no access token (unauthenticated)."
+                                )
+                            continue
                         if verbose:
                             logger.debug(f"Init attempt ({attempts}) from {group_name} succeeded.")
                         return payload, group_name
@@ -444,17 +508,33 @@ async def get_access_token(
 
         # Phase 3: Fall back to a preflight request for consent/anonymous cookies, then
         # retry the same groups completed with the missing cookies, and finally guest mode
+        preflight_cookies = Cookies()
         try:
             # Start from a clean jar, otherwise cookies left over from the failed
             # attempts above would leak into the preflight and guest sessions
             client.cookies.clear()
-            response = await client.get(Endpoint.GOOGLE)
-            if verbose:
-                logger.debug(
-                    f"HTTP Request: GET {Endpoint.GOOGLE} [{response.status_code}] (HTTP/{format_http_version(response.http_version)})"
-                )
-            preflight_cookies = (
-                Cookies(client.cookies) if response.status_code == 200 else Cookies()
+
+            async def _fetch_preflight() -> Cookies:
+                res = await client.get(Endpoint.GOOGLE)
+                if verbose:
+                    logger.debug(
+                        f"HTTP Request: GET {Endpoint.GOOGLE} [{res.status_code}] (HTTP/{format_http_version(res.http_version)})"
+                    )
+                return Cookies(client.cookies) if res.status_code == 200 else Cookies()
+
+            preflight_cookies = await execute_with_retry(
+                _fetch_preflight,
+                max_retries=3,
+                factor=1.5,
+                is_transient=is_transient_network_error,
+                on_retry=lambda e, attempt, delay: (
+                    logger.warning(
+                        f"Transient network error on preflight request to google.com: {e}. "
+                        f"Retrying in {delay:.1f}s ({attempt}/3)..."
+                    )
+                    if verbose
+                    else None
+                ),
             )
         except (CurlTimeout, TimeoutError) as e:
             raise GeminiTimeoutError(
@@ -487,6 +567,6 @@ async def get_access_token(
             f"Failed to initialize client after {attempts} attempts. SECURE_1PSIDTS "
             "could get expired frequently, please make sure cookie values are up to date."
         )
-    except BaseException:
+    except Exception:
         await client.close()
         raise
