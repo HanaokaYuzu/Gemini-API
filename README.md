@@ -50,6 +50,7 @@ A reverse-engineered asynchronous Python wrapper for the [Google Gemini](https:/
 - [Authentication](#authentication)
 - [Usage](#usage)
   - [Initialization](#initialization)
+  - [Optional Request Attestation](#optional-request-attestation)
   - [Generate Content](#generate-content)
   - [Generate Content with Files](#generate-content-with-files)
   - [Conversations Across Multiple Turns](#conversations-across-multiple-turns)
@@ -165,6 +166,39 @@ asyncio.run(main())
 > [!TIP]
 >
 > `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In an always-on service like a chatbot, it's recommended to set `auto_close` to `True` with a reasonable `close_delay` value for better resource management.
+
+### Optional Request Attestation
+
+Applications that obtain request attestation externally can pass an asynchronous
+`attestation_provider` to `GeminiClient`. The SDK does not install or control a
+browser. The provider receives an `AttestationRequest` with the exact outgoing
+`prompt`, conversation `cid`, parent response `rid`, and parent candidate `rcid`.
+New conversations use empty IDs; `rid` and `rcid` correspond to the browser's
+`prqid` and `prsid` respectively.
+
+```python
+from gemini_webapi import Attestation, AttestationRequest, GeminiClient
+
+
+async def provide_attestation(request: AttestationRequest) -> Attestation:
+    # Implement this in your application using its authenticated attestation source.
+    proof, nonce = await your_attestation_source(request)
+    return Attestation(proof=proof, nonce=nonce)
+
+
+client = GeminiClient(attestation_provider=provide_attestation)
+```
+
+The provider must return a fresh proof and its matching 32-character lowercase
+hex nonce for each invocation, binding the proof to the supplied prompt and IDs.
+For sources using a query hash, it is SHA-256 of the UTF-8 encoding of
+`request.prompt + nonce`. The SDK validates the result's shape, not its authenticity.
+It calls the provider for each ordinary generation attempt, including retries,
+and inserts the proof and nonce into the outgoing request. Provider exceptions
+or invalid results raise `AttestationError` before generation is sent, without
+automatic retries or including provider error details. Cancellation propagates.
+Without a provider, existing behavior is unchanged. Deep research retains its
+existing request construction and does not invoke this hook.
 
 ### Generate Content
 
