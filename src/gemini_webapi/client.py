@@ -1161,6 +1161,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         temporary: bool = False,
         deep_research: bool = False,
         extended_thinking: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """Generates contents with prompt.
@@ -1188,6 +1189,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             If set to `True`, will enable deep research mode and start creating a deep research plan.
         extended_thinking: `bool`, optional
             If set to `True`, will enable extended thinking mode, default to standard.
+        pro_image: `bool`, optional
+            Request Nano Banana Pro image generation. Requires an eligible signed-in account.
+            This selects the image mode independently of the conversation model.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -1213,7 +1217,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.auto_close:
             await self.reset_close_task()
 
-        if any([files, gem, deep_research]):
+        if pro_image and deep_research:
+            raise ValueError("pro_image and deep_research cannot be combined.")
+
+        if any([files, gem, deep_research, pro_image]):
             self._check_account_status(raise_error=True)
 
         file_data = None
@@ -1254,6 +1261,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 session_state=session_state,
                 deep_research=deep_research,
                 extended_thinking=extended_thinking,
+                pro_image=pro_image,
                 **kwargs,
             ):
                 output = chunk
@@ -1283,6 +1291,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         temporary: bool = False,
         deep_research: bool = False,
         extended_thinking: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """Generates contents with prompt in streaming mode.
@@ -1312,6 +1321,9 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             If set to `True`, will enable deep research mode and start creating a deep research plan.
         extended_thinking: `bool`, optional
             If set to `True`, will enable extended thinking mode, default to standard.
+        pro_image: `bool`, optional
+            Request Nano Banana Pro image generation. Requires an eligible signed-in account.
+            This selects the image mode independently of the conversation model.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
 
@@ -1332,7 +1344,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         if self.auto_close:
             await self.reset_close_task()
 
-        if any([files, gem, deep_research]):
+        if pro_image and deep_research:
+            raise ValueError("pro_image and deep_research cannot be combined.")
+
+        if any([files, gem, deep_research, pro_image]):
             self._check_account_status(raise_error=True)
 
         file_data = None
@@ -1373,6 +1388,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 session_state=session_state,
                 deep_research=deep_research,
                 extended_thinking=extended_thinking,
+                pro_image=pro_image,
                 **kwargs,
             ):
                 yield output
@@ -1399,6 +1415,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         session_state: dict[str, Any] | None = None,
         deep_research: bool = False,
         extended_thinking: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """Internal method which actually sends content generation requests.
@@ -1475,6 +1492,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             0,
         ]
 
+        if pro_image:
+            # Web image-mode selector; keep the dynamic conversation model unchanged.
+            message_content.extend([None, None, [None] * 6 + [[None, [1]]]])
+
         params: dict[str, Any] = {"hl": self.language, "_reqid": _reqid, "rt": "c"}
         if self.build_label:
             params["bl"] = self.build_label
@@ -1505,6 +1526,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
                 if deep_research:
                     inner_req_list[49] = 1
+                if pro_image:
+                    inner_req_list[32] = 1
+                    inner_req_list[49] = 14
+                    inner_req_list[72] = 7
                 inner_req_list[53] = 0
                 if deep_research:
                     inner_req_list[54] = [[[[[1]]]]]
@@ -2471,6 +2496,7 @@ class ChatSession:
         temporary: bool = False,
         deep_research: bool = False,
         extended_thinking: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> ModelOutput:
         """Generates contents with prompt.
@@ -2490,6 +2516,9 @@ class ChatSession:
             If set to `True`, will enable deep research mode and start creating a deep research plan.
         extended_thinking: `bool`, optional
             If set to `True`, will enable extended thinking mode, default to standard.
+        pro_image: `bool`, optional
+            Request Nano Banana Pro image generation. Requires an eligible signed-in account.
+            This selects the image mode independently of the conversation model.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
             Refer to `curl_cffi.requests.AsyncSession.request` for more information.
@@ -2521,6 +2550,7 @@ class ChatSession:
             temporary=temporary,
             deep_research=deep_research,
             extended_thinking=extended_thinking,
+            pro_image=pro_image,
             **kwargs,
         )
 
@@ -2531,6 +2561,7 @@ class ChatSession:
         temporary: bool = False,
         deep_research: bool = False,
         extended_thinking: bool = False,
+        pro_image: bool = False,
         **kwargs,
     ) -> AsyncGenerator[ModelOutput, None]:
         """Generates contents with prompt in streaming mode within this chat session.
@@ -2552,6 +2583,9 @@ class ChatSession:
             If set to `True`, will enable deep research mode and start creating a deep research plan.
         extended_thinking: `bool`, optional
             If set to `True`, will enable extended thinking mode, default to standard.
+        pro_image: `bool`, optional
+            Request Nano Banana Pro image generation. Requires an eligible signed-in account.
+            This selects the image mode independently of the conversation model.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
 
@@ -2570,6 +2604,7 @@ class ChatSession:
             temporary=temporary,
             deep_research=deep_research,
             extended_thinking=extended_thinking,
+            pro_image=pro_image,
             **kwargs,
         ):
             yield output
