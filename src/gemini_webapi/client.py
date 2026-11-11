@@ -1387,6 +1387,18 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     if isinstance(file, io.BytesIO):
                         file.close()
 
+    def _stall_threshold(self, *, is_thinking: bool, is_queueing: bool, has_output: bool) -> float:
+        """Seconds of stream silence tolerated before the watchdog acts.
+
+        Before the first output the model may still be reasoning, queueing, or
+        analysing a multimodal prompt, which can legitimately take longer than
+        the watchdog window. The request timeout governs that phase; once output
+        is flowing a tighter watchdog catches a genuinely dead stream quickly.
+        """
+        if is_thinking or is_queueing or not has_output:
+            return self.timeout
+        return min(self.timeout, self.watchdog_timeout)
+
     @running(retry=5)
     async def _generate(
         self,
@@ -1840,10 +1852,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                     chunk_iterator = response.aiter_content().__aiter__()
                     while True:
-                        stall_threshold = (
-                            self.timeout
-                            if (is_thinking or is_queueing)
-                            else min(self.timeout, self.watchdog_timeout)
+                        stall_threshold = self._stall_threshold(
+                            is_thinking=is_thinking,
+                            is_queueing=is_queueing,
+                            has_output=has_generated_text,
                         )
                         try:
                             chunk = await asyncio.wait_for(
@@ -1872,10 +1884,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                         if got_update:
                             last_progress_time = time.time()
                         else:
-                            stall_threshold = (
-                                self.timeout
-                                if (is_thinking or is_queueing)
-                                else min(self.timeout, self.watchdog_timeout)
+                            stall_threshold = self._stall_threshold(
+                                is_thinking=is_thinking,
+                                is_queueing=is_queueing,
+                                has_output=has_generated_text,
                             )
                             if (time.time() - last_progress_time) > stall_threshold:
                                 if is_thinking:

@@ -132,6 +132,33 @@ def is_transient_network_error(exc: Exception) -> bool:
     return False
 
 
+def _has_visible_output(item: Any) -> bool:
+    """Check whether a yielded stream item carries output a caller could consume.
+
+    ``_generate`` yields a ``ModelOutput`` as soon as a candidate frame arrives,
+    even when that frame only carries ids and empty deltas. A stall after such a
+    frame is still safe to retry because nothing visible was streamed yet;
+    retrying after text, thoughts, or media would duplicate output. Unknown item
+    types are treated as visible so the conservative no-retry behaviour is kept.
+    """
+    candidates = getattr(item, "candidates", None)
+    if not candidates:
+        return True
+    return any(
+        getattr(candidate, "text", None)
+        or getattr(candidate, "text_delta", None)
+        or getattr(candidate, "thoughts", None)
+        or getattr(candidate, "thoughts_delta", None)
+        or getattr(candidate, "web_images", None)
+        or getattr(candidate, "generated_images", None)
+        or getattr(candidate, "generated_videos", None)
+        or getattr(candidate, "generated_media", None)
+        or getattr(candidate, "deep_research_plan", None)
+        or getattr(candidate, "deep_research_document", None)
+        for candidate in candidates
+    )
+
+
 def _is_running_retryable(exc: Exception) -> bool:
     """Determine if an exception caught by @running is transient and safe to retry."""
     # 1. Transient network, DNS, proxy, or socket drops (strictly typed & numeric checks)
@@ -303,7 +330,7 @@ def running(retry: int = 0) -> Callable:
             @functools.wraps(func)
             async def asyncgen_wrapper(client, *args, **kwargs):
                 for attempt in range(retry + 1):
-                    has_yielded = False
+                    has_visible_output = False
                     try:
                         await _init_client(client)
 
@@ -313,11 +340,18 @@ def running(retry: int = 0) -> Callable:
                             )
 
                         async for item in func(client, *args, **kwargs):
-                            has_yielded = True
+                            # Only output the caller could have consumed blocks a
+                            # retry; a metadata-only frame can be safely re-sent.
+                            if _has_visible_output(item):
+                                has_visible_output = True
                             yield item
                         return
                     except (APIError, CurlConnectionError, CurlError, OSError) as exc:
-                        if not has_yielded and attempt < retry and _is_running_retryable(exc):
+                        if (
+                            not has_visible_output
+                            and attempt < retry
+                            and _is_running_retryable(exc)
+                        ):
                             if client._running:
                                 await client.close()
                             delay = calculate_backoff(attempt, factor=_DELAY_FACTOR)
