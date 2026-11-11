@@ -18,6 +18,7 @@ import orjson as json
 from curl_cffi.requests import AsyncSession, BrowserTypeLiteral, Cookies, Response
 from curl_cffi.requests.exceptions import ReadTimeout
 
+from .attestation import AttestationProvider, AttestationRequest, get_attestation
 from .components import ChatMixin, GemMixin, ResearchMixin
 from .constants import (
     ARTIFACTS_RE,
@@ -47,6 +48,7 @@ from .constants import (
 )
 from .exceptions import (
     APIError,
+    AttestationError,
     AuthError,
     GeminiError,
     ModelInvalidError,
@@ -105,6 +107,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         __Secure-1PSIDTS cookie value, some Google accounts don't require this value, provide only if it's in the cookie list.
     proxy: `str`, optional
         Proxy URL.
+    attestation_provider: `AttestationProvider`, optional
+        Async provider of fresh request attestation for ordinary generation requests.
+        Called for every attempt with the exact prompt and conversation/parent IDs.
+        Provider failures abort generation without automatic retries.
     kwargs: `dict`, optional
         Additional arguments which will be passed to the http client.
         Refer to `curl_cffi.requests.AsyncSession` for more information.
@@ -133,6 +139,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "access_token",
         "account_status",
         "activity_task",
+        "attestation_provider",
         "auto_close",
         "auto_refresh",
         "build_label",
@@ -158,10 +165,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         secure_1psid: str | None = None,
         secure_1psidts: str | None = None,
         proxy: str | None = None,
+        *,
+        attestation_provider: AttestationProvider | None = None,
         **kwargs,
     ):
         super().__init__()
         self.proxy = proxy
+        self.attestation_provider = attestation_provider
         self.client: AsyncSession | None = None
         self.access_token: str | None = None
         self.build_label: str | None = None
@@ -1486,10 +1496,18 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 inner_req_list: list[Any] = [None] * 81
                 inner_req_list[0] = message_content
                 inner_req_list[1] = [self.language]
-                inner_req_list[2] = chat.metadata if chat else DEFAULT_METADATA
+                inner_req_list[2] = list(chat.metadata if chat else DEFAULT_METADATA)
                 if deep_research:
                     inner_req_list[3] = f"!{secrets.token_urlsafe(2600)}"
                     inner_req_list[4] = uuid.uuid4().hex
+                elif self.attestation_provider is not None:
+                    metadata = inner_req_list[2]
+                    attestation = await get_attestation(
+                        self.attestation_provider,
+                        AttestationRequest(prompt, metadata[0], metadata[1], metadata[2]),
+                    )
+                    inner_req_list[3] = attestation.proof
+                    inner_req_list[4] = attestation.nonce
                 inner_req_list[6] = [1]
                 inner_req_list[STREAMING_FLAG_INDEX] = 1
                 inner_req_list[10] = 1
@@ -2054,6 +2072,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                 break
 
+            except AttestationError:
+                raise
             except ReadTimeout:
                 raise TimeoutError(
                     "The request timed out while waiting for Gemini to respond. This often happens with very long prompts "
