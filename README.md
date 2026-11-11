@@ -545,6 +545,28 @@ asyncio.run(main())
 
 You can ask Gemini to generate and edit images with Nano Banana, Google's latest image model, using natural language.
 
+To request a native image aspect ratio, pass `aspect_ratio` to `generate_content`,
+`generate_content_stream`, `ChatSession.send_message`, or `ChatSession.send_message_stream`:
+
+```python
+response = await client.generate_content(
+    "Generate a photo of a cat sitting on a windowsill",
+    model="gemini-pro",
+    aspect_ratio="9:16",
+)
+```
+
+Supported values are `"1:1"`, `"9:16"`, `"16:9"`, `"3:4"`, `"4:3"`, `"2:3"`,
+`"21:9"`, `"1:8"`, and `"8:1"`. These include the web menu options and additional
+ratios verified through native web requests. Arbitrary ratios such as `"7:13"`
+are not supported. This selects image generation and requires a signed-in account with image access.
+Omit the argument (or pass `None`) to preserve the existing generation behavior.
+The ratio is sent as a native option without modifying the prompt or resizing the result;
+Google chooses the actual pixel dimensions, which may only approximate the requested ratio.
+This option cannot be combined with `deep_research=True` and does not specify resolution
+or output format.
+
+
 > [!IMPORTANT]
 >
 > Google has some limitations on Gemini's image generation feature, so availability may vary by region/account. Here's a summary copied from [official documentation](https://support.google.com/gemini/answer/14286560) (as of Sep 10, 2025):
