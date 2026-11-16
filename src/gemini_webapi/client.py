@@ -1186,7 +1186,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             If set to `True`, the ongoing conversation will not show up in Gemini history.
         deep_research: `bool`, optional
             If set to `True`, will enable deep research mode and start creating a deep research plan.
-        extended_thinking: `bool`, optional
+        extended_thinking: `bool` | `int`, optional (1=standard, 2=extended, 3=deep think)
             If set to `True`, will enable extended thinking mode, default to standard.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
@@ -1310,7 +1310,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             If set to `True`, the ongoing conversation will not show up in Gemini history.
         deep_research: `bool`, optional
             If set to `True`, will enable deep research mode and start creating a deep research plan.
-        extended_thinking: `bool`, optional
+        extended_thinking: `bool` | `int`, optional (1=standard, 2=extended, 3=deep think)
             If set to `True`, will enable extended thinking mode, default to standard.
         kwargs: `dict`, optional
             Additional arguments passed to `curl_cffi.requests.AsyncSession.stream`.
@@ -1512,7 +1512,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 inner_req_list[61] = []
                 inner_req_list[68] = 1
                 inner_req_list[79] = 1
-                inner_req_list[80] = 2 if extended_thinking else 1
+                inner_req_list[80] = (extended_thinking if isinstance(extended_thinking, int) and not isinstance(extended_thinking, bool) else (2 if extended_thinking else 1))
 
                 uuid_val = str(uuid.uuid4()).upper()
 
@@ -1524,7 +1524,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     model_number = model_header[-1] if model_header else None
                     if isinstance(model_number, int):
                         inner_req_list[79] = model_number
-                    model_header.append(2 if extended_thinking else 1)
+                    model_header.append((extended_thinking if isinstance(extended_thinking, int) and not isinstance(extended_thinking, bool) else (2 if extended_thinking else 1)))
                     model_header.append(self._sessionid)
                     model_headers[MODEL_HEADER_KEY] = json.dumps(model_header).decode("utf-8")
 
@@ -2488,7 +2488,7 @@ class ChatSession:
             and create a new chat session under the hood.
         deep_research: `bool`, optional
             If set to `True`, will enable deep research mode and start creating a deep research plan.
-        extended_thinking: `bool`, optional
+        extended_thinking: `bool` | `int`, optional (1=standard, 2=extended, 3=deep think)
             If set to `True`, will enable extended thinking mode, default to standard.
         kwargs: `dict`, optional
             Additional arguments which will be passed to the post request.
@@ -2550,7 +2550,7 @@ class ChatSession:
             and create a new chat session under the hood.
         deep_research: `bool`, optional
             If set to `True`, will enable deep research mode and start creating a deep research plan.
-        extended_thinking: `bool`, optional
+        extended_thinking: `bool` | `int`, optional (1=standard, 2=extended, 3=deep think)
             If set to `True`, will enable extended thinking mode, default to standard.
         kwargs: `dict`, optional
             Additional arguments passed to the streaming request.
