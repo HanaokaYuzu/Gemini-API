@@ -159,6 +159,9 @@ def _has_visible_output(item: Any) -> bool:
     )
 
 
+has_visible_output = _has_visible_output
+
+
 def _is_running_retryable(exc: Exception) -> bool:
     """Determine if an exception caught by @running is transient and safe to retry."""
     # 1. Transient network, DNS, proxy, or socket drops (strictly typed & numeric checks)
