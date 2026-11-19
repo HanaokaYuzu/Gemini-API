@@ -72,6 +72,7 @@ from .types import (
 )
 from .utils import (
     StreamingFrameParser,
+    _has_visible_output,
     clear_cookies_cache,
     extract_citations,
     extract_cookie_value,
@@ -1387,6 +1388,18 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     if isinstance(file, io.BytesIO):
                         file.close()
 
+    def _stall_threshold(self, *, is_thinking: bool, is_queueing: bool, has_output: bool) -> float:
+        """Seconds of stream silence tolerated before the watchdog acts.
+
+        Before the first output the model may still be reasoning, queueing, or
+        analysing a multimodal prompt, which can legitimately take longer than
+        the watchdog window. The request timeout governs that phase; once output
+        is flowing a tighter watchdog catches a genuinely dead stream quickly.
+        """
+        if is_thinking or is_queueing or not has_output:
+            return self.timeout
+        return min(self.timeout, self.watchdog_timeout)
+
     @running(retry=5)
     async def _generate(
         self,
@@ -1462,7 +1475,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         last_texts: dict[str, str] = session_state["last_texts"]
         last_thoughts: dict[str, str] = session_state["last_thoughts"]
 
-        has_generated_text = False
+        has_visible_output = False
         sleep_time = 10
 
         message_content = [
@@ -1840,10 +1853,10 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                     chunk_iterator = response.aiter_content().__aiter__()
                     while True:
-                        stall_threshold = (
-                            self.timeout
-                            if (is_thinking or is_queueing)
-                            else min(self.timeout, self.watchdog_timeout)
+                        stall_threshold = self._stall_threshold(
+                            is_thinking=is_thinking,
+                            is_queueing=is_queueing,
+                            has_output=has_visible_output,
                         )
                         try:
                             chunk = await asyncio.wait_for(
@@ -1865,17 +1878,18 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
 
                         got_update = False
                         async for out in _process_parts(parsed_parts):
-                            has_generated_text = True
+                            if _has_visible_output(out):
+                                has_visible_output = True
                             yield out
                             got_update = True
 
                         if got_update:
                             last_progress_time = time.time()
                         else:
-                            stall_threshold = (
-                                self.timeout
-                                if (is_thinking or is_queueing)
-                                else min(self.timeout, self.watchdog_timeout)
+                            stall_threshold = self._stall_threshold(
+                                is_thinking=is_thinking,
+                                is_queueing=is_queueing,
+                                has_output=has_visible_output,
                             )
                             if (time.time() - last_progress_time) > stall_threshold:
                                 if is_thinking:
@@ -1897,7 +1911,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     parsed_parts = stream_parser.feed(final_decoded)
                     parsed_parts.extend(stream_parser.flush())
                     async for out in _process_parts(parsed_parts):
-                        has_generated_text = True
+                        if _has_visible_output(out):
+                            has_visible_output = True
                         yield out
 
                     if not is_completed or is_thinking or is_queueing:
@@ -1933,7 +1948,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                         f"[Recovery] Polling for {cid} timed out after {recovery_deadline}s."
                                     )
                                     await self.close()
-                                    if has_generated_text:
+                                    if has_visible_output:
                                         raise GeminiError(
                                             "The connection to Gemini was lost while generating the response, and recovery timed out. "
                                             "Please try sending your prompt again."
@@ -2001,6 +2016,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                                                     is_final=True,
                                                 )
 
+                                            if _has_visible_output(recovered):
+                                                has_visible_output = True
                                             yield recovered
                                             break
                                         else:
@@ -2060,14 +2077,14 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     "or complex file analysis. Try increasing the 'timeout' value when initializing GeminiClient."
                 ) from None
             except (UsageLimitExceededError, GeminiError, APIError):
-                if not has_generated_text and chat and chat_backup:
+                if not has_visible_output and chat and chat_backup:
                     chat.metadata = chat_backup["metadata"]
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
                     chat.rcid = chat_backup["rcid"]
                 raise
             except Exception as e:
-                if not has_generated_text and chat and chat_backup:
+                if not has_visible_output and chat and chat_backup:
                     chat.metadata = chat_backup["metadata"]
                     chat.cid = chat_backup["cid"]
                     chat.rid = chat_backup["rid"]
