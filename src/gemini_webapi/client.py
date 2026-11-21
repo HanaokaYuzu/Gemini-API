@@ -2,13 +2,14 @@ import asyncio
 import builtins
 import codecs
 import contextlib
+import inspect
 import io
 import random
 import secrets
 import time
 import uuid
 from asyncio import Task
-from collections.abc import AsyncGenerator, Iterator, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import shorten
@@ -144,6 +145,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         "kwargs",
         "language",
         "last_activity_time",
+        "on_cookies_rotated",
         "proxy",
         "push_id",
         "refresh_interval",
@@ -160,6 +162,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         secure_1psidts: str | None = None,
         proxy: str | None = None,
         cookies: Cookies | dict | None = None,
+        on_cookies_rotated: Callable[[Cookies], Any] | None = None,
         **kwargs,
     ):
         """Initialize the Gemini client.
@@ -198,6 +201,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         self._abuse_status: dict | None = None
         self.last_activity_time: float = 0
         self.activity_task: Task | None = None
+        self.on_cookies_rotated: Callable[[Cookies], Any] | None = on_cookies_rotated
         self._running: bool = False
         self._initializing: bool = False
         self._cookies = Cookies()
@@ -287,6 +291,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
         watchdog_timeout: float = 120,
         impersonate: BrowserTypeLiteral = BROWSER_TYPE,
         verbose: bool = False,
+        on_cookies_rotated: Callable[[Cookies], Any] | None = None,
     ) -> None:
         """Get SNlM0e value as access token. Without this token posting will fail with 400 bad request.
 
@@ -321,6 +326,8 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
             self._initializing = True
             try:
                 self.verbose = verbose
+                if on_cookies_rotated is not None:
+                    self.on_cookies_rotated = on_cookies_rotated
                 self.watchdog_timeout = watchdog_timeout
                 self.impersonate = impersonate
                 init_session = await get_access_token(
@@ -511,6 +518,7 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                     new_1psidts = await rotate_1psidts(
                         self._live_client, base_psid=self._base_psid, verbose=self.verbose
                     )
+                    self._cookies.update(self._live_client.cookies)
 
                     if not new_1psidts:
                         logger.warning(
@@ -518,6 +526,13 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                             "The current cookies may have been invalidated by the server. "
                             "Retrying in next interval."
                         )
+                    elif self.on_cookies_rotated:
+                        try:
+                            cb_res = self.on_cookies_rotated(self.cookies)
+                            if inspect.isawaitable(cb_res):
+                                await cb_res
+                        except Exception as e:
+                            logger.warning(f"Error in on_cookies_rotated callback: {e}")
             except asyncio.CancelledError:
                 raise
             except AuthError:
@@ -530,6 +545,38 @@ class GeminiClient(ChatMixin, GemMixin, ResearchMixin):
                 logger.warning(
                     f"Unexpected error while refreshing cookies: {e}. Retrying in next interval."
                 )
+
+    async def rotate_cookies(self, verbose: bool | None = None) -> str | None:
+        """Explicitly refresh the __Secure-1PSIDTS session cookie and invoke callback if configured.
+
+        @purpose Perform explicit out-of-band session cookie rotation with Google authentication endpoints.
+        @rationale Keeps long-lived automated agents and web gateways continuously authenticated by proactively refreshing timestamp-bound credentials before expiration.
+        @preconditions GeminiClient must be initialized with an active underlying AsyncSession.
+        @param verbose Optional boolean override for debug logging verbosity.
+        @returns New rotated __Secure-1PSIDTS value if rotation succeeded, or None if rotation skipped/failed.
+        @throws AuthError If rotation fails with 401 Unauthorized indicating invalidated base credentials.
+        @throws APIError If called before client is initialized.
+        @invariants Serialized via self._lock; updates internal cookies and invokes on_cookies_rotated.
+        """
+        if not self.client:
+            raise APIError("Invalid request: client is not initialized. Call `GeminiClient.init()` first.")
+
+        is_verbose = self.verbose if verbose is None else verbose
+        async with self._lock:
+            new_1psidts = await rotate_1psidts(
+                self._live_client,
+                base_psid=self._base_psid,
+                verbose=is_verbose,
+            )
+            self._cookies.update(self._live_client.cookies)
+            if new_1psidts and self.on_cookies_rotated:
+                try:
+                    cb_res = self.on_cookies_rotated(self.cookies)
+                    if inspect.isawaitable(cb_res):
+                        await cb_res
+                except Exception as e:
+                    logger.warning(f"Error in on_cookies_rotated callback: {e}")
+            return new_1psidts
 
     def _parse_rpc_results(self, response_text: str, target_id: str) -> Iterator[Any]:
         """Extract parts from a batch response and yield only those matching the target RPC ID."""

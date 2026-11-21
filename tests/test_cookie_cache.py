@@ -12,7 +12,9 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 if (_root := str(Path(__file__).resolve().parent.parent)) not in sys.path:
     sys.path.insert(0, _root)
@@ -20,6 +22,7 @@ if (_root := str(Path(__file__).resolve().parent.parent)) not in sys.path:
 from curl_cffi.requests import Cookies
 
 from cli import _load_cookies_data, _persist_cookies
+from gemini_webapi import GeminiClient
 from gemini_webapi.utils.get_access_token import _load_cached_jar
 from gemini_webapi.utils.rotate_1psidts import (
     extract_cookie_value,
@@ -155,3 +158,46 @@ def test_cli_persist_cookies_preserves_array_of_objects(tmp_path):
     assert item_map["OSID"]["hostOnly"] is False
     assert item_map["OSID"]["httpOnly"] is True
     assert item_map["OSID"]["expirationDate"] == 1800000000
+
+
+@pytest.mark.asyncio
+async def test_rotate_cookies_triggers_callback_and_updates_jar():
+    """Verify that rotate_cookies refreshes cookies, updates client.cookies, and calls on_cookies_rotated.
+
+    @purpose Test end-to-end event hook execution and jar synchronization during cookie rotation.
+    @rationale Consumers such as ai-gateway-gemini rely on on_cookies_rotated to persist updated cookies to disk.
+    @preconditions Initialized GeminiClient with active mock session.
+    @param None
+    @returns None
+    @throws AssertionError If callback is not invoked or cookies are not updated.
+    @invariants Async/sync callback support; deterministic local mock.
+    """
+    received_cookies = []
+
+    async def _async_callback(updated_jar):
+        received_cookies.append(extract_cookie_value(updated_jar, "__Secure-1PSIDTS"))
+
+    initial_jar = Cookies()
+    initial_jar.set("__Secure-1PSID", "base_psid_val", domain=".google.com", secure=True)
+    initial_jar.set("__Secure-1PSIDTS", "old_psidts_val", domain=".google.com", secure=True)
+
+    client = GeminiClient(
+        cookies=initial_jar,
+        on_cookies_rotated=_async_callback,
+    )
+
+    # Mock client session
+    mock_session = MagicMock()
+    mock_session.cookies = Cookies()
+    mock_session.cookies.set("__Secure-1PSID", "base_psid_val", domain=".google.com", secure=True)
+    mock_session.cookies.set("__Secure-1PSIDTS", "new_rotated_psidts_123", domain=".google.com", secure=True)
+    client.client = mock_session
+
+    with patch("gemini_webapi.client.rotate_1psidts", new_callable=AsyncMock) as mock_rotate:
+        mock_rotate.return_value = "new_rotated_psidts_123"
+
+        new_ts = await client.rotate_cookies()
+        assert new_ts == "new_rotated_psidts_123"
+        assert len(received_cookies) == 1
+        assert received_cookies[0] == "new_rotated_psidts_123"
+        assert extract_cookie_value(client.cookies, "__Secure-1PSIDTS") == "new_rotated_psidts_123"

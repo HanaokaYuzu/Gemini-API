@@ -262,10 +262,20 @@ def _build_client(args):
     if psidts and not extract_cookie_value(jar, "__Secure-1PSIDTS"):
         jar.set("__Secure-1PSIDTS", psidts, domain=".google.com", secure=True)
 
+    def _on_cookies_rotated(updated_cookies: Cookies) -> None:
+        if args.cookies_json and not getattr(args, "no_persist", False):
+            _persist_cookies(
+                args.cookies_json,
+                raw_data,
+                updated_cookies,
+                verbose=args.verbose,
+            )
+
     client = GeminiClient(
         cookies=jar,
         proxy=args.proxy,
         verify=not args.skip_verify,
+        on_cookies_rotated=_on_cookies_rotated,
     )
     return client, raw_data
 
