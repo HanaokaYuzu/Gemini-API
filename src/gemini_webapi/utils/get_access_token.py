@@ -2,6 +2,7 @@ import re
 import time
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlparse
 
 import orjson as json
 from curl_cffi import CurlFollow, CurlHttpVersion
@@ -326,9 +327,7 @@ async def get_access_token(
             cache_file = get_cookies_cache_path(probe, base_psid=base_psid, verbose=verbose)
 
             if cache_file and cache_file.is_file():
-                if (
-                    jar := _load_cached_jar(cache_file, jar=base_jar, verbose=verbose)
-                ) is not None:
+                if (jar := _load_cached_jar(cache_file, jar=base_jar, verbose=verbose)) is not None:
                     register(jar, "Cache", base_psid)
             elif verbose:
                 logger.debug("Skipping loading cached cookies. Cache file not found.")
@@ -451,6 +450,14 @@ async def get_access_token(
                         is_transient=is_transient_network_error,
                         on_retry=_on_retry,
                     )
+                    # Candidate failed if redirected away from gemini.google.com (e.g. to accounts.google.com sign-in page)
+                    if urlparse(str(response.url)).hostname != "gemini.google.com":
+                        if verbose:
+                            logger.debug(
+                                f"Init attempt ({attempts}) from {group_name} redirected to {response.url} (login page)."
+                            )
+                        continue
+
                     if payload := _extract_payload(response):
                         access_token = payload[0]
                         # For authenticated candidate groups, require a valid access token.

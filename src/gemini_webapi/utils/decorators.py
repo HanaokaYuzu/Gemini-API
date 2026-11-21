@@ -290,11 +290,13 @@ def running(retry: int = 0) -> Callable:
     """Decorator to check if GeminiClient is running before making a request.
     Supports both regular async functions and async generators.
 
-    Parameters
-    ----------
-    retry: `int`, optional
-        Max number of retries when transient network or API errors occur.
-
+    @purpose Enforce client initialization and provide transient retry resilience without deadlocking during bootstrap.
+    @rationale When client._initializing is True, calling _init_client or acquiring client locks would trigger recursive deadlock; early-returning bypasses re-initialization and lifecycle teardown during in-flight bootstrap.
+    @preconditions Wrapped callable must accept a client instance as its first positional parameter.
+    @param retry Maximum number of retry attempts for transient errors.
+    @returns Decorated async function or async generator.
+    @throws APIError If client initialization fails or request fails permanently.
+    @invariants Thread-safe via asyncio event loop; O(1) space complexity; non-blocking pass-through during initialization phase.
     """
 
     def decorator(func):
@@ -302,6 +304,11 @@ def running(retry: int = 0) -> Callable:
 
             @functools.wraps(func)
             async def asyncgen_wrapper(client, *args, **kwargs):
+                if getattr(client, "_initializing", False):
+                    async for item in func(client, *args, **kwargs):
+                        yield item
+                    return
+
                 for attempt in range(retry + 1):
                     has_yielded = False
                     try:
@@ -336,6 +343,9 @@ def running(retry: int = 0) -> Callable:
 
         @functools.wraps(func)
         async def async_wrapper(client, *args, **kwargs):
+            if getattr(client, "_initializing", False):
+                return await func(client, *args, **kwargs)
+
             for attempt in range(retry + 1):
                 try:
                     await _init_client(client)

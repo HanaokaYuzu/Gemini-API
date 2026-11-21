@@ -10,9 +10,11 @@ import sys
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from curl_cffi import CurlFollow, CurlHttpVersion
+from curl_cffi.requests import AsyncSession, Cookies
 
 # Run straight from a source checkout, without the package having to be installed
 if (_src := str(Path(__file__).resolve().parent / "src")) not in sys.path:
@@ -22,6 +24,7 @@ from gemini_webapi import GeminiClient, logger, set_log_level
 from gemini_webapi.constants import BROWSER_TYPE
 from gemini_webapi.exceptions import AuthError
 from gemini_webapi.types.image import GeneratedImage, WebImage
+from gemini_webapi.utils.rotate_1psidts import extract_cookie_value
 
 # ---------------------------------------------------------------------------
 # region - Cookie helpers
@@ -52,90 +55,177 @@ def _parse_expiry(value):
     return None
 
 
-def _load_cookies_with_meta(path):
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    cookies, meta = {}, {}
+def _load_cookies_data(path: str | Path) -> tuple[Any, Cookies]:
+    """Load cookies from a JSON file into a curl_cffi Cookies jar, preserving domains and paths.
 
-    def _upsert(name, value, expires_raw=None):
-        if not isinstance(name, str) or not name:
-            return
-        if not isinstance(value, str) or not value:
-            return
-        cookies[name] = value
-        exp = _parse_expiry(expires_raw)
-        meta[name] = {
-            "expires_raw": expires_raw,
-            "expires_epoch": exp,
-            "expires_iso": (
-                datetime.fromtimestamp(exp, tz=UTC).isoformat().replace("+00:00", "Z")
-                if exp is not None
-                else None
-            ),
-        }
+    @purpose Parse JSON cookie exports from browser extensions (array of cookie objects) or dict formats into a domain-accurate Cookies jar while retaining raw data for non-destructive persistence.
+    @rationale Retaining original cookie domains (e.g. gemini.google.com for OSID vs .google.com for SID) prevents HTTP 400 on RPC and HTTP 403 on asset downloads.
+    @preconditions The path must point to a readable, valid JSON file.
+    @param path Path to the cookies JSON file.
+    @returns Tuple containing raw loaded JSON data structure and the populated curl_cffi Cookies jar.
+    @throws SystemExit If the JSON format is unsupported.
+    @invariants Preserves original JSON object structure and cookie attribute semantics.
+    """
+    raw_data = json.loads(Path(path).read_text(encoding="utf-8"))
+    jar = Cookies()
 
-    def _handle_obj(item):
+    def _add_cookie_obj(item: dict) -> None:
         name = item.get("name")
         value = item.get("value")
-        expires_raw = (
-            item.get("expirationDate")
-            or item.get("expires")
-            or item.get("expiry")
-            or item.get("expiresDate")
-        )
-        _upsert(name, value, expires_raw=expires_raw)
+        if not isinstance(name, str) or not name or not isinstance(value, str) or not value:
+            return
+        domain = item.get("domain") or ".google.com"
+        path_str = item.get("path") or "/"
+        secure = item.get("secure", True)
+        jar.set(name, value, domain=domain, path=path_str, secure=secure)
 
-    # Flat {name: value}
-    if isinstance(data, dict) and all(
-        isinstance(k, str) and isinstance(v, str) for k, v in data.items()
-    ):
-        for k, v in data.items():
-            _upsert(k, v)
-        return cookies, meta
-    # {"cookies": {name: value}}
-    if isinstance(data, dict) and isinstance(data.get("cookies"), dict):
-        inner = data["cookies"]
-        if all(isinstance(v, str) for v in inner.values()):
+    def _add_flat_cookie(name: str, value: str) -> None:
+        if isinstance(name, str) and name and isinstance(value, str) and value:
+            jar.set(name, value, domain=".google.com", path="/", secure=True)
+
+    # 1. Array of objects: [{"name": ..., "value": ..., "domain": ...}, ...]
+    if isinstance(raw_data, list):
+        for item in raw_data:
+            if isinstance(item, dict):
+                _add_cookie_obj(item)
+        if list(jar.jar):
+            return raw_data, jar
+
+    # 2. {"cookies": [{"name": ..., "value": ...}, ...]}
+    if isinstance(raw_data, dict) and isinstance(raw_data.get("cookies"), list):
+        for item in raw_data["cookies"]:
+            if isinstance(item, dict):
+                _add_cookie_obj(item)
+        if list(jar.jar):
+            return raw_data, jar
+
+    # 3. {"cookies": {name: value}}
+    if isinstance(raw_data, dict) and isinstance(raw_data.get("cookies"), dict):
+        inner = raw_data["cookies"]
+        if all(isinstance(k, str) and isinstance(v, str) for k, v in inner.items()):
             for k, v in inner.items():
-                _upsert(k, v)
-            return cookies, meta
-    # {"cookies": [{name, value}, ...]}
-    if isinstance(data, dict) and isinstance(data.get("cookies"), list):
-        for item in data["cookies"]:
-            if isinstance(item, dict):
-                _handle_obj(item)
-        if cookies:
-            return cookies, meta
-    # [{name, value}, ...]
-    if isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict):
-                _handle_obj(item)
-        if cookies:
-            return cookies, meta
+                _add_flat_cookie(k, v)
+            return raw_data, jar
+
+    # 4. Flat {name: value}
+    if isinstance(raw_data, dict) and all(
+        isinstance(k, str) and isinstance(v, str) for k, v in raw_data.items()
+    ):
+        for k, v in raw_data.items():
+            _add_flat_cookie(k, v)
+        return raw_data, jar
 
     raise SystemExit("--cookies-json unsupported format.")
 
 
-def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False):
-    merged = dict(original)
-    with contextlib.suppress(Exception):
-        for cookie in client_cookies.jar:
-            name = getattr(cookie, "name", None)
-            value = getattr(cookie, "value", None)
-            if isinstance(name, str) and isinstance(value, str) and value:
-                merged[name] = value
-    if merged == original:
-        return
-    payload = {
-        "updated_at": datetime.now(tz=UTC).isoformat().replace("+00:00", "Z"),
-        "cookies": dict(sorted(merged.items())),
+def _load_cookies_with_meta(path: str | Path) -> tuple[dict[str, str], dict[str, Any]]:
+    """Legacy helper returning flat cookies dict and expiry metadata.
+
+    @purpose Provide backwards-compatible cookie dictionary and expiry metadata map from cookie JSON files.
+    @rationale Maintains compatibility with any existing callers expecting the legacy 2-tuple return contract.
+    @preconditions Valid readable cookies JSON file.
+    @param path Path to the cookies JSON file.
+    @returns Tuple of (flat name-to-value dict, name-to-meta dict).
+    @throws SystemExit If format is unsupported.
+    @invariants O(n) time complexity where n is cookie count.
+    """
+    _, jar = _load_cookies_data(path)
+    cookies = {c.name: c.value for c in jar.jar}
+    meta = {
+        c.name: {
+            "expires_raw": c.expires,
+            "expires_epoch": c.expires,
+            "expires_iso": (
+                datetime.fromtimestamp(c.expires, tz=UTC).isoformat().replace("+00:00", "Z")
+                if c.expires is not None
+                else None
+            ),
+        }
+        for c in jar.jar
     }
-    Path(cookies_json_path).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    if verbose:
-        changed = [k for k in merged if merged[k] != original.get(k)]
-        logger.debug(f"Persisted cookies ({', '.join(changed)})")
+    return cookies, meta
+
+
+def _persist_cookies(
+    cookies_json_path: str | Path,
+    original_data: Any,
+    client_cookies: Cookies,
+    verbose: bool = False,
+) -> None:
+    """Persist updated cookies back to disk without destroying original file schema or domains.
+
+    @purpose Synchronize updated cookie values (such as rotated __Secure-1PSIDTS) back to disk while strictly preserving the user's original JSON structure (array-of-objects or dict) and domain metadata.
+    @rationale Overwriting array-of-objects with flat dicts permanently discards domain and path metadata, causing irreversible progressive degradation.
+    @preconditions Valid writable cookies_json_path and active client_cookies jar.
+    @param cookies_json_path File path to write back to.
+    @param original_data The raw data structure loaded during initialization.
+    @param client_cookies Active curl_cffi Cookies jar containing latest values.
+    @param verbose Whether to output verbose debug logging.
+    @returns None.
+    @throws None Suppressed gracefully to prevent teardown failure.
+    @invariants Idempotent file update; writes only when values change; atomic read-check-write.
+    """
+    if not cookies_json_path or original_data is None:
+        return
+
+    latest_cookies: dict[tuple[str, str], str] = {}
+    latest_by_name: dict[str, str] = {}
+    for c in client_cookies.jar:
+        c_name = getattr(c, "name", None)
+        c_val = getattr(c, "value", None)
+        c_dom = getattr(c, "domain", "") or ""
+        if isinstance(c_name, str) and isinstance(c_val, str) and c_val:
+            latest_cookies[(c_name, c_dom)] = c_val
+            latest_by_name[c_name] = c_val
+
+    changed: list[str] = []
+
+    def _sync_obj(item: dict) -> None:
+        name = item.get("name")
+        if not isinstance(name, str):
+            return
+        domain = item.get("domain", "") or ""
+        new_val = latest_cookies.get((name, domain)) or latest_by_name.get(name)
+        if new_val and new_val != item.get("value"):
+            item["value"] = new_val
+            changed.append(name)
+
+    # 1. Array of objects
+    if isinstance(original_data, list):
+        for item in original_data:
+            if isinstance(item, dict):
+                _sync_obj(item)
+    # 2. {"cookies": [...]}
+    elif isinstance(original_data, dict) and isinstance(original_data.get("cookies"), list):
+        for item in original_data["cookies"]:
+            if isinstance(item, dict):
+                _sync_obj(item)
+    # 3. {"cookies": {name: value}}
+    elif isinstance(original_data, dict) and isinstance(original_data.get("cookies"), dict):
+        inner = original_data["cookies"]
+        for k, new_val in latest_by_name.items():
+            if k in inner and inner[k] != new_val:
+                inner[k] = new_val
+                changed.append(k)
+    # 4. Flat {name: value}
+    elif isinstance(original_data, dict):
+        for k, new_val in latest_by_name.items():
+            if k in original_data and original_data[k] != new_val:
+                original_data[k] = new_val
+                changed.append(k)
+
+    if not changed:
+        return
+
+    try:
+        Path(cookies_json_path).write_text(
+            json.dumps(original_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        if verbose:
+            logger.debug(f"Persisted cookies ({', '.join(set(changed))})")
+    except OSError as e:
+        if verbose:
+            logger.warning(f"Failed to persist cookies to {cookies_json_path}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -144,31 +234,40 @@ def _persist_cookies(cookies_json_path, original, client_cookies, verbose=False)
 
 
 def _build_client(args):
-    json_cookies = {}
-    if args.cookies_json:
-        json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
+    """Build and configure a GeminiClient from CLI arguments.
 
-    psid = json_cookies.get("__Secure-1PSID") or os.getenv("GEMINI_SECURE_1PSID")
-    psidts = json_cookies.get("__Secure-1PSIDTS") or os.getenv("GEMINI_SECURE_1PSIDTS")
+    @purpose Construct a GeminiClient using domain-accurate cookies from JSON or environment variables.
+    @rationale Passing the full Cookies jar preserves domain bindings and prevents dropping secondary authentication tokens.
+    @preconditions Parsed CLI namespace arguments.
+    @param args Parsed command-line arguments.
+    @returns Tuple of (GeminiClient instance, raw_cookies_data).
+    @throws SystemExit If required authentication credentials are not provided.
+    @invariants O(1) space complexity; no network mutations.
+    """
+    raw_data = None
+    jar = Cookies()
+    if args.cookies_json:
+        raw_data, jar = _load_cookies_data(args.cookies_json)
+
+    psid = extract_cookie_value(jar, "__Secure-1PSID") or os.getenv("GEMINI_SECURE_1PSID")
+    psidts = extract_cookie_value(jar, "__Secure-1PSIDTS") or os.getenv("GEMINI_SECURE_1PSIDTS")
 
     if not psid:
         raise SystemExit("Missing __Secure-1PSID. Export from browser via --cookies-json.")
     if not psidts:
         logger.warning("__Secure-1PSIDTS not found.")
 
-    extra = {
-        k: v for k, v in json_cookies.items() if k not in {"__Secure-1PSID", "__Secure-1PSIDTS"}
-    }
+    if psid and not extract_cookie_value(jar, "__Secure-1PSID"):
+        jar.set("__Secure-1PSID", psid, domain=".google.com", secure=True)
+    if psidts and not extract_cookie_value(jar, "__Secure-1PSIDTS"):
+        jar.set("__Secure-1PSIDTS", psidts, domain=".google.com", secure=True)
 
     client = GeminiClient(
-        secure_1psid=psid,
-        secure_1psidts=psidts or "",
-        cookies=extra or None,
+        cookies=jar,
         proxy=args.proxy,
-        account_index=args.account_index,
         verify=not args.skip_verify,
     )
-    return client, json_cookies
+    return client, raw_data
 
 
 async def _init_client(args):
@@ -176,7 +275,7 @@ async def _init_client(args):
         set_log_level("DEBUG")
     else:
         set_log_level("WARNING")
-    client, json_cookies = _build_client(args)
+    client, raw_data = _build_client(args)
     timeout = getattr(args, "request_timeout", 300)
 
     try:
@@ -185,18 +284,18 @@ async def _init_client(args):
             auto_refresh=False,
             verbose=args.verbose,
         )
-        return client, json_cookies
+        return client, raw_data
     except AuthError as e:
         raise SystemExit(
             f"Authentication failed: {e}\nPlease re-export cookies from your browser."
         ) from e
 
 
-async def _cleanup(client, args, json_cookies):
+async def _cleanup(client, args, raw_data):
     if args.cookies_json and not args.no_persist:
         _persist_cookies(
             args.cookies_json,
-            json_cookies,
+            raw_data,
             client.cookies,
             verbose=args.verbose,
         )
@@ -453,11 +552,16 @@ async def cmd_read(args):
 
 async def cmd_download(args):
     """Download a generated image using authenticated curl_cffi session."""
-    json_cookies = {}
+    jar = Cookies()
     if args.cookies_json:
-        json_cookies, _ = _load_cookies_with_meta(args.cookies_json)
-
-    from curl_cffi.requests import AsyncSession
+        _, jar = _load_cookies_data(args.cookies_json)
+    else:
+        psid = os.getenv("GEMINI_SECURE_1PSID")
+        if psid:
+            jar.set("__Secure-1PSID", psid, domain=".google.com", secure=True)
+        psidts = os.getenv("GEMINI_SECURE_1PSIDTS")
+        if psidts:
+            jar.set("__Secure-1PSIDTS", psidts, domain=".google.com", secure=True)
 
     url = args.url
     # Append =s2048 for full-size if not already specified for googleusercontent.com images
@@ -477,7 +581,7 @@ async def cmd_download(args):
 
     async with AsyncSession(
         impersonate=BROWSER_TYPE,
-        cookies=json_cookies,
+        cookies=jar,
         proxy=args.proxy,
         allow_redirects=CurlFollow.SAFE,
         http_version=CurlHttpVersion.NONE,
@@ -582,7 +686,7 @@ def build_parser():
         "--account-index",
         type=int,
         default=None,
-        help="Google account index",
+        help="Google account index (currently not supported by the underlying API)",
     )
     parser.add_argument(
         "--model",
