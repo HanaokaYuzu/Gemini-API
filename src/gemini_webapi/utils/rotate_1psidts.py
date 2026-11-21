@@ -270,7 +270,7 @@ def save_cookies(
         domain = cookie.domain.lstrip(".").lower() if cookie.domain else ""
         is_google_domain = domain == "google.com" or domain.endswith(".google.com")
         if is_google_domain and (
-            is_auth_cookie or (cookie.expires is not None and not cookie.is_expired())
+            is_auth_cookie or cookie.expires is None or not cookie.is_expired()
         ):
             cookie_list.append(
                 {
